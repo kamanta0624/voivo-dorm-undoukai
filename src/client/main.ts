@@ -219,9 +219,8 @@ class GameScene extends Phaser.Scene {
   slotHtml = ['', ''];
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
   ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
-  stickId: number | null = null; // 仮想スティックを動かしている指（Phaser の pointer id）
-  stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置）
-  stickG!: Phaser.GameObjects.Graphics;
+  stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
+  stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置、画面のpx）
   hiddenAt = 0; // バックグラウンドに入った時刻(ms)
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
@@ -398,27 +397,33 @@ class GameScene extends Phaser.Scene {
     return this.snap?.players.find((p: any) => p.id === this.snap.me);
   }
 
-  // スマホの操作: 画面の左半分は仮想スティック（触れた位置に出る）、右下は 攻撃・技・設置/帰還（長押し）・照準 のボタン
+  // スマホの操作: ボタン以外の画面全体（ゲーム画面の外の黒い余白も含む）が仮想スティック（触れた位置に出て、離すまで指に追従）、
+  // 右下は 攻撃・技・設置/帰還（長押し）・照準 のボタン。余白にも出せるよう、スティックは画面全体の DOM に描く
   touchControls() {
-    this.input.addPointer(3); // 同時タッチ（スティックとボタン）
-    this.stickG = this.add.graphics().setScrollFactor(0).setDepth(102);
-    const R = C.TOUCH.r;
+    const stick = document.createElement('div');
+    stick.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;display:none';
+    stick.innerHTML = '<div style="position:absolute;border-radius:50%;background:#ffffff26;border:2px solid #ffffff80;box-sizing:border-box"></div><div style="position:absolute;border-radius:50%;background:#ffffff80"></div>';
+    document.body.insertBefore(stick, fx); // ゲーム画面より上、ボタン（fx）より下
+    const [base, knob] = [...stick.children] as HTMLElement[];
+    // x, y: 中心からのずれ（画面のpx）。判定はゲームの座標（÷zoom）で今までと同じ大きさ
     const draw = (x: number, y: number) => {
-      const l = Math.hypot(x, y), k = l > R ? R / l : 1, { x: cx, y: cy } = this.stickAt;
-      this.stickG.clear().fillStyle(0xffffff, 0.15).fillCircle(cx, cy, R).lineStyle(2, 0xffffff, 0.5).strokeCircle(cx, cy, R).fillStyle(0xffffff, 0.5).fillCircle(cx + x * k, cy + y * k, R * 0.45);
+      const z = this.game.scale.zoom, R = C.TOUCH.r * z, r = R * 0.45, l = Math.hypot(x, y), k = l > R ? R / l : 1, { x: cx, y: cy } = this.stickAt;
+      Object.assign(base.style, { left: `${cx - R}px`, top: `${cy - R}px`, width: `${R * 2}px`, height: `${R * 2}px` });
+      Object.assign(knob.style, { left: `${cx + x * k - r}px`, top: `${cy + y * k - r}px`, width: `${r * 2}px`, height: `${r * 2}px` });
+      stick.style.display = 'block';
+      this.ctl.setStick(x / z, y / z);
     };
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (!p.wasTouch || this.stickId !== null || p.x >= C.VIEW_W / 2) return;
-      this.stickId = p.id; this.stickAt = { x: p.x, y: p.y }; this.ctl.setStick(0, 0); draw(0, 0);
+    const find = (e: TouchEvent) => [...e.changedTouches].find((t) => t.identifier === this.stickId);
+    document.addEventListener('touchstart', (e) => {
+      if (this.stickId !== null) return;
+      const t = [...e.changedTouches].find((t) => !(t.target as HTMLElement).closest?.('button, #fx .skill, #lobby')); // ボタンとキャラ選択の上は除く
+      if (!t) return;
+      this.stickId = t.identifier; this.stickAt = { x: t.clientX, y: t.clientY }; draw(0, 0);
     });
-    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (p.id !== this.stickId) return;
-      const x = p.x - this.stickAt.x, y = p.y - this.stickAt.y;
-      this.ctl.setStick(x, y); draw(x, y);
-    });
-    const up = (p: Phaser.Input.Pointer) => { if (p.id === this.stickId) { this.stickId = null; this.ctl.releaseStick(); this.stickG.clear(); } };
-    this.input.on('pointerup', up);
-    this.input.on('pointerupoutside', up);
+    document.addEventListener('touchmove', (e) => { const t = find(e); if (t) draw(t.clientX - this.stickAt.x, t.clientY - this.stickAt.y); });
+    const up = (e: TouchEvent) => { if (find(e)) { this.stickId = null; this.ctl.releaseStick(); stick.style.display = 'none'; } };
+    document.addEventListener('touchend', up);
+    document.addEventListener('touchcancel', up);
     const btn = (q: string, down: () => void, release?: () => void) => {
       const el = $(q);
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.setPointerCapture(e.pointerId); down(); });
