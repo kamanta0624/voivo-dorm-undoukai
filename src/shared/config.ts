@@ -3,7 +3,6 @@ export type Rect = { x: number; y: number; w: number; h: number };
 export type Pt = { x: number; y: number };
 
 import MAP from './map.json';
-import CHARS from './chars.json';
 
 // map.json（tools/gen_map.py が生成）から壁・部屋を作る。1タイル = MAP.tileSize px
 const T = MAP.tileSize;
@@ -107,9 +106,9 @@ export const CONFIG = {
   ATTACK_RANGE: 50,
   ATTACK_ARC: Math.PI / 2, // 前方扇形の角度
   ATTACK_COOLDOWN_MELEE: 1, // 通常攻撃（オート・手動とも）の間隔: 近接
-  ATTACK_COOLDOWN_RANGED: 1.5, // 遠距離（zunko、kiritan のきりたん砲）
+  ATTACK_COOLDOWN_RANGED: 1.5, // 遠距離（弾のモード）
   VISION_RADIUS: 300,
-  // ロールごとの倍率（キャラの role は chars.json）
+  // ロールごとの倍率（キャラの role は chars.ts）
   ROLES: {
     balance: { hp: 1, speed: 1, atk: 1, vision: 1 },
     attacker: { hp: 0.7, speed: 1, atk: 1.4, vision: 1 },
@@ -121,12 +120,8 @@ export const CONFIG = {
   BALANCE_ALONE_CUT: 0.2,
   DEFENSE_CUT: 0.2, // defense: 被ダメ軽減
   ATTACKER_BOSS_MULT: 2, // attacker: 大将へのダメージ倍率（技にも掛かる）
-  BREAKERS: ['hanamaru', 'sayo', 'aru'], // バリケード・罠へのダメージ倍率が掛かるキャラ（技にも掛かる）
-  BREAKER_MULT: 3,
-  MELEE_BONUS: { hp: 1.2, speed: 1.1, atk: 1.2 }, // 近接補正: MELEE_EXCLUDE 以外のキャラの最大HP・移動・通常攻撃に掛ける（引き撃ち対策）
-  MELEE_EXCLUDE: ['zunko', 'kiritan'],
-  RANGED: { zunko: 200 } as Record<string, number>, // 通常攻撃が弾になるキャラと射程
-  KIRITAN: { speed: 0.8, knifeRange: 60, cannonRange: 260, cannonSpeed: 300, cannonDmg: 0.7, knifeDmg: 1.2 }, // きりたん: 足が遅い。対象が knifeRange より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁
+  BREAKER_MULT: 3, // 壊し屋（chars.ts の breaker）のバリケード・罠へのダメージ倍率（技にも掛かる）
+  MELEE_BONUS: { hp: 1.2, speed: 1.1, atk: 1.2 }, // 近接補正: chars.ts の melee のキャラの最大HP・移動・通常攻撃に掛ける（引き撃ち対策）
   BULLET_SPEED: 600, // 弾・矢の速さ(px/秒)
   BULLET_RADIUS: 4,
   AIM_MODES: ['nearest', 'lowhp', 'boss', 'manual'], // 照準モード（Tabで順に切り替え）
@@ -160,7 +155,6 @@ export const CONFIG = {
   TOKU_MIN: 0,
   TOKU_MAX: 10,
   TOKU_INIT: 5,
-  TOKU_CHAR: {} as Record<string, number>, // キャラごとの初期値の補正（陣営の全員分を足す）。今は全キャラ0
   TOKU: { material: 0.6, materialBack: 1.2, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
   WANTED_MIN: 3, // 悪行ポイント（徳を下げた量の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
@@ -216,7 +210,6 @@ export const CONFIG = {
   HEAL_ITEM_AMOUNT: 30, // 回復アイテムの回復量
   HEAL_RESPAWN: 3, // 回復アイテム（ご飯）が取られてから同じ場所に再出現するまでの秒数
   DAMAGE_MULT: 1.3, // 全キャラの通常攻撃と技のダメージに掛ける倍率
-  TRAP_RADIUS: 20, // bii の罠の大きさ
   BARRICADE_SIZE: 40,
   BARRICADE_HP: 80,
   BARRICADE_MAX: 3, // 各陣営の同時設置数。超えたら一番古いものが消える
@@ -233,8 +226,6 @@ export const CONFIG = {
   BOT_AGGRO_RANGE: 250, // 自陣営の視界内かつこの距離以内の敵を攻撃
   BOT_REPATH: 0.5, // 経路の再計算間隔(秒)
   GRID_CELL: 16, // A* のマス目サイズ
-  BOT_WALLBREAK_SAVE: 320, // hanamaru のBot: 壁破壊で経路がこれ(px)以上短くなるなら使う
-  BOT_WALLBREAK_CHECK: 0.25, // 上の判定の間隔(秒)
   E2E_FIGHT_SECONDS: 60, // e2e: 試合1の残り時間の戦闘を打ち切る秒数（その後フックで試合終了へ）
   E2E_SPEED: 6, // e2e: 試合2（Botだけ）の早送り倍率
   E2E_BOT_SECONDS: 120, // e2e: 試合2を早送りで進める試合内の秒数（その後フックで時間切れへ）
@@ -245,19 +236,6 @@ export const CONFIG = {
   LOITER_TIME: 10,
   BOT_SKILL_SENSE: 300, // Botが技を使う判定に使う敵との距離（加速・ずんだアローなど）
 
-  // キャラ技（Rで発動）。ct=クールタイム(秒)
-  SKILLS: {
-    hanamaru: { name: '巨大拳飛ばし', ct: 10, speed: 360, range: 520, r: 30, dmg: 40, reach: 3, w: 3, d: 2, push: 0.05 }, // 巨大拳: 前方へ直進（speed px/秒、range px で消える）、半径 r の拳がキャラ（1体1回）にダメージ・壁を破壊して貫通。パッシブ: 壁へ push 秒押し込み続けるとその壁を壊す（reach: 前方の壁を探すタイル数、w×d: 壊す範囲(タイル)）
-    sayo: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 },
-    zunko: { name: 'ずんだアロー', ct: 18, range: 300, dur: 4, speed: 0.5 }, // 当たった敵はずんだ餅（移動×speed、技不可）
-    whitecul: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 },
-    aru: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9 }, // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
-    bii: { name: '罠設置', ct: 10, range: 140, arc: (100 * Math.PI) / 180, every: 1, dmg: 10, hp: 60, decay: 3, max: 2 }, // 向いた方向の扇形の敵を攻撃し続ける罠
-    mochiko: { name: 'ファンネル', ct: 30, n: 6, hp: 20, life: 15, sense: 250, dmg: 6, every: 1, range: 60, speed: 220, radius: 6, pathMax: 400, ring: 44, slotStep: Math.PI / 3, retarget: 0.5 }, // pathMax: 向かう敵までの経路長の上限、ring: 敵を囲む半径、slotStep: 射撃ごとに回り込む角度、retarget: 対象と経路の見直し間隔
-    kiritan: { name: 'きりたん砲飛行', ct: 7.2, dur: 5, speed: 1.8 }, // 飛行中は移動が速いが包丁（近距離）しか使えない
-    metan: { name: 'ドリル', ct: 4.8, range: 70, arc: Math.PI / 2, dmg: 30, push: 120 },
-    ierutan: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 }, // regen: 効果中の毎秒の回復量
-  } as Record<string, any>,
 
   // 見た目
   VIEW_W: 640, // 論理解像度。ウィンドウには整数倍で表示
@@ -274,14 +252,8 @@ export const CONFIG = {
   NOTIFY_MS: 3000, // 画面中央の通知の長さ
   SKILL_FX_MS: 450, // 技の範囲エフェクトの長さ
   TARGET_RING_ALPHA: 0.9, // 狙っている対象の足元の輪
-  // アルの突撃の見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
-  ARU_FX: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 },
 };
 
-// キャラのロール倍率。char なし（大将）や role なしは null
-export const roleOf = (char?: string) => { const r = (CHARS as Record<string, any>)[char ?? '']?.role; return r ? { name: r as string, ...CONFIG.ROLES[r] } : null; };
-// キャラの視界半径（ロール係数込み）。char なし（大将）は基本値
-export const visionRadius = (char?: string) => CONFIG.VISION_RADIUS * (roleOf(char)?.vision ?? 1);
 
 // その試合の大将の部屋（名前の一覧）→ 陣営ごとの大将の拠点（部屋の中心）と部屋の内側
 export const roomLayout = (names: string[]) => ({

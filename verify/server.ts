@@ -1,7 +1,9 @@
 // サーバー単体のテスト（ブラウザなし、数秒）。実行: npm run test:server
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery } from '../src/server/GameRoom';
 import MAP from '../src/shared/map.json';
-import { CONFIG as C, visionRadius, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
+import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
+import { CHARS, visionRadius } from '../src/shared/chars';
+import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
 import { findPath } from '../src/server/pathfind';
 
@@ -11,7 +13,7 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
   console.log(cond ? 'PASS' : 'FAIL', name, typeof detail === 'string' ? detail : JSON.stringify(detail));
 };
 const T = C.TILE;
-const MB = C.MELEE_BONUS, melee = (ch: string) => !C.MELEE_EXCLUDE.includes(ch); // 近接補正
+const MB = C.MELEE_BONUS, melee = (ch: string) => CHARS[ch].melee; // 近接補正
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く。Botは盤外で無効化
 function mk(a: string, b?: string) {
@@ -31,7 +33,9 @@ function mk(a: string, b?: string) {
   return { r, A, B };
 }
 // 花丸の巨大拳が消えるまで飛ばす
-const fly = (r: any) => { for (let i = 0; i < 200 && r.fists.length; i++) r.updateFists(0.05); };
+const ents = (r: any, kind: string) => r.ents.filter((e: any) => e.kind === kind); // 場の物（種類別）
+const upd = (r: any, kind: string, dt: number) => { for (const e of ents(r, kind)) ENTS[kind].update(r, e, dt); }; // 場の物の種類ごとの更新
+const fly = (r: any) => { for (let i = 0; i < 200 && ents(r, 'fist').length; i++) upd(r, 'fist', 0.05); };
 // 壁・バリケードと重なっていないか
 const clear = (r: any, o: { x: number; y: number }, rad = C.PLAYER_RADIUS) => !r.obstacles().some((w: any) => circleRect(o.x, o.y, rad, w));
 const inRoom = (p: any, h: any) => p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h;
@@ -71,13 +75,13 @@ console.log('--- 壁へのめり込み');
   ok('敵の上にはバリケードを置けない', r.barricades.length === 0);
   B.x = 3000; Object.assign(r.bosses[1], { x: 200, y: 392 + C.PLACE_DIST + 20 }); r.place('a');
   ok('大将と重なる位置にも置けない', r.barricades.length === 0);
-  r.bosses[1].x = -500; r.funnels.push({ id: 9, team: 0, owner: 'a', x: 200, y: 392 + C.PLACE_DIST, hp: 20, until: 99, nextAtk: 0, slot: 0, tgt: null, path: [], retargetAt: 0 }); r.place('a');
+  r.bosses[1].x = -500; r.ents.push({ id: 9, kind: 'funnel', team: 0, owner: 'a', x: 200, y: 392 + C.PLACE_DIST, r: CHARS.mochiko.skill.radius, body: 'unit', hp: 20, until: 99, nextAtk: 0, slot: 0, tgt: null, path: [], retargetAt: 0 }); r.place('a');
   ok('ファンネルと重なる位置にも置けない', r.barricades.length === 0);
-  r.funnels = []; r.place('a');
+  r.ents = r.ents.filter((e: any) => e.kind !== 'funnel'); r.place('a');
   ok('空いていれば置ける', r.barricades.length === 1);
   // bii の罠: 前にキャラがいれば足元に置く（キャラと重ねない）
   const t = mk('bii', 'metan'); Object.assign(t.B, { x: 1552 + C.PLACE_DIST, y: 900 }); t.r.skill('a');
-  ok('bii の罠は前がキャラで塞がっていれば足元に置く', t.r.traps.length === 1 && t.r.traps[0].x === 1552);
+  ok('bii の罠は前がキャラで塞がっていれば足元に置く', ents(t.r, 'trap').length === 1 && ents(t.r, 'trap')[0].x === 1552);
 }
 {
   // 壁破壊で開いた穴の縁: study の南壁（y=26）のうち x=11〜13 を壊す
@@ -145,7 +149,7 @@ console.log('--- ロール倍率・特性');
 const roles: Record<string, string> = { hanamaru: 'balance', sayo: 'attacker', zunko: 'attacker', whitecul: 'speed', aru: 'speed', mochiko: 'defense', metan: 'defense', ierutan: 'support', bii: 'support' };
 for (const [ch, role] of Object.entries(roles)) {
   const { r, A } = mk(ch, 'sayo'); const R = C.ROLES[role], k = melee(ch) ? MB : { hp: 1, speed: 1, atk: 1 };
-  const t = mk(ch, 'sayo'); const h0 = t.B.hp; t.r.attack('a'); if (C.RANGED[ch]) t.r.updateShots(0.2);
+  const t = mk(ch, 'sayo'); const h0 = t.B.hp; t.r.attack('a'); if (CHARS[ch].aa[0].kind === 'shot') t.r.updateShots(0.2);
   ok(`${ch}（${role}${melee(ch) ? '・近接補正' : ''}）HP${r.maxHp(A).toFixed(1)} 移動${r.speedOf(A).toFixed(1)} 攻撃${h0 - t.B.hp} 視界${visionRadius(ch)}`,
     Math.abs(r.maxHp(A) - C.PLAYER_HP * R.hp * k.hp) < 1e-9 && Math.abs(r.speedOf(A) - C.PLAYER_SPEED * R.speed * k.speed) < 1e-9 && h0 - t.B.hp === Math.round(C.ATTACK_DAMAGE * R.atk * k.atk * C.DAMAGE_MULT) && visionRadius(ch) === C.VISION_RADIUS * R.vision);
 }
@@ -160,7 +164,7 @@ for (const [ch, role] of Object.entries(roles)) {
   for (const ch of ['hanamaru', 'metan']) {
     const x = mk(ch); x.r.barricades.push({ id: 1, team: 1, x: 1572, y: 880, w: 40, h: 40, hp: C.BARRICADE_HP }); x.r.attack('a');
     const base = C.ATTACK_DAMAGE * C.ROLES[roles[ch]].atk * MB.atk * C.DAMAGE_MULT;
-    ok(`${ch}: バリケードへ ${C.BREAKERS.includes(ch) ? '×3' : '×1'}`, Math.abs(C.BARRICADE_HP - (x.r.barricades[0]?.hp ?? 0) - Math.min(C.BARRICADE_HP, C.BREAKERS.includes(ch) ? base * 3 : base)) < 1e-9);
+    ok(`${ch}: バリケードへ ${CHARS[ch].breaker ? '×3' : '×1'}`, Math.abs(C.BARRICADE_HP - (x.r.barricades[0]?.hp ?? 0) - Math.min(C.BARRICADE_HP, CHARS[ch].breaker ? base * 3 : base)) < 1e-9);
   }
 }
 
@@ -169,13 +173,13 @@ console.log('--- 技・壁破壊・バリケード上限・照準・Bot');
   const { r } = mk('whitecul'); Object.assign(r.bosses[1], { x: 1620, y: 900 }); r.skill('a');
   ok('大将ははじかれない（ダメージは入る）', r.bosses[1].x === 1620 && r.bosses[1].hp < C.BOSS_HP);
   const z = mk('zunko', 'metan'); z.r.skill('a'); for (let i = 0; i < 5; i++) z.r.updateShots(0.05);
-  ok('ずんだアローで敵が餅になり技を使えない', z.B.mochiUntil > z.r.now && (z.B.skillReadyAt = 0, z.r.skill('b'), z.B.skillReadyAt === 0));
+  ok('ずんだアローで敵が餅になり技を使えない', !!z.r.stat(z.B, 'mochi') && (z.B.skillReadyAt = 0, z.r.skill('b'), z.B.skillReadyAt === 0));
   const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 400, face: Math.PI / 2 }); w.A.tgt = null;
   const los0 = lineOfSight(200, 400, 200, 470, w.r.walls), path0 = findPath(w.A, { x: 200, y: 470 }, w.r.walls, w.r.walls).length;
   w.r.skill('a'); fly(w.r);
   ok('壁破壊が視界・経路探索に即反映', !los0 && lineOfSight(200, 400, 200, 470, w.r.walls) && findPath(w.A, { x: 200, y: 470 }, w.r.walls, w.r.walls).length < path0);
   const pe = mk('hanamaru'); Object.assign(pe.A, { x: 248, y: 60, face: -Math.PI / 2 }); pe.A.tgt = null; pe.r.skill('a'); fly(pe.r);
-  ok('外周の壁は壊せない（拳は外周の壁に当たると消える）', pe.r.broken.length === 0 && pe.r.fists.length === 0);
+  ok('外周の壁は壊せない（拳は外周の壁に当たると消える）', pe.r.broken.length === 0 && ents(pe.r, 'fist').length === 0);
   const bl = mk('sayo'); for (let i = 0; i < 5; i++) bl.r.addBarricade(0, 1000 + i * 50, 900);
   ok('バリケードは3つまで（古いものから消える）、HP80', bl.r.barricades.length === 3 && bl.r.barricades.every((b: any) => b.hp === 80));
   const m = mk('sayo', 'metan'); m.A.aim = 'nearest'; m.A.bot = true; m.A.dy = 1; m.r.updatePlayers(0.05);
@@ -212,7 +216,7 @@ console.log('--- 攻撃力の底上げ・大将の部屋の距離');
 {
   const { r, A, B } = mk('hanamaru', 'sayo'); r.attack('a');
   ok(`通常攻撃に全体の倍率×${C.DAMAGE_MULT}`, r.maxHp(B) - B.hp === Math.round(C.ATTACK_DAMAGE * MB.atk * C.DAMAGE_MULT));
-  const s = mk('whitecul', 'sayo'); s.r.skill('a'); ok('技にも全体の倍率', s.r.maxHp(s.B) - s.B.hp === Math.round(C.SKILLS.whitecul.dmg * C.DAMAGE_MULT));
+  const s = mk('whitecul', 'sayo'); s.r.skill('a'); ok('技にも全体の倍率', s.r.maxHp(s.B) - s.B.hp === Math.round(CHARS.whitecul.skill.dmg * C.DAMAGE_MULT));
   const pass = ROOM_COMBOS.filter((c) => c.sum <= C.BOSS_ROOM_DIST_SUM_MAX);
   ok(`大将の部屋の組み合わせ ${ROOM_COMBOS.length}通り中 ${pass.length}通りが上限${C.BOSS_ROOM_DIST_SUM_MAX}px以下`, ROOM_COMBOS.length === 20 && pass.length >= 1 && pass.length < 20, ROOM_DIST);
   ok('大将の候補は図書室を含む6部屋（開始部屋の dining は除く）', C.BOSS_ROOM_CANDIDATES.length === 6 && !C.BOSS_ROOM_CANDIDATES.includes('dining') && C.BOSS_ROOM_CANDIDATES.includes('library'));
@@ -269,21 +273,21 @@ console.log('--- ウルト・アシスト・回復アイテム');
 console.log('--- 技の変更（bii の罠・ierutan の加速）・きりたん');
 {
   const b = mk('bii', 'metan'); b.A.face = 0; Object.assign(b.B, { x: 1552 + 120, y: 900 }); b.r.skill('a');
-  const tr = b.r.traps[0]; b.r.updateTraps(0.05);
-  ok('bii の罠: 向きの扇形（射程140）にいる敵を攻撃', b.r.maxHp(b.B) - b.B.hp === Math.round(C.SKILLS.bii.dmg * C.DAMAGE_MULT * 0.8), { hp: b.B.hp });
-  Object.assign(b.B, { x: 1552 - 100 }); const hb = b.B.hp; b.r.now += 1; b.r.updateTraps(0.05);
+  const tr = ents(b.r, 'trap')[0]; upd(b.r, 'trap', 0.05);
+  ok('bii の罠: 向きの扇形（射程140）にいる敵を攻撃', b.r.maxHp(b.B) - b.B.hp === Math.round(CHARS.bii.skill.dmg * C.DAMAGE_MULT * 0.8), { hp: b.B.hp });
+  Object.assign(b.B, { x: 1552 - 100 }); const hb = b.B.hp; b.r.now += 1; upd(b.r, 'trap', 0.05);
   ok('bii の罠: 扇形の外（後ろ）は攻撃しない', b.B.hp === hb);
-  const hp0 = tr.hp; b.r.updateTraps(1); ok('bii の罠: 時間で耐久が減る', Math.abs(hp0 - tr.hp - C.SKILLS.bii.decay) < 1e-9);
+  const hp0 = tr.hp; upd(b.r, 'trap', 1); ok('bii の罠: 時間で耐久が減る', Math.abs(hp0 - tr.hp - CHARS.bii.skill.decay) < 1e-9);
   b.A.skillReadyAt = 0; b.A.x += 60; b.r.skill('a'); b.A.skillReadyAt = 0; b.A.x += 60; b.r.skill('a');
-  ok('bii の罠: 同時に2つまで（古い方が消える）', b.r.traps.filter((t: any) => t.owner === 'a').length === 2 && !b.r.traps.includes(tr));
+  ok('bii の罠: 同時に2つまで（古い方が消える）', ents(b.r, 'trap').filter((t: any) => t.owner === 'a').length === 2 && !ents(b.r, 'trap').includes(tr));
   const ie = mk('ierutan'); ie.A.hp = 30; ie.r.skill('a'); const sp0 = ie.r.speedOf(ie.A); ie.r.updatePlayers(1);
-  ok(`ierutan の加速: 移動×${C.SKILLS.ierutan.speed}、毎秒${C.SKILLS.ierutan.regen}回復`, Math.abs(sp0 - C.PLAYER_SPEED * MB.speed * C.SKILLS.ierutan.speed) < 1e-9 && Math.abs(ie.A.hp - 33) < 1e-9);
+  ok(`ierutan の加速: 移動×${CHARS.ierutan.skill.speed}、毎秒${CHARS.ierutan.skill.regen}回復`, Math.abs(sp0 - C.PLAYER_SPEED * MB.speed * CHARS.ierutan.skill.speed) < 1e-9 && Math.abs(ie.A.hp - 33) < 1e-9);
   const k = mk('kiritan', 'metan'); k.A.aim = 'nearest';
-  ok(`きりたん: 足が遅い（×${C.KIRITAN.speed}）`, k.r.speedOf(k.A) === C.PLAYER_SPEED * C.KIRITAN.speed);
+  ok(`きりたん: 足が遅い（×${CHARS.kiritan.mult.speed}）`, k.r.speedOf(k.A) === C.PLAYER_SPEED * CHARS.kiritan.mult.speed!);
   Object.assign(k.B, { x: 1552 + 200 }); k.r.updatePlayers(0.05);
   ok('きりたん: 遠い敵にはきりたん砲（弾速遅め）', k.r.shots.length === 1 && k.r.shots[0].kind === 'cannon' && k.r.shots[0].sp < C.BULLET_SPEED);
   const k2 = mk('kiritan', 'metan'); k2.A.aim = 'nearest'; k2.r.updatePlayers(0.05);
-  ok('きりたん: 近い敵には包丁（ダメージそれなり）', k2.r.shots.length === 0 && k2.r.maxHp(k2.B) - k2.B.hp === Math.round(C.ATTACK_DAMAGE * C.KIRITAN.knifeDmg * C.DAMAGE_MULT * 0.8));
+  ok('きりたん: 近い敵には包丁（ダメージそれなり）', k2.r.shots.length === 0 && k2.r.maxHp(k2.B) - k2.B.hp === Math.round(C.ATTACK_DAMAGE * CHARS.kiritan.aa[0].dmg * C.DAMAGE_MULT * 0.8));
   const k3 = mk('kiritan', 'metan'); k3.r.skill('a'); k3.A.aim = 'nearest'; Object.assign(k3.B, { x: 1552 + 200 }); k3.r.updatePlayers(0.05);
   ok('きりたん砲飛行: 移動が速く、遠くの敵は撃たない（包丁のみ）', k3.r.speedOf(k3.A) > C.PLAYER_SPEED && k3.r.shots.length === 0 && !k3.A.tgt);
 }
@@ -291,13 +295,13 @@ console.log('--- 技の変更（bii の罠・ierutan の加速）・きりたん
 console.log('--- ファンネル（経路で届く敵だけ、囲んで止まって撃つ）');
 {
   // 壁の向こう（study の中の敵に、廊下から）: 直線は近いが回り道が長い → 対象にしない
-  const w = mk('mochiko', 'metan'); Object.assign(w.A, { x: 400, y: 568 }); Object.assign(w.B, { x: 400, y: 380 }); w.r.skill('a'); w.r.updateFunnels(0.05); // 廊下と study（直線188px、回り道は bath 経由で約550px）
-  ok(`壁の向こうで回り道が${C.SKILLS.mochiko.pathMax}pxを超える敵は狙わない`, w.r.funnels.every((f: any) => f.tgt === null));
+  const w = mk('mochiko', 'metan'); Object.assign(w.A, { x: 400, y: 568 }); Object.assign(w.B, { x: 400, y: 380 }); w.r.skill('a'); upd(w.r, 'funnel', 0.05); // 廊下と study（直線188px、回り道は bath 経由で約550px）
+  ok(`壁の向こうで回り道が${CHARS.mochiko.skill.pathMax}pxを超える敵は狙わない`, ents(w.r, 'funnel').every((f: any) => f.tgt === null));
   const f = mk('mochiko', 'metan'); Object.assign(f.B, { x: 1552 + 150, y: 900 }); f.B.hp = 9999; f.r.skill('a');
-  for (let i = 0; i < 60; i++) { f.r.now += 0.05; f.r.updateFunnels(0.05); }
-  const ang = f.r.funnels.map((x: any) => Math.atan2(x.y - f.B.y, x.x - f.B.x));
+  for (let i = 0; i < 60; i++) { f.r.now += 0.05; upd(f.r, 'funnel', 0.05); }
+  const ang = ents(f.r, 'funnel').map((x: any) => Math.atan2(x.y - f.B.y, x.x - f.B.x));
   const spread = new Set(ang.map((a: number) => Math.round(((a + Math.PI) / (Math.PI / 3)) % 6))).size;
-  ok(`6機が敵の周りの別々の位置に散らばる（方向 ${spread}/6 種類、敵からの距離 ${f.r.funnels.map((x: any) => Math.round(Math.hypot(x.x - f.B.x, x.y - f.B.y))).join(',')}）`, spread >= 5);
+  ok(`6機が敵の周りの別々の位置に散らばる（方向 ${spread}/6 種類、敵からの距離 ${ents(f.r, 'funnel').map((x: any) => Math.round(Math.hypot(x.x - f.B.x, x.y - f.B.y))).join(',')}）`, spread >= 5);
   ok('射撃して敵にダメージ', f.B.hp < 9999);
 }
 
@@ -372,7 +376,7 @@ console.log('--- 開始の演出（新開幕）・カウント・終了の集合
   Object.assign(H, { x: room.x + 12, y: 35 * T + 8 }); for (let i = 0; i < 40; i++) step(-1, 0); // 食堂の西の扉へ
   ok('GAME START の後は部屋から出られる', H.x < room.x - 20, { x: H.x, y: H.y });
   // キルログの通知
-  const foe = [...r.players.values()].find((p: any) => p.team === 1 && p.alive && !p.ult && !p.assist); foe.dashUntil = 0; // 倒せる相手（ウルト中・突撃中でない）
+  const foe = [...r.players.values()].find((p: any) => p.team === 1 && p.alive && !p.ult && !p.assist); delete foe.st.rush; // 倒せる相手（ウルト中・突撃中でない）
   r.damagePlayer(foe, 9999, 'h');
   const kill = sent.filter(([t2]) => t2 === 'kill').pop()?.[1]; // 直前にBot同士の撃破があることがあるので最後のキル
   ok('倒したらキルログを全員に送る（倒した側 → 倒された側）', kill && kill.kc === H.char && kill.kt === 0 && kill.vc === foe.char && kill.vt === 1, kill);
@@ -438,7 +442,7 @@ console.log('--- リコール・回復・技のCT');
   ok('Bot: HPが減っていなければリコールしない', b2.A.recallAt === null);
   // 技のCT
   const old: Record<string, number> = { hanamaru: 25, sayo: 20, whitecul: 18, aru: 15, bii: 25, metan: 12, ierutan: 20, kiritan: 18, mochiko: 30, zunko: 18 };
-  ok('技のCT: mochiko・zunko 以外は旧0.4倍', Object.entries(old).every(([k, v]) => Math.abs(C.SKILLS[k].ct - (['mochiko', 'zunko'].includes(k) ? v : v * 0.4)) < 1e-9));
+  ok('技のCT: mochiko・zunko 以外は旧0.4倍', Object.entries(old).every(([k, v]) => Math.abs(CHARS[k].skill.ct - (['mochiko', 'zunko'].includes(k) ? v : v * 0.4)) < 1e-9));
 }
 
 console.log('--- アシスト召喚の通知');
@@ -549,7 +553,7 @@ console.log('--- 徳（各行動の増減・範囲・頭上の表示）');
   const as = mk('sayo'); const a = as.r.summonAssist(0, 1, 'kurono'); Object.assign(a, { x: 1552, y: 900, face: 0 }); as.B = as.r.addPlayer('b', 1, false); Object.assign(as.B, { x: 1592, y: 900 }); const bh = as.B.hp; as.r.attack(a.id);
   ok('アシストの攻撃では徳は変わらない', as.B.hp < bh && tk(as.r) === C.TOKU_INIT);
   const st = mk('sayo'); st.r.startMatch(); 
-  ok(`初期値は${C.TOKU_INIT}（キャラごとの補正は今は全キャラ0）`, st.r.teams.every((t: any) => t.toku === C.TOKU_INIT) && Object.keys(C.TOKU_CHAR).length === 0);
+  ok(`初期値は${C.TOKU_INIT}（キャラごとの補正は今は全キャラ0）`, st.r.teams.every((t: any) => t.toku === C.TOKU_INIT) && Object.values(CHARS).every((c) => !c.toku));
 }
 
 console.log('--- 資材（マップのあちこち・再出現・部屋ごとのフレーバー）');
@@ -707,32 +711,32 @@ console.log('--- アシスト3人（技の発動条件・効果・予告と回�
 
 console.log('--- アルの突撃（タメ・方向・壁とバリケードの破壊・一度だけ当たる・無敵・不発）');
 {
-  const AR = C.SKILLS.aru;
+  const AR = CHARS.aru.skill;
   const step = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); } };
   const aru = (x: number, y: number, dx: number, dy: number, b?: string) => { const z = mk('aru', b); z.A.bot = true; Object.assign(z.A, { x, y, dx, dy }); z.A.tgt = null; return z; };
   // タメ中は止まる、方向はタメに入った瞬間の移動入力
   let z = aru(248, 360, 0, 1); z.r.skill('a'); const ct = z.A.skillReadyAt;
   z.A.dx = 1; z.A.dy = 0; step(z, AR.windup - 0.1); const still = z.A.x === 248 && z.A.y === 360;
-  ok(`タメ（${AR.windup}秒）の間はその場で止まる（移動入力があっても）。CTは押した時点で消費`, still && z.A.chargeAt !== null && Math.abs(ct - AR.ct) < 1e-9);
+  ok(`タメ（${AR.windup}秒）の間はその場で止まる（移動入力があっても）。CTは押した時点で消費`, still && !!z.A.st.charge && Math.abs(ct - AR.ct) < 1e-9);
   step(z, 0.3);
-  ok('方向はタメに入った瞬間の移動入力で固定（あとで入力を変えても変わらない）', z.A.y > 370 && Math.abs(z.A.chargeA - Math.PI / 2) < 1e-9);
+  ok('方向はタメに入った瞬間の移動入力で固定（あとで入力を変えても変わらない）', z.A.y > 370 && Math.abs(z.A.sk.a - Math.PI / 2) < 1e-9);
   // 垂直方向の入力で少し動ける（速さは移動速度×side）
   z = aru(248, 360, 0, 1); z.r.skill('a'); z.A.dx = 0; z.A.dy = 0; step(z, AR.windup + 0.05); const x0 = z.A.x; z.A.dx = 1; z.A.dy = 0; step(z, 0.2);
   ok(`進行方向に垂直な入力で動ける（移動速度×${AR.side}）`, Math.abs(z.A.x - x0 - z.r.speedOf(z.A) * AR.side * 0.2) < 1);
   // 移動入力がなければ照準の対象、それもなければ向いている方向
   z = aru(1552, 900, 0, 0, 'metan'); z.A.face = Math.PI; z.A.tgt = { k: 'p', o: z.B, x: 1552, y: 1000, r: 10 }; z.r.skill('a');
   const z2 = aru(1552, 900, 0, 0); z2.A.face = Math.PI; z2.r.skill('a');
-  ok('移動入力がなければ照準の対象の方向、それもなければ向いている方向', Math.abs(z.A.chargeA - Math.PI / 2) < 1e-9 && Math.abs(z2.A.chargeA - Math.PI) < 1e-9);
+  ok('移動入力がなければ照準の対象の方向、それもなければ向いている方向', Math.abs(z.A.sk.a - Math.PI / 2) < 1e-9 && Math.abs(z2.A.sk.a - Math.PI) < 1e-9);
   // 壁・バリケードを壊して進む（study の南壁）。外周の壁は壊さずそこで止まる
   z = aru(248, 360, 0, 1); z.r.barricades.push({ id: 7, team: 1, x: 228, y: 470, w: 40, h: 40, hp: 80 }); z.r.skill('a'); step(z, AR.windup + 0.6);
   const broke = z.r.broken.filter(([, y]: number[]) => y === 26).length;
   ok(`壁とバリケードを壊して進む（study の南壁を${broke}マス、壊した壁は床になる）`, broke >= 4 && z.r.tiles[26][12] === '.' && z.A.y > 26 * T + 16 && !z.r.barricades.length && JSON.stringify(z.r.walls) !== JSON.stringify(C.WALLS));
   ok(`壁を壊したら徳${C.TOKU.wall}（1回の突撃で1回）`, Math.abs(z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9);
-  ok('壊れた場所には資材なしでバリケードを置ける', (Object.assign(z.A, { x: 12 * T + 8, y: 26 * T + 8 - C.PLACE_DIST, face: Math.PI / 2, dashUntil: 0 }), z.r.place('a'), z.r.barricades.length === 1));
+  ok('壊れた場所には資材なしでバリケードを置ける', (Object.assign(z.A, { x: 12 * T + 8, y: 26 * T + 8 - C.PLACE_DIST, face: Math.PI / 2 }), delete z.A.st.rush, z.r.place('a'), z.r.barricades.length === 1));
   z = aru(248, 120, 0, -1); z.r.skill('a'); step(z, AR.windup + 0.3);
-  ok('マップ外周の壁は壊さず、そこで突撃が終わる', z.r.broken.length === 0 && z.A.dashUntil === 0 && z.A.y >= 3 * T);
+  ok('マップ外周の壁は壊さず、そこで突撃が終わる', z.r.broken.length === 0 && !z.A.st.rush && z.A.y >= 3 * T);
   // 触れた敵に大ダメージ、同じ相手には1回だけ
-  z = aru(1400, 900, 1, 0, 'metan'); Object.assign(z.B, { x: 1500, y: 900, hp: 9999 }); z.B.dashUntil = 0; z.r.skill('a'); step(z, AR.windup + 1.0);
+  z = aru(1400, 900, 1, 0, 'metan'); Object.assign(z.B, { x: 1500, y: 900, hp: 9999 }); delete z.B.st.rush; z.r.skill('a'); step(z, AR.windup + 1.0);
   ok(`触れた敵に${AR.dmg}（×全体の倍率・被ダメ軽減）を1回だけ`, 9999 - z.B.hp === Math.round(AR.dmg * C.DAMAGE_MULT * 0.8), { dmg: 9999 - z.B.hp });
   z = aru(1400, 900, 1, 0); Object.assign(z.r.bosses[1], { x: 1520, y: 900 }); z.r.skill('a'); step(z, AR.windup + 1.0);
   ok('敵大将にも当たる（大将はひるまない）', C.BOSS_HP - z.r.bosses[1].hp === AR.dmg * C.DAMAGE_MULT);
@@ -741,19 +745,19 @@ console.log('--- アルの突撃（タメ・方向・壁とバリケードの破
   // 突撃中は無敵（ダメージ・はじき・ずんだ餅化なし）、通常攻撃しない
   z = aru(1400, 900, 1, 0, 'metan'); z.r.skill('a'); step(z, AR.windup + 0.1); const hp0 = z.A.hp, p0 = { x: z.A.x, y: z.A.y };
   z.r.damagePlayer(z.A, 50, 'b'); z.r.push({ k: 'p', o: z.A, x: z.A.x, y: z.A.y, r: 10 }, 0, 1, 100);
-  z.r.shots.push({ id: 1, kind: 'arrow', team: 1, owner: 'b', x: z.A.x - 5, y: z.A.y, vx: 600, vy: 0, sp: 600, left: 50, dmg: 0 }); z.r.updateShots(0.05);
-  ok('突撃中は無敵（ダメージ・はじき・ずんだ餅化を受けない）', z.A.hp === hp0 && z.A.y === p0.y && z.A.mochiUntil <= z.r.now);
+  SKILLS.zunko.use(z.r, z.B, 0); Object.assign(z.r.shots[z.r.shots.length - 1], { id: 1, x: z.A.x - 5, y: z.A.y, left: 50 }); z.r.updateShots(0.05);
+  ok('突撃中は無敵（ダメージ・はじき・ずんだ餅化を受けない）', z.A.hp === hp0 && z.A.y === p0.y && !z.r.stat(z.A, 'mochi'));
   z.A.cooldownUntil = 0; const cd = z.A.cooldownUntil; z.r.attack('a'); ok('突撃中は通常攻撃しない', z.A.cooldownUntil === cd);
-  z = aru(1400, 900, 1, 0); z.r.skill('a'); const t0 = z.r.now; step(z, AR.windup + 0.05); const until = z.A.dashUntil;
+  z = aru(1400, 900, 1, 0); z.r.skill('a'); const t0 = z.r.now; step(z, AR.windup + 0.05); const until = z.A.st.rush.until;
   ok(`最大${AR.dur}秒で終わる`, Math.abs(until - (t0 + AR.windup + 0.05 + AR.dur)) < 0.051);
   // タメ中に倒されたら不発、CTは消費
   z = aru(1400, 900, 1, 0); z.r.skill('a'); const ready = z.A.skillReadyAt; step(z, 0.3); z.r.damagePlayer(z.A, 1e9, null); z.r.now = z.A.respawnAt; z.r.updatePlayers(0.05); step(z, AR.windup);
-  ok('タメ中に倒されたら突撃は不発、CTは消費される', z.A.chargeAt === null && z.A.dashUntil === 0 && z.A.skillReadyAt === ready && ready > 0);
+  ok('タメ中に倒されたら突撃は不発、CTは消費される', !z.A.st.charge && !z.A.st.rush && z.A.skillReadyAt === ready && ready > 0);
   // Bot: 予測進路に敵か敵大将がいるときに使う
   const bb = mk('aru', 'metan'); bb.A.bot = true; Object.assign(bb.A, { dx: 1, dy: 0 }); Object.assign(bb.B, { x: 1552 + 300, y: 900 });
   const yes = bb.r.botSkillUseful(bb.A); bb.B.y = 900 + AR.w; const no = bb.r.botSkillUseful(bb.A);
   ok('Bot: 予測進路（エフェクトの範囲）に敵がいるときに使う（外れていれば使わない）', yes && !no);
-  ok(`エフェクトの形: 長さ${AR.len}・幅${AR.w}、頭は${AR.head}px前、尾は後ろへ細くなる`, inDashShape(AR.head + AR.w / 2 - 1, 0, 0, 0, 0) && !inDashShape(AR.head + AR.w / 2 + 1, 0, 0, 0, 0) && inDashShape(AR.head + AR.w / 2 - AR.len + 1, 0, 0, 0, 0) && !inDashShape(0, AR.w / 2 - 5, 0, 0, 0) && inDashShape(AR.head, AR.w / 2 - 1, 0, 0, 0));
+  ok(`エフェクトの形: 長さ${AR.len}・幅${AR.w}、頭は${AR.head}px前、尾は後ろへ細くなる`, inDashShape(AR, AR.head + AR.w / 2 - 1, 0, 0, 0, 0) && !inDashShape(AR, AR.head + AR.w / 2 + 1, 0, 0, 0, 0) && inDashShape(AR, AR.head + AR.w / 2 - AR.len + 1, 0, 0, 0, 0) && !inDashShape(AR, 0, AR.w / 2 - 5, 0, 0, 0) && inDashShape(AR, AR.head, AR.w / 2 - 1, 0, 0, 0));
   ok(`CT は${AR.ct}秒のまま`, AR.ct === 6);
 }
 
@@ -768,7 +772,7 @@ console.log('--- 攻撃間隔（近接・遠距離・きりたんの切り替え
   const me = gap('sayo'), zu = gap('zunko');
   const kf = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x + 200, y: z.B.y, r: 10 }; }); // 遠い対象 → きりたん砲
   const kn = gap('kiritan'); // 近い対象（隣） → 包丁
-  const kfly = gap('kiritan', (z) => { z.A.flyUntil = 99; z.A.tgt = { k: 'p', o: z.B, x: z.B.x + 200, y: z.B.y, r: 10 }; }); // 飛行中は包丁
+  const kfly = gap('kiritan', (z) => { z.A.st.fly = { until: 99, speed: CHARS.kiritan.skill.speed, meleeOnly: true }; z.A.tgt = { k: 'p', o: z.B, x: z.B.x + 200, y: z.B.y, r: 10 }; }); // 飛行中は包丁
   kn; // 隣の敵は p.tgt なし＝遠い扱いなので、包丁は対象が近いときで確認する
   const kn2 = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x, y: z.B.y, r: 10 }; });
   ok(`近接は${C.ATTACK_COOLDOWN_MELEE}秒、遠距離（zunko・きりたん砲）は${C.ATTACK_COOLDOWN_RANGED}秒、きりたんの包丁（近い対象・飛行中）は近接`, me.t0 === C.ATTACK_COOLDOWN_MELEE && me.blocked && zu.t0 === C.ATTACK_COOLDOWN_RANGED && kf.t0 === C.ATTACK_COOLDOWN_RANGED && kn2.t0 === C.ATTACK_COOLDOWN_MELEE && kfly.t0 === C.ATTACK_COOLDOWN_MELEE, { me: me.t0, zu: zu.t0, cannon: kf.t0, knife: kn2.t0, fly: kfly.t0 });
@@ -852,17 +856,17 @@ console.log('--- 開始前のスロット・結果画面の技');
   ok('スロットは GAME START まで回さない（開始前は止めたまま）、GAME START で回り始める', same && st === 0 && reels.length > 0 && s1.teams.every((t: any) => t.slot.start > 0 || t.slot.payoutAt !== null));
   // 結果画面: 技を使える。エフェクトは出るが、ダメージ・徳・壁の破壊はない。部屋からは出られない
   const z = mk('hanamaru', 'metan'); Object.assign(z.A, { x: 200, y: 400, face: Math.PI / 2 }); z.A.tgt = null; z.r.endMatch(2);
-  Object.assign(z.A, { x: 200, y: 400, face: Math.PI / 2, skillReadyAt: 0 }); const toku = z.r.teams[0].toku; z.r.fx = []; z.r.skill('a'); const fist = z.r.fists.length;
+  Object.assign(z.A, { x: 200, y: 400, face: Math.PI / 2, skillReadyAt: 0 }); const toku = z.r.teams[0].toku; z.r.fx = []; z.r.skill('a'); const fist = ents(z.r, 'fist').length;
   for (let i = 0; i < 40; i++) z.r.tick(0.05, false);
   ok('結果画面: 技を使える（拳は出て飛ぶ）が、壁は壊れず徳も変わらない', z.A.skillReadyAt > 0 && fist === 1 && z.r.broken.length === 0 && z.r.teams[0].toku === toku);
   const w = mk('whitecul', 'metan'); w.r.endMatch(2); const room = w.r.cageOf(w.A); Object.assign(w.B, { x: w.A.x + 30, y: w.A.y }); w.A.face = 0; w.A.skillReadyAt = 0; const hb = w.B.hp; w.r.skill('a');
   ok('結果画面: 技が当たってもダメージはない', w.B.hp === hb && w.r.fx.some((f: any) => f.kind === 'rect'));
-  const m = mk('mochiko', 'metan'); m.r.endMatch(2); m.A.skillReadyAt = 0; m.r.skill('a'); const f0 = m.r.funnels.map((f: any) => f.x + f.y).join(); m.A.x += 60; for (let i = 0; i < 10; i++) m.r.tick(0.05, false); // 持ち主が動くと付いていく
-  ok('結果画面: ファンネルなどの物も出て動く', m.r.funnels.length === C.SKILLS.mochiko.n && m.r.funnels.map((f: any) => f.x + f.y).join() !== f0);
+  const m = mk('mochiko', 'metan'); m.r.endMatch(2); m.A.skillReadyAt = 0; m.r.skill('a'); const f0 = ents(m.r, 'funnel').map((f: any) => f.x + f.y).join(); m.A.x += 60; for (let i = 0; i < 10; i++) m.r.tick(0.05, false); // 持ち主が動くと付いていく
+  ok('結果画面: ファンネルなどの物も出て動く', ents(m.r, 'funnel').length === CHARS.mochiko.skill.n && ents(m.r, 'funnel').map((f: any) => f.x + f.y).join() !== f0);
   const a = mk('aru', 'metan'); a.r.endMatch(2); const cg = a.r.cageOf(a.A); a.A.skillReadyAt = 0; a.A.inDx = 1; a.A.inDy = 0; a.r.skill('a'); const b0 = a.r.broken.length;
   for (let i = 0; i < 60; i++) a.r.tick(0.05, false);
   const inCage = a.A.x >= cg.x && a.A.x <= cg.x + cg.w && a.A.y >= cg.y && a.A.y <= cg.y + cg.h;
-  ok('結果画面: アルの突撃はタメ→突撃で動くが、部屋から出ず壁も壊さない', a.A.dashUntil > 0 && inCage && a.r.broken.length === b0, { x: Math.round(a.A.x), cg });
+  ok('結果画面: アルの突撃はタメ→突撃で動くが、部屋から出ず壁も壊さない', !!a.A.st.rush && inCage && a.r.broken.length === b0, { x: Math.round(a.A.x), cg });
   room;
 }
 
@@ -998,7 +1002,7 @@ console.log('--- 大将とアシストのタイマン（大将の拠点で、HP�
 
 console.log('--- 花丸（パッシブの押し込み・巨大拳飛ばし）');
 {
-  const H = C.SKILLS.hanamaru;
+  const H = CHARS.hanamaru.skill;
   const push = (ch: string, x: number, y: number, dx: number, dy: number, sec: number) => {
     const z = mk(ch); z.A.bot = true; Object.assign(z.A, { x, y, dx, dy }); const b0 = z.r.broken.length;
     for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
@@ -1019,17 +1023,17 @@ console.log('--- 花丸（パッシブの押し込み・巨大拳飛ばし）');
   const f = mk('hanamaru', 'metan'); f.r.addPlayer('c', 1, false); const Cc = f.r.players.get('c');
   Object.assign(f.A, { x: 1400, y: 900, face: 0 }); f.A.tgt = null; Object.assign(f.B, { x: 1460, y: 900, hp: 9999 }); Object.assign(Cc, { x: 1540, y: 905, hp: 9999, alive: true, char: 'metan' });
   f.r.skill('a'); const ct = f.A.skillReadyAt - f.r.now;
-  const xs: number[] = []; for (let i = 0; i < 8; i++) { f.r.updateFists(0.05); if (f.r.fists[0]) xs.push(+(f.r.fists[0].x).toFixed(1)); }
+  const xs: number[] = []; for (let i = 0; i < 8; i++) { upd(f.r, 'fist', 0.05); if (ents(f.r, 'fist')[0]) xs.push(+(ents(f.r, 'fist')[0].x).toFixed(1)); }
   const one = Math.round(H.dmg * C.DAMAGE_MULT * 0.8);
-  ok(`巨大拳: 前方へ直進（毎秒${H.speed}px）、CT${H.ct}秒`, xs.every((x, i) => !i || Math.abs(x - xs[i - 1] - H.speed * 0.05) < 1e-6) && Math.abs(f.r.fists[0].y - 900) < 1e-9 && ct === H.ct, xs);
+  ok(`巨大拳: 前方へ直進（毎秒${H.speed}px）、CT${H.ct}秒`, xs.every((x, i) => !i || Math.abs(x - xs[i - 1] - H.speed * 0.05) < 1e-6) && Math.abs(ents(f.r, 'fist')[0].y - 900) < 1e-9 && ct === H.ct, xs);
   ok(`巨大拳: キャラを貫通し、同じキャラには1回だけ当たる（${H.dmg}×全体の倍率）`, 9999 - f.B.hp === one && 9999 - Cc.hp === one, { b: 9999 - f.B.hp, c: 9999 - Cc.hp });
   fly(f.r);
   const dist = (H.range / H.speed);
-  ok(`巨大拳: ${H.range}px 飛ぶと消える`, f.r.fists.length === 0 && dist > 0);
+  ok(`巨大拳: ${H.range}px 飛ぶと消える`, ents(f.r, 'fist').length === 0 && dist > 0);
   const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 360, face: Math.PI / 2 }); w.A.tgt = null; w.r.skill('a'); fly(w.r);
   const ys = new Set(w.r.broken.map(([, y]: number[]) => y));
   ok('巨大拳: 壁に当たると壊して貫通し、その先の壁も壊す（study の南壁 → bath の南壁）', ys.has(26) && ys.has(33) && w.r.tiles[26][12] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
-  ok('巨大拳: 命中・破壊はサーバーで判定し、拳の位置をスナップショットで送る', (() => { const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; let got: any = null; Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 's') got = m; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay(); const P = q.players.get('x'); P.char = 'hanamaru'; q.skill('x'); q.sendSnapshots(); return got.fists.length === 1 && got.fists[0].team === P.team; })());
+  ok('巨大拳: 命中・破壊はサーバーで判定し、拳の位置をスナップショットで送る', (() => { const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; let got: any = null; Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 's') got = m; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay(); const P = q.players.get('x'); P.char = 'hanamaru'; q.skill('x'); q.sendSnapshots(); const fs = got.ents.filter((e: any) => e.kind === 'fist'); return fs.length === 1 && fs[0].team === P.team; })());
   // 壁の中央・終端・角を上下左右から押し込む。終端・角は体が壁タイルに一部（3px）だけ触れる位置から
   {
     const R = C.PLAYER_RADIUS, tl = MAP.tiles as string[], seen: Record<string, number> = {}, res: string[] = [];

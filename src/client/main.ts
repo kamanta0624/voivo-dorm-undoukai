@@ -1,8 +1,10 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
 import { Client, Room, CloseCode } from '@colyseus/sdk';
-import { CONFIG as C, visionRadius, wallRects, roomLayout } from '../shared/config';
-import { canPlace, cage, lineOfSight, inDashShape } from '../shared/geom';
+import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
+import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf } from '../shared/chars';
+import { canPlace, cage, lineOfSight } from '../shared/geom';
+import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
@@ -10,8 +12,6 @@ import CHARS_JSON from '../shared/chars.json';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
-const PICKABLE = Object.keys(CHARS).filter((k) => CHARS[k].boss === undefined);
-const BOSS_CHAR = [0, 1].map((t) => Object.keys(CHARS).find((k) => CHARS[k].boss === t)!);
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
 const DOT_KEYS = [...Object.keys(CHARS), COURIER_CHAR, ...Object.keys(C.ASSIST.units)];
@@ -33,7 +33,7 @@ const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 const isWall = (x: number, y: number) => tiles[Math.floor(y / T)]?.[Math.floor(x / T)] === '#';
-const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, barrier: 0x60a0ff, accel: 0xffe060, funnel: 0xff9ad5, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, fly: 0x9fdcff, trap: 0xc8a0ff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff };
+const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, ...SKILL_COLORS }; // 技ごとの色は client/skills
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
 
 type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; cd?: number; flashUntil: number };
@@ -215,7 +215,6 @@ class GameScene extends Phaser.Scene {
   slashes: { x: number; y: number; face: number; t0: number }[] = [];
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
   labels = new Map<string, HTMLElement>();
-  smoke: { x: number; y: number; t0: number }[] = []; // アルの突撃の煙の粒
   slotHtml = ['', ''];
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
   ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
@@ -336,10 +335,10 @@ class GameScene extends Phaser.Scene {
       room.onMessage('s', (s: any) => {
         this.snap = s;
         this.snapAt = performance.now();
-        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラもアルの突撃のタメ中・突撃中は補間で描く
+        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
         const m = s.players.find((p: any) => p.id === s.me);
         if (m) {
-          if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.charge || m.dash) this.pred.reset(m.x, m.y);
+          if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
           else this.pred.reconcile(m.x, m.y, m.ack, m.spd, this.obstacles(s, m));
         }
         this.fxQueue.push(...(s.fx ?? []));
@@ -676,34 +675,11 @@ class GameScene extends Phaser.Scene {
     return pts;
   }
 
-  // 罠: 床に置かれたトゲ（陣営色の縁取り）
-  drawTrap(g: Phaser.GameObjects.Graphics, x: number, y: number, team: number, alpha: number, r = C.TRAP_RADIUS * 0.8) {
-    const pts: Phaser.Math.Vector2[] = [];
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2, d = i % 2 ? r * 0.45 : r;
-      pts.push(new Phaser.Math.Vector2(x + Math.cos(a) * d, y + Math.sin(a) * d));
-    }
-    g.fillStyle(0x8c8c96, alpha).fillPoints(pts, true).lineStyle(1.5, TEAM_COLOR[team], alpha).strokePoints(pts, true);
-  }
-
   // バリケード: 茶色の木箱（陣営色の縁取り）
   drawCrate(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, team: number, alpha: number) {
     g.fillStyle(0x8b5a2b, alpha).fillRect(x, y, w, h);
     g.lineStyle(2, 0x5c3a1a, alpha).strokeRect(x + 3, y + 3, w - 6, h - 6).lineBetween(x + 3, y + 3, x + w - 3, y + h - 3).lineBetween(x + w - 3, y + 3, x + 3, y + h - 3);
     g.lineStyle(2, TEAM_COLOR[team], alpha).strokeRect(x, y, w, h);
-  }
-
-  // 花丸の巨大拳: 半透明の大きな拳（チームカラー）。後ろに流れる線と光
-  drawFist(g: Phaser.GameObjects.Graphics, x: number, y: number, a: number, team: number, time: number) {
-    const R = C.SKILLS.hanamaru.r, c = teamColor(team), ux = Math.cos(a), uy = Math.sin(a);
-    const at = (u: number, v: number) => new Phaser.Math.Vector2(x + ux * u - uy * v, y + uy * u + ux * v);
-    for (let i = 0; i < 5; i++) { const v = (i - 2) * R * 0.35, l = R * (1.6 + ((time / 40 + i * 37) % 10) / 10); const p0 = at(-R * 0.6, v), p1 = at(-R * 0.6 - l, v); g.lineStyle(3, c, 0.35).lineBetween(p0.x, p0.y, p1.x, p1.y); } // 流れる線
-    g.fillStyle(c, 0.18).fillCircle(x, y, R * 1.35); // 光
-    const palm = [at(-R * 0.7, -R * 0.75), at(R * 0.35, -R * 0.8), at(R * 0.35, R * 0.8), at(-R * 0.7, R * 0.75)];
-    g.fillStyle(c, 0.55).fillPoints(palm, true).lineStyle(2, 0xffffff, 0.6).strokePoints(palm, true);
-    for (let i = 0; i < 4; i++) { const k = at(R * 0.5, (i - 1.5) * R * 0.42); g.fillStyle(c, 0.65).fillCircle(k.x, k.y, R * 0.24).lineStyle(1.5, 0xffffff, 0.6).strokeCircle(k.x, k.y, R * 0.24); } // 指の関節
-    const th = [at(-R * 0.1, -R * 0.8), at(R * 0.35, -R * 0.95), at(R * 0.2, -R * 0.55)]; // 親指
-    g.fillStyle(c, 0.65).fillTriangle(th[0].x, th[0].y, th[1].x, th[1].y, th[2].x, th[2].y);
   }
 
   // 資材: 黄色の箱。高ポイント（裏側）はピンクの大きい箱で、明滅する光をまとう
@@ -737,7 +713,7 @@ class GameScene extends Phaser.Scene {
     this.acc = Math.min(this.acc + dtMs, 250);
     while (this.acc >= C.NET_STEP * 1000) {
       this.acc -= C.NET_STEP * 1000;
-      const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.charge && !me0.dash; // 突撃のタメ中・突撃中は予測で動かさない
+      const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
       this.room.send('input', this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move));
     }
     if (this.lastPhase === 'ended' && s.phase === 'waiting') this.resetMatch();
@@ -762,22 +738,22 @@ class GameScene extends Phaser.Scene {
     const mine = s.players.find((p: any) => p.id === s.me);
     if (mine) {
       if (!mine.alive) this.face = mine.face;
-      const rp = mine.charge || mine.dash ? (this.interp.at(mine.id, now) ?? mine) : this.pred.render(this.acc / (C.NET_STEP * 1000), dtMs);
+      const rp = mine.lock ? (this.interp.at(mine.id, now) ?? mine) : this.pred.render(this.acc / (C.NET_STEP * 1000), dtMs);
       Object.assign(this.me, { x: rp.x, y: rp.y, init: true });
     }
     const myTeam = mine?.team ?? 0;
     const sinceSnap = (now - this.snapAt) / 1000;
     const labelSeen = new Set<string>();
-    // 対象のid（p:/boss:/f:/bar:/trap:）→ 位置
+    // 対象のid（p:/boss:/c:/e:/bar:）→ 位置
     const thingPos = (id: string | null): { x: number; y: number } | null => {
       if (!id) return null;
       const k = id.slice(0, id.indexOf(':')), v = id.slice(id.indexOf(':') + 1);
       if (k === 'p') { const q = s.players.find((q: any) => q.id === v); return q ? (q.id === s.me ? this.me : q) : null; }
       if (k === 'boss') return s.bosses.find((b: any) => String(b.team) === v) ?? null;
       if (k === 'c') return s.couriers.find((c: any) => String(c.id) === v) ?? null;
-      if (k === 'f') return s.funnels.find((f: any) => String(f.id) === v) ?? null;
+      if (k === 'e') return s.ents.find((e: any) => String(e.id) === v) ?? null;
       if (k === 'bar') { const b = s.barricades.find((b: any) => String(b.id) === v); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null; }
-      return s.traps.find((t: any) => String(t.id) === v) ?? null;
+      return null;
     };
 
     // ユニット描画（受信したものだけ）
@@ -797,7 +773,7 @@ class GameScene extends Phaser.Scene {
       e.tx = cx; e.ty = cy;
       const sp = e.s;
       if (s.phase === 'intro' && p && C.INTRO_MODE === 'old') sp.stop().setTexture(`${char}_banzai`); // 旧開幕は万歳
-      else if (moving) sp.play(`${char}_walk`, true);
+      else if (moving && walkOf(char) === 'normal') sp.play(`${char}_walk`, true); // 歩行タイプ（chars.ts の walk）
       else if (sp.texture.key === `${char}_banzai`) sp.setTexture(`${char}_idle`);
       else if (sp.anims.isPlaying && sp.anims.currentAnim?.key === `${char}_walk`) sp.stop().setTexture(`${char}_idle`);
       else if (time >= e.blinkAt) { sp.play(`${char}_blink`); e.blinkAt = time + 2000 + Math.random() * 4000; } // ときどき瞬き
@@ -813,11 +789,11 @@ class GameScene extends Phaser.Scene {
         this.popup(String(Math.round(e.hp - hp)), cx, cy - h - 6, 'dmg');
       }
       e.hp = hp;
-      if (time < e.flashUntil || (p?.charge && Math.floor(time / C.ARU_FX.blinkMs) % 2)) sp.setTintFill(0xffffff); // 被弾・突撃のタメ中は白く点滅
+      if (time < e.flashUntil) sp.setTintFill(0xffffff); // 被弾は白く点滅（状態による点滅は状態の目印で上書き）
       else sp.clearTint();
       if (!p) return;
       // 攻撃: 硬直時間が増えたら斬撃エフェクト
-      if (e.cd !== undefined && p.cd > e.cd + 0.05 && !C.RANGED[p.char]) {
+      if (e.cd !== undefined && p.cd > e.cd + 0.05 && (DEFS[p.char]?.aa[0].kind ?? 'melee') === 'melee') {
         const tp = thingPos(p.tgt); // オートアタックは対象の方向
         this.slashes.push({ x: cx, y: cy - 8, face: tp ? Math.atan2(tp.y - cy, tp.x - cx) : f, t0: time });
       }
@@ -827,13 +803,9 @@ class GameScene extends Phaser.Scene {
       if (p.boost) feet.lineStyle(2, SKILL_FX_COLOR.heal, 0.9).strokeEllipse(cx, cy, 30, 12); // 白上虎太郎の移動速度上昇
       if (p.slow) feet.lineStyle(2, SKILL_FX_COLOR.pen_slow, 0.9).strokeEllipse(cx, cy + 2, 24, 8); // 罰: 移動速度低下（足元の青い輪）
       if (p.weak) { feet.fillStyle(SKILL_FX_COLOR.pen_weak, 0.9).fillTriangle(cx + 9, cy - h + 2, cx + 15, cy - h + 2, cx + 12, cy - h + 8); feet.fillRect(cx + 11, cy - h - 4, 2, 6); } // 罰: 攻撃力低下（下向きの矢印）
-      // ずんだ餅（緑の餅に変化）と、技の効果の目印
-      sp.setVisible(!p.mochi);
-      if (p.mochi) feet.fillStyle(0x4f9f2f).fillEllipse(cx, cy - 5, 24, 17).fillStyle(0x8fdf5f).fillEllipse(cx, cy - 6, 20, 13).fillStyle(0xd8f5b0).fillEllipse(cx - 4, cy - 9, 7, 4);
-      if (p.barrier) feet.lineStyle(2, SKILL_FX_COLOR.barrier, 0.9).strokeCircle(cx, cy - 14, 17);
-      if (p.accel) feet.lineStyle(2, SKILL_FX_COLOR.accel, 0.9).strokeEllipse(cx, cy, 28, 11);
-      if (p.dance) feet.lineStyle(1, SKILL_FX_COLOR.ring, 0.5).strokeCircle(cx, cy, C.SKILLS.sayo.r);
-      if (p.fly) feet.fillStyle(SKILL_FX_COLOR.fly, 0.35).fillEllipse(cx, cy + 4, 26, 8).lineStyle(1, SKILL_FX_COLOR.fly).strokeEllipse(cx, cy - 6, 30, 12); // きりたん砲飛行
+      // 状態の目印（client/skills）
+      sp.setVisible(true);
+      for (const k in STATUS_VIEW) if (p.st?.[k]) STATUS_VIEW[k].mark?.(feet, { x: cx, y: cy, sp, time, v: p.st[k] });
       // ウルト中: 見た目は変えず、変身先の色の光をまとう
       if (p.ult && p.ult.left !== null) {
         const pulse = 0.5 + 0.3 * Math.sin(time / 120);
@@ -876,7 +848,7 @@ class GameScene extends Phaser.Scene {
 
     // 自キャラ: 射程の円と、硬直中のクールタイムバー
     if (mine?.alive) {
-      feet.lineStyle(1, 0xffffff, C.RANGE_ALPHA).strokeCircle(this.me.x, this.me.y, C.RANGED[mine.char] ?? C.ATTACK_RANGE);
+      feet.lineStyle(1, 0xffffff, C.RANGE_ALPHA).strokeCircle(this.me.x, this.me.y, DEFS[mine.char]?.aa[0].range ?? C.ATTACK_RANGE);
       // 今狙っている対象の足元に輪
       const tp = thingPos(mine.tgt);
       if (tp) feet.lineStyle(2, 0xff3030, C.TARGET_RING_ALPHA).strokeEllipse(tp.x, tp.y, 28, 11);
@@ -924,43 +896,14 @@ class GameScene extends Phaser.Scene {
       const k = Math.max(0, Math.min(1, 1 - (w.left - sinceSnap) / (w.boss ? C.BOSS_BLAST.warn : 1)));
       fxG.fillStyle(0xff2020, 0.18).fillCircle(w.x, w.y, w.r).fillStyle(0xff2020, 0.35).fillCircle(w.x, w.y, w.r * k).lineStyle(2, 0xff2020, 0.9).strokeCircle(w.x, w.y, w.r);
     }
-    // アルの突撃: タメ中は予測進路の警告（敵からも視界内なら見える）、突撃中は渦と煙
-    const AR = C.SKILLS.aru, AF = C.ARU_FX;
-    this.smoke = this.smoke.filter((m) => time - m.t0 < AR.smoke * 1000);
+    // 状態のエフェクト（突撃の警告・渦など）と、技の場の物（client/skills）
     for (const p of s.players) {
-      if (!p.alive || (!p.charge && !p.dash)) continue;
+      if (!p.alive) continue;
       const pos = p.id === s.me ? this.me : (this.interp.at(p.id, now) ?? p);
-      const a = (p.charge ?? p.dash).a, ux = Math.cos(a), uy = Math.sin(a), h = AR.w / 2;
-      const at = (u: number, v: number) => new Phaser.Math.Vector2(pos.x + ux * u - uy * v, pos.y + uy * u + ux * v);
-      if (p.charge) {
-        const band = [at(0, -h), at(p.charge.len, -h), at(p.charge.len, h), at(0, h)];
-        fxG.fillStyle(0xff2020, 0.18 + 0.14 * (Math.floor(time / AF.warnBlinkMs) % 2)).fillPoints(band, true).lineStyle(2, 0x8b0000, 0.95).strokePoints(band, true);
-        for (let i = 0; i < AF.arrows; i++) { const u = (p.charge.len * (i + 0.5)) / AF.arrows, tri = [at(u + 10, 0), at(u - 6, -9), at(u - 6, 9)]; fxG.fillStyle(0xffffff, 0.9).fillTriangle(tri[0].x, tri[0].y, tri[1].x, tri[1].y, tri[2].x, tri[2].y); }
-        continue;
-      }
-      // 渦: 頭の中心付近から尾へ、半径が広がりながら回り込む7本の筋。雫の形の外は描かない
-      const spin = (time / 1000) * AR.spin;
-      for (let i = 0; i < AF.strands; i++) {
-        const [col, wd, al] = AF.lines[i % 2];
-        fxG.lineStyle(wd, col, al);
-        let prev: Phaser.Math.Vector2 | null = null;
-        for (let k = 0; k <= 40; k++) {
-          const t = k / 40, th = spin + (i * Math.PI * 2) / AF.strands + t * AF.turn, rr = AF.r0 + t * (AF.r1 - AF.r0), back = t * AF.back;
-          const q = at(AR.head - back + Math.cos(th) * rr, Math.sin(th) * rr);
-          const inside = inDashShape(q.x, q.y, pos.x, pos.y, a);
-          if (inside && prev) fxG.lineBetween(prev.x, prev.y, q.x, q.y);
-          prev = inside ? q : null;
-        }
-      }
-      this.smoke.push({ x: pos.x - ux * 12 + (Math.random() - 0.5) * 10, y: pos.y - uy * 12 + 2 + (Math.random() - 0.5) * 6, t0: time });
+      for (const k in STATUS_VIEW) if (p.st?.[k]) STATUS_VIEW[k].fx?.(fxG, { x: pos.x, y: pos.y, time, v: p.st[k] });
     }
-    for (const m of this.smoke) { const k = (time - m.t0) / (AR.smoke * 1000); fxG.fillStyle(0x9a9a9a, 0.5 * (1 - k)).fillCircle(m.x, m.y, 3 + k * 9); }
-    // ファンネルと弾・矢
-    for (const f of s.funnels) {
-      const r = C.SKILLS.mochiko.radius;
-      fxG.fillStyle(TEAM_COLOR[f.team]).fillTriangle(f.x, f.y - r - 2, f.x - r, f.y + r, f.x + r, f.y + r).lineStyle(1, 0xffffff).strokeTriangle(f.x, f.y - r - 2, f.x - r, f.y + r, f.x + r, f.y + r);
-    }
-    for (const f of s.fists ?? []) this.drawFist(fxG, f.x, f.y, f.a, f.team, time);
+    for (const m of CLIENT_SKILLS) m.frame?.(fxG, time);
+    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team));
     for (const sh of s.shots) {
       const l = Math.hypot(sh.vx, sh.vy) || 1;
       if (sh.kind === 'cannon') fxG.fillStyle(0xc87a3a).fillCircle(sh.x, sh.y, 5).lineStyle(1, 0x5a3010).strokeCircle(sh.x, sh.y, 5); // きりたん砲
@@ -976,13 +919,7 @@ class GameScene extends Phaser.Scene {
       this.drawItem(g, it);
       this.label(`item${it.id}`, ITEM_LABEL[it.kind], it.x, it.y - 15, '', labelSeen);
     }
-    for (const t of s.traps) {
-      // bii の罠: 向きの扇形（射程）をうっすら、耐久バー
-      const B = C.SKILLS.bii;
-      g.fillStyle(SKILL_FX_COLOR.trap, 0.08).slice(t.x, t.y, B.range, t.a - B.arc / 2, t.a + B.arc / 2).fillPath();
-      this.drawTrap(g, t.x, t.y, t.team, 1);
-      g.fillStyle(0x000000, 0.6).fillRect(t.x - 10, t.y - 18, 20, 3).fillStyle(0xffffff).fillRect(t.x - 10, t.y - 18, 20 * Math.max(0, t.hp / B.hp), 3);
-    }
+    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team));
     for (const b of s.barricades) {
       this.drawCrate(g, b.x, b.y, b.w, b.h, b.team, 1);
       g.fillStyle(0x000000, 0.6).fillRect(b.x, b.y - 6, b.w, 3).fillStyle(0xffffff).fillRect(b.x, b.y - 6, b.w * Math.max(0, b.hp / C.BARRICADE_HP), 3);
@@ -995,9 +932,9 @@ class GameScene extends Phaser.Scene {
         const bodies = [
           ...s.players.filter((p: any) => p.alive).map((p: any) => ({ ...(p.id === s.me ? this.me : p), r: C.PLAYER_RADIUS })),
           ...s.bosses.map((b: any) => ({ x: b.x, y: b.y, r: C.BOSS_RADIUS })),
-          ...s.funnels.map((f: any) => ({ x: f.x, y: f.y, r: C.SKILLS.mochiko.radius })),
+          ...s.ents.filter((e: any) => e.body === 'unit').map((e: any) => ({ x: e.x, y: e.y, r: e.r })),
         ];
-        if (!canPlace('barricade', px, py, bodies)) g.fillStyle(0xff2020, 0.5).fillRect(px - C.BARRICADE_SIZE / 2, py - C.BARRICADE_SIZE / 2, C.BARRICADE_SIZE, C.BARRICADE_SIZE);
+        if (!canPlace(px, py, bodies)) g.fillStyle(0xff2020, 0.5).fillRect(px - C.BARRICADE_SIZE / 2, py - C.BARRICADE_SIZE / 2, C.BARRICADE_SIZE, C.BARRICADE_SIZE);
       }
     }
 
@@ -1027,14 +964,15 @@ class GameScene extends Phaser.Scene {
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);
     this.staging(s, mine, myTeam, sinceSnap);
     // 技のアイコンとクールタイム
-    const sk = mine && C.SKILLS[mine.char], skEl = $('.skill');
+    const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
     skEl.style.display = sk ? 'flex' : 'none';
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
+      const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
       $('.skill .sn').textContent = sk.name;
-      $('.skill b').textContent = mine.mochi ? '餅' : cd > 0 ? String(Math.ceil(cd)) : 'OK';
+      $('.skill b').textContent = hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK';
       $('.skill i').style.setProperty('--p', `${(cd / sk.ct) * 360}deg`);
-      skEl.style.borderColor = cd > 0 || mine.mochi ? '#888' : '#ffe066';
+      skEl.style.borderColor = cd > 0 || hud ? '#888' : '#ffe066';
     }
     if (TOUCH) { const t = `照準<br>${AIM_SHORT[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}`; if ($('.aimb').innerHTML !== t) $('.aimb').innerHTML = t; }
     // ミニマップ

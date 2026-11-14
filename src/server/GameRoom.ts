@@ -1,17 +1,17 @@
 import { Room, Client } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { CONFIG as C, Rect, Pt, visionRadius, roleOf, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
-import { lineOfSight, inRect, moveBody, pushOut, canPlace, cage, inDashShape, circleRect } from '../shared/geom';
+import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
+import { CHARS, PICKABLE, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode } from '../shared/chars';
+import { lineOfSight, inRect, moveBody, pushOut, canPlace, cage } from '../shared/geom';
+import { SKILLS, STATUS_ORDER, ENTS } from './skills';
 import { findPath } from './pathfind';
 import { stepPlayer } from '../shared/netcode';
-import CHARS from '../shared/chars.json';
 import MAP from '../shared/map.json';
 
-const PICKABLE = Object.entries(CHARS).filter(([k, c]) => k !== '_' && !('boss' in (c as object))).map(([k]) => k); // 大将以外
 const T = C.TILE;
 // マップ外周の壁（外 ' ' か地図の端に接する壁）は壊せない
-const PERIMETER = MAP.tiles.map((row, y) => [...row].map((c, x) => c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '))));
+export const PERIMETER = MAP.tiles.map((row, y) => [...row].map((c, x) => c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '))));
 
 // 経路の長さ(px)
 export const pathLength = (from: Pt, to: Pt, obstacles = C.WALLS, walls = C.WALLS) => {
@@ -38,10 +38,9 @@ export const lottery = (weights: number[], rnd = Math.random) => {
   return weights.length - 1;
 };
 const pick = <X>(a: X[]) => a[Math.floor(Math.random() * a.length)];
-const melee = (char: string) => !C.MELEE_EXCLUDE.includes(char); // 近接補正の対象
 
 type Ult = { form: string; tier: number; until: number; pending: boolean }; // pending: 撤退中に選ばれ、復活後に始まる
-type Player = {
+export type Player = {
   id: string; team: number; char: string; x: number; y: number; hp: number; alive: boolean;
   dx: number; dy: number; face: number; // face: 向き(ラジアン)
   rage: number; bad: number; // bad: 悪行ポイント（徳を下げた量の累計。倒されると0）
@@ -50,15 +49,13 @@ type Player = {
   bot: boolean; role: 'gather' | 'raid'; path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
-  skillReadyAt: number; danceUntil: number; danceNext: number; mochiUntil: number; accelUntil: number; flyUntil: number; wallCheckAt: number;
+  skillReadyAt: number; st: Record<string, Status>; sk: Record<string, any>; // st: 状態（key → 期限と効果）、sk: 技処理の持ち物（server/skills が使う）
   assist: boolean; tier: number; ult: Ult | null; // assist: アシストユニット（復活しない）、tier: アシストの強さ（POWER_* の添字）
   goal: string; stuckX: number; stuckY: number; stuckSince: number; penalty: Map<string, number>; // Bot: 今の目的地、詰まり判定、避ける目的地（期限）
   qAt: number | null; recallAt: number | null; // Q を押した時刻と、リコールの溜めの開始時刻（被弾で溜め直し）
-  chargeAt: number | null; chargeA: number; dashUntil: number; dashHit: Set<string>; dashBroke: boolean; // アルの突撃: タメの開始時刻、方向、突撃の終わる時刻、当てた相手、壁を壊したか
   boostUntil: number; // 白上虎太郎の移動速度上昇
   inDx: number; inDy: number; // 人間: 最後に届いた移動入力
   eating: boolean; // Bot: リコールして給湯室でご飯を食べている（HPが満タンになるまで）
-  pushTile: string | null; pushAt: number; // 花丸のパッシブ: 押し込んでいる壁のタイルと、押し込み始めた時刻
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、box: 持っている荷物（ult / assist）
@@ -68,23 +65,24 @@ type Team = { toku: number; wanted: string | null; slot: Slot }; // toku: 徳、
 type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）
 type Material = { id: number; x: number; y: number; hi: boolean }; // hi: 裏側に出た高ポイントの資材
 type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?: boolean }; // kind: heal（回復アイテム）/ box_ult / box_assist（コバコの荷物）。team は常に -1。e2e: テスト用の仕掛けで置いたもの
-type Trap = { id: number; team: number; owner: string; x: number; y: number; a: number; hp: number; nextAtk: number }; // bii の罠（a: 向き）
 type Barricade = { id: number; team: number; x: number; y: number; w: number; h: number; hp: number };
-type Funnel = { id: number; team: number; owner: string; x: number; y: number; hp: number; until: number; nextAtk: number; slot: number; tgt: string | null; path: Pt[]; retargetAt: number }; // slot: 対象を囲む位置の角度
-type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number }; // boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）
-type Fist = { id: number; team: number; owner: string; x: number; y: number; a: number; left: number; hit: Set<string>; broke: boolean }; // 花丸の巨大拳（a: 向き、left: 残りの距離、hit: 当てた相手、broke: 壁を壊したか）
+type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void }; // boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）
+// 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、meleeOnly: 通常攻撃は近接のモードだけ、cancel: KO・試合終了で消える
+// at: 付与した時刻（技処理が使う）、view: スナップショットで送る描画用の値
+export type Status = { until: number; at?: number; speed?: number; regen?: number; noSkill?: boolean; lock?: boolean; noAttack?: boolean; invincible?: boolean; noPush?: boolean; meleeOnly?: boolean; cancel?: boolean; view?: () => any };
+// 場の物（技が出す物）。kind: 種類（server/skills の ENTS）、body: unit=ユニット扱い（自動照準の優先・はじき可）、struct=構造物扱い（壊し屋倍率）、null=攻撃対象にならない。ほかの項目は種類ごとの持ち物
+export type Ent = { id: number; kind: string; team: number; owner: string; x: number; y: number; r: number; hp?: number; body: 'unit' | 'struct' | null; [k: string]: any };
 type Fx = { id: number; kind: string; team: number; x: number; y: number; [k: string]: any };
-// 攻撃・技の対象（敵プレイヤー・大将・ファンネル・バリケード・罠）
-type Thing =
+// 攻撃・技の対象（敵プレイヤー・大将・場の物・バリケード・コバコ）
+export type Thing =
   | { k: 'p'; o: Player; x: number; y: number; r: number }
   | { k: 'boss'; o: Boss; x: number; y: number; r: number }
-  | { k: 'f'; o: Funnel; x: number; y: number; r: number }
+  | { k: 'e'; o: Ent; x: number; y: number; r: number }
   | { k: 'bar'; o: Barricade; x: number; y: number; r: number }
-  | { k: 'trap'; o: Trap; x: number; y: number; r: number }
   | { k: 'c'; o: Courier; x: number; y: number; r: number };
-const thingId = (t: Thing) => (t.k === 'p' ? `p:${t.o.id}` : t.k === 'boss' ? `boss:${t.o.team}` : `${t.k}:${t.o.id}`);
-const S = C.SKILLS;
-const K = C.KIRITAN;
+export const thingId = (t: Thing) => (t.k === 'p' ? `p:${t.o.id}` : t.k === 'boss' ? `boss:${t.o.team}` : `${t.k}:${t.o.id}`);
+export const isUnit = (t: Thing) => t.k === 'p' || t.k === 'boss' || (t.k === 'e' && t.o.body === 'unit'); // ユニット（プレイヤー・大将・ユニット扱いの場の物）
+export const isStruct = (t: Thing) => t.k === 'bar' || (t.k === 'e' && t.o.body === 'struct'); // 構造物（バリケード・構造物扱いの場の物）
 
 export class GameRoom extends Room {
   static logFile = ''; // 試合ログの出力先（JSON Lines、空なら書かない）。src/server/index.ts で設定
@@ -102,11 +100,9 @@ export class GameRoom extends Room {
   teams: Team[] = [];
   materials: Material[] = [];
   items: Item[] = [];
-  traps: Trap[] = [];
   barricades: Barricade[] = [];
-  funnels: Funnel[] = [];
+  ents: Ent[] = []; // 場の物（技が出す物）
   shots: Shot[] = [];
-  fists: Fist[] = [];
   couriers: Courier[] = []; // ブイブイ・コバコ（1体。KO中は空）
   courierAt = 0; // コバコの復活時刻
   warns: Warn[] = [];
@@ -285,7 +281,7 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], traps: [], barricades: [], funnels: [], shots: [], fists: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: [] });
+    Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], barricades: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: [] });
     this.backVotes.clear();
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
     this.setBossRooms(pick(ROOM_COMBOS.filter((c) => c.sum <= C.BOSS_ROOM_DIST_SUM_MAX)).names);
@@ -311,8 +307,7 @@ export class GameRoom extends Room {
   // 最大HP（ロール、ウルト中は変身先、アシストは強さの倍率）
   maxHp(p: Player) {
     if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * C.POWER_MULT[p.tier];
-    let hp = C.PLAYER_HP * (roleOf(p.char)?.hp ?? 1);
-    if (melee(p.char)) hp *= C.MELEE_BONUS.hp;
+    let hp = charHp(p.char);
     if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * C.POWER_MULT[p.ult.tier];
     return hp;
   }
@@ -326,10 +321,10 @@ export class GameRoom extends Room {
       cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(),
       bot, role: 'gather', path: [], pathAt: -Infinity, raidBase: -1, visited: [],
       aim: bot ? C.BOT_AIM : C.AIM_MODES[0], tgt: null, inputs: [], ack: 0,
-      skillReadyAt: 0, danceUntil: 0, danceNext: 0, mochiUntil: 0, accelUntil: 0, flyUntil: 0, wallCheckAt: 0,
+      skillReadyAt: 0, st: {}, sk: {},
       assist: false, tier: 1, ult: null,
       goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
-      chargeAt: null, chargeA: 0, dashUntil: 0, dashHit: new Set(), dashBroke: false, boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, pushTile: null, pushAt: 0,
+      boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false,
     };
     this.players.set(id, p);
     return p;
@@ -400,7 +395,7 @@ export class GameRoom extends Room {
     this.phase = 'intro';
     this.phaseLeft = C.INTRO_MODE === 'old' ? C.INTRO_LINEUP + C.TEAM_SIZE * C.INTRO_CUTIN : C.INTRO2.cuts.reduce((a, [, t]) => a + t, 0);
     // 徳の初期値（キャラごとの補正を足す）、資材、コバコ、スロット
-    this.teams.forEach((t, i) => (t.toku = this.clampToku(C.TOKU_INIT + [...this.players.values()].filter((p) => p.team === i).reduce((a, p) => a + (C.TOKU_CHAR[p.char] ?? 0), 0))));
+    this.teams.forEach((t, i) => (t.toku = this.clampToku(C.TOKU_INIT + [...this.players.values()].filter((p) => p.team === i).reduce((a, p) => a + (CHARS[p.char]?.toku ?? 0), 0))));
     while (this.materials.length < C.MATERIAL_MAX) this.spawnMaterial();
     for (const [x, y] of C.HEAL_SPOTS) this.items.push({ id: this.nextId++, kind: 'heal', team: -1, x, y }); // ご飯は最初から置いておく
     this.spawnCourier();
@@ -432,7 +427,7 @@ export class GameRoom extends Room {
       const c = this.cageOf(p), obs = c && [...this.obstacles(), ...cage(c)];
       for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
         const m = p.inputs.shift()!;
-        if (obs && p.alive && p.chargeAt === null && this.now >= p.dashUntil) { this.setInput(p.id, m.dx, m.dy); Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), obs)); }
+        if (obs && p.alive && !this.effect(p, 'lock')) { this.setInput(p.id, m.dx, m.dy); Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), obs)); }
         p.ack = m.seq;
       }
     }
@@ -469,9 +464,7 @@ export class GameRoom extends Room {
       this.updateBots();
       this.updatePlayers(dt);
       this.updateShots(dt);
-      this.updateFists(dt);
-      this.updateFunnels(dt);
-      this.updateTraps(dt);
+      this.updateEnts(dt);
       this.unstick();
       this.updateBosses();
       this.updateMaterials(dt);
@@ -497,22 +490,44 @@ export class GameRoom extends Room {
     this.now += dt;
     for (const p of this.players.values()) {
       if (!p.alive) continue;
-      if (p.chargeAt !== null && this.now - p.chargeAt >= S.aru.windup) Object.assign(p, { chargeAt: null, dashUntil: this.now + S.aru.dur, dashHit: new Set(), dashBroke: false });
-      if (this.now < p.dashUntil) this.dashStep(p, dt);
-      if (this.now < p.danceUntil && this.now >= p.danceNext) { p.danceNext += S.sayo.every; this.addFx(p, 'ring', { r: S.sayo.r }); }
+      SKILLS[p.char]?.ended?.(this, p, dt);
     }
     this.updateShots(dt);
-    this.updateFists(dt);
-    this.updateFunnels(dt);
-    this.updateTraps(dt);
+    this.updateEnts(dt);
   }
 
-  // 保険: 壁・バリケードと重なっているキャラ・大将・ファンネルを最寄りの空き位置へ押し出す
+  // 場の物: 種類ごとに（ENTS の順）更新
+  updateEnts(dt: number) {
+    for (const kind in ENTS) for (const e of this.ents.filter((x) => x.kind === kind)) ENTS[kind].update(this, e, dt);
+  }
+
+  removeEnt(e: Ent) {
+    this.ents = this.ents.filter((x) => x !== e);
+  }
+
+  // 有効な状態（なければ undefined）
+  stat(p: Player, key: string) {
+    const s = p.st[key];
+    return s && this.now < s.until ? s : undefined;
+  }
+
+  // 有効な状態のどれかに効果 flag があるか
+  effect(p: Player, flag: keyof Status) {
+    for (const k in p.st) if (this.now < p.st[k].until && p.st[k][flag]) return true;
+    return false;
+  }
+
+  // KO・試合終了で消える状態を消す
+  cancelStatuses(p: Player) {
+    for (const k in p.st) if (p.st[k].cancel) delete p.st[k];
+  }
+
+  // 保険: 壁・バリケードと重なっているキャラ・大将・ユニット扱いの場の物を最寄りの空き位置へ押し出す
   unstick() {
     const obs = this.obstacles();
     for (const p of this.players.values()) if (p.alive) Object.assign(p, pushOut(p.x, p.y, C.PLAYER_RADIUS, obs));
     for (const b of this.bosses) Object.assign(b, pushOut(b.x, b.y, C.BOSS_RADIUS, obs));
-    for (const f of this.funnels) Object.assign(f, pushOut(f.x, f.y, S.mochiko.radius, obs));
+    for (const e of this.ents) if (e.body === 'unit') Object.assign(e, pushOut(e.x, e.y, e.r, obs));
   }
 
   endMatch(winner: number, kind: 'boss' | 'timeout' = 'timeout') {
@@ -525,7 +540,8 @@ export class GameRoom extends Room {
       const r = this.cageOf({ team: t } as Player)!, list = [...this.players.values()].filter((p) => p.team === t);
       list.forEach((p, i) => {
         const x = r.x + r.w / 2 + ((i % 4) - 1.5) * 28, y = r.y + r.h / 2 + C.BOSS_RADIUS + 20 + Math.floor(i / 4) * 28;
-        Object.assign(p, { alive: true, dx: 0, dy: 0, chargeAt: null, dashUntil: 0 }, pushOut(Math.max(r.x + 12, Math.min(r.x + r.w - 12, x)), Math.min(r.y + r.h - 12, y), C.PLAYER_RADIUS, this.obstacles()));
+        this.cancelStatuses(p);
+        Object.assign(p, { alive: true, dx: 0, dy: 0 }, pushOut(Math.max(r.x + 12, Math.min(r.x + r.w - 12, x)), Math.min(r.y + r.h - 12, y), C.PLAYER_RADIUS, this.obstacles()));
         p.hp = this.maxHp(p);
       });
     }
@@ -558,16 +574,10 @@ export class GameRoom extends Room {
   speedOf(p: Player) {
     const slow = this.now < p.slowUntil ? C.SLOT.penalty.slow : 1; // スロットの罰
     if (p.assist) return C.PLAYER_SPEED * C.ASSIST.speed * slow * (this.now < p.boostUntil ? C.ASSIST.units.shirakami.boost : 1);
-    const role = roleOf(p.char);
-    let sp = C.PLAYER_SPEED * (role?.speed ?? 1);
-    if (melee(p.char)) sp *= C.MELEE_BONUS.speed;
-    if (p.char === 'kiritan') sp *= K.speed; // きりたんは足が遅い
+    let sp = charSpeed(p.char);
     if (this.now < p.boostUntil) sp *= C.ASSIST.units.shirakami.boost;
     sp *= slow;
-    if (this.now < p.danceUntil) sp *= S.sayo.speed;
-    if (this.now < p.accelUntil) sp *= S.ierutan.speed;
-    if (this.now < p.mochiUntil) sp *= S.zunko.speed;
-    if (this.now < p.flyUntil) sp *= S.kiritan.speed;
+    for (const k of STATUS_ORDER) { const s = this.stat(p, k); if (s?.speed !== undefined) sp *= s.speed; } // 状態の移動倍率
     if (p.ult && !p.ult.pending) sp *= C.ULT_FORMS[p.ult.form].speed;
     return sp;
   }
@@ -580,8 +590,8 @@ export class GameRoom extends Room {
         if (this.now >= p.respawnAt) this.respawn(p);
         continue;
       }
-      const locked = p.chargeAt !== null || this.now < p.dashUntil; // アルの突撃: タメ中・突撃中は通常の移動をしない
-      const px = p.x, py = p.y; // 花丸のパッシブ（押し込み）の判定用
+      const locked = this.effect(p, 'lock'); // 移動不可の状態では通常の移動をしない
+      const px = p.x, py = p.y; // 移動前の位置（技処理の判定用）
       if (!p.bot) {
         // 人間: 届いた入力を1tickに1つ（溜まっていれば2つ）、クライアントと同じ計算で処理
         p.dx = p.dy = 0;
@@ -595,10 +605,7 @@ export class GameRoom extends Room {
         const sp = this.speedOf(p) * dt;
         Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, obs));
       }
-      if (!locked && this.now >= p.stunUntil) this.hanamaruPush(p, px, py);
-      // アルの突撃: タメが終わったら突撃を始め、突撃中は決めた方向へ進み続ける
-      if (p.chargeAt !== null && this.now - p.chargeAt >= S.aru.windup) Object.assign(p, { chargeAt: null, dashUntil: this.now + S.aru.dur, dashHit: new Set(), dashBroke: false });
-      if (this.now < p.dashUntil) this.dashStep(p, dt);
+      SKILLS[p.char]?.afterMove?.(this, p, dt, px, py, locked);
       if (!p.assist) {
         // 資材は触れると拾う（持ち運ばない。徳が上がる）
         for (const m of [...this.materials]) {
@@ -619,15 +626,10 @@ export class GameRoom extends Room {
       }
       // ウルトの時間切れ: 元のキャラがその場にHP100%で戻る
       if (p.ult && !p.ult.pending && this.now >= p.ult.until) this.endUlt(p);
-      // 加速中は少しずつ回復（最大HPまで）
-      if (this.now < p.accelUntil && p.hp < this.maxHp(p)) p.hp = Math.min(this.maxHp(p), p.hp + S.ierutan.regen * dt);
-      // 疾風乱舞: 一定間隔で自分中心の円にダメージ
-      if (this.now < p.danceUntil && this.now >= p.danceNext) {
-        p.danceNext += S.sayo.every;
-        this.inCircle(p, p.x, p.y, S.sayo.r).forEach((t) => this.hitThing(p, t, S.sayo.dmg));
-        this.addFx(p, 'ring', { r: S.sayo.r });
-      }
-      // オートアタック: 照準モードで選んだ対象へ、クールタイムが明けたら自動で攻撃（タメ中・突撃中は攻撃しない）
+      // 回復する状態の間は少しずつ回復（最大HPまで）
+      for (const k of STATUS_ORDER) { const s = this.stat(p, k); if (s?.regen !== undefined && p.hp < this.maxHp(p)) p.hp = Math.min(this.maxHp(p), p.hp + s.regen * dt); }
+      SKILLS[p.char]?.tick?.(this, p, dt);
+      // オートアタック: 照準モードで選んだ対象へ、クールタイムが明けたら自動で攻撃（移動不可の状態では攻撃しない）
       p.tgt = p.aim === 'manual' ? null : this.pickTarget(p);
       if (p.tgt && !locked && this.now >= p.cooldownUntil) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
     }
@@ -641,7 +643,7 @@ export class GameRoom extends Room {
   respawn(p: Player) {
     const s = C.SPAWNS[p.team];
     if (p.ult?.pending) Object.assign(p.ult, { pending: false, until: this.now + C.ULT_DURATION }); // 撤退中に選ばれたウルトは復活後に始まる
-    Object.assign(p, { alive: true, x: s.x, y: s.y, eating: false, stunUntil: 0, danceUntil: 0, mochiUntil: 0, accelUntil: 0, flyUntil: 0, recallAt: null, chargeAt: null, dashUntil: 0, boostUntil: 0 });
+    Object.assign(p, { alive: true, x: s.x, y: s.y, eating: false, stunUntil: 0, st: {}, recallAt: null, boostUntil: 0 });
     p.hp = this.maxHp(p);
     p.lastHitBy.clear();
   }
@@ -770,9 +772,9 @@ export class GameRoom extends Room {
     for (const e of this.players.values()) if (e.team !== team && e.alive) out.push({ k: 'p', o: e, x: e.x, y: e.y, r: C.PLAYER_RADIUS });
     const b = this.bosses[1 - team];
     out.push({ k: 'boss', o: b, x: b.x, y: b.y, r: C.BOSS_RADIUS });
-    for (const f of this.funnels) if (f.team !== team) out.push({ k: 'f', o: f, x: f.x, y: f.y, r: S.mochiko.radius });
+    for (const o of this.ents) if (o.body === 'unit' && o.team !== team) out.push({ k: 'e', o, x: o.x, y: o.y, r: o.r });
     for (const o of this.barricades) if (o.team !== team) out.push({ k: 'bar', o, x: o.x + o.w / 2, y: o.y + o.h / 2, r: o.w / 2 });
-    for (const o of this.traps) if (o.team !== team) out.push({ k: 'trap', o, x: o.x, y: o.y, r: C.TRAP_RADIUS });
+    for (const o of this.ents) if (o.body === 'struct' && o.team !== team) out.push({ k: 'e', o, x: o.x, y: o.y, r: o.r });
     for (const o of this.couriers) if (o.team !== team) out.push({ k: 'c', o, x: o.x, y: o.y, r: C.PLAYER_RADIUS });
     return out;
   }
@@ -782,19 +784,18 @@ export class GameRoom extends Room {
     return lineOfSight(p.x, p.y, t.x, t.y, t.k === 'bar' ? this.obstacles().filter((o) => o !== t.o) : this.obstacles());
   }
 
-  // 通常攻撃の射程（ウルト中は変身先、きりたんは飛行中なら包丁・普段はきりたん砲）
+  // 通常攻撃の射程（ウルト中は変身先、ほかは使えるモードのうち一番長いもの）
   atkRange(p: Player) {
     if (p.ult && !p.ult.pending) return C.ULT_FORMS[p.ult.form].range;
-    if (p.char === 'kiritan') return this.now < p.flyUntil ? C.ATTACK_RANGE : K.cannonRange;
-    return C.RANGED[p.char] ?? C.ATTACK_RANGE;
+    return aaRange(p.char, this.effect(p, 'meleeOnly'));
   }
 
-  // 照準モードで対象を選ぶ。敵プレイヤー・大将・ファンネルを優先し、いなければバリケード・罠
+  // 照準モードで対象を選ぶ。ユニット（敵プレイヤー・大将・ユニット扱いの場の物）を優先し、いなければ構造物
   pickTarget(p: Player): Thing | null {
     const R = this.atkRange(p);
     const d = (t: Thing) => Math.hypot(t.x - p.x, t.y - p.y);
     const inRange = this.enemyThings(p.team).filter((t) => t.k !== 'c' && d(t) <= R + t.r && this.reach(p, t)); // コバコは自動では狙わない
-    const units = inRange.filter((t) => t.k === 'p' || t.k === 'boss' || t.k === 'f');
+    const units = inRange.filter(isUnit);
     const byDist = (a: Thing[]) => [...a].sort((u, v) => d(u) - d(v))[0] ?? null;
     const wanted = this.teams[1 - p.team]?.wanted;
     if (p.assist && p.char === 'shirakami') return units.find((t) => t.k === 'boss') ?? null; // 白上虎太郎は大将だけを攻撃
@@ -821,32 +822,30 @@ export class GameRoom extends Room {
     return Math.abs(a) <= arc / 2;
   }
 
-  // 通常攻撃の間隔: 遠距離（zunko、kiritan のきりたん砲）と近接（kiritan の包丁を含む）
+  // 通常攻撃の間隔: 使うモードの間隔（ウルト中は近接）
   atkCooldown(p: Player) {
-    const cannon = p.char === 'kiritan' && !(p.ult && !p.ult.pending) && this.now >= p.flyUntil && (p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) > K.knifeRange : true);
-    return (p.char === 'zunko' && !(p.ult && !p.ult.pending)) || cannon ? C.ATTACK_COOLDOWN_RANGED : C.ATTACK_COOLDOWN_MELEE;
+    if (p.ult && !p.ult.pending) return C.ATTACK_COOLDOWN_MELEE;
+    return aaMode(p.char, p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) : null, this.effect(p, 'meleeOnly')).cd;
   }
 
   attack(id: string, aim?: number) {
     const p = this.players.get(id);
-    if (!p || this.phase !== 'playing' || !p.alive || p.chargeAt !== null || this.now < p.dashUntil || this.now < p.stunUntil || this.now < p.cooldownUntil) return;
+    if (!p || this.phase !== 'playing' || !p.alive || this.effect(p, 'noAttack') || this.now < p.stunUntil || this.now < p.cooldownUntil) return;
     p.cooldownUntil = this.now + this.atkCooldown(p);
     const a = aim ?? p.face;
-    let dmg = C.ATTACK_DAMAGE * (roleOf(p.char)?.atk ?? 1);
-    if (p.assist) dmg *= C.POWER_MULT[p.tier];
-    else if (melee(p.char)) dmg *= C.MELEE_BONUS.atk;
+    let dmg = p.assist ? C.ATTACK_DAMAGE * (roleOf(p.char)?.atk ?? 1) * C.POWER_MULT[p.tier] : charAtk(p.char);
     let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC;
     if (p.ult && !p.ult.pending) {
       const f = C.ULT_FORMS[p.ult.form];
       dmg *= f.atk * C.POWER_MULT[p.ult.tier];
       if (f.ranged) return this.shoot(p, 'bullet', a, f.range, dmg);
       range = f.range; arc = f.arc;
-    } else if (p.char === 'kiritan') {
-      // きりたん: 対象が遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近いか飛行中なら包丁
-      const far = p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) > K.knifeRange : true;
-      if (far && this.now >= p.flyUntil) return this.shoot(p, 'cannon', a, K.cannonRange, dmg * K.cannonDmg, K.cannonSpeed);
-      dmg *= K.knifeDmg;
-    } else if (C.RANGED[p.char]) return this.shoot(p, 'bullet', a, C.RANGED[p.char], dmg); // 遠距離: 弾を撃つ
+    } else {
+      // 通常攻撃のモード（対象までの距離と状態で決まる）: 弾なら撃つ、近接なら前方の扇形
+      const m = aaMode(p.char, p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) : null, this.effect(p, 'meleeOnly'));
+      if (m.kind === 'shot') return this.shoot(p, m.shot!, a, m.range, dmg * m.dmg, m.speed);
+      dmg *= m.dmg; range = m.range;
+    }
     for (const t of this.enemyThings(p.team)) {
       if (this.inArc(p, t.x, t.y, t.r, a, range, arc) && this.reach(p, t)) this.hitThing(p, t, dmg);
     }
@@ -860,16 +859,15 @@ export class GameRoom extends Room {
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
     if (t.k === 'boss' && roleOf(p.char)?.name === 'attacker') dmg *= C.ATTACKER_BOSS_MULT;
-    if ((t.k === 'bar' || t.k === 'trap') && C.BREAKERS.includes(p.char)) dmg *= C.BREAKER_MULT;
+    if (isStruct(t) && CHARS[p.char]?.breaker) dmg *= C.BREAKER_MULT;
     if (t.k === 'p') this.damagePlayer(t.o, dmg, p.id);
     else if (t.k === 'boss') this.damageBoss(t.o, dmg, p);
-    else if (t.k === 'f') { t.o.hp -= dmg; if (t.o.hp <= 0) this.funnels = this.funnels.filter((x) => x !== t.o); }
     else if (t.k === 'bar') { t.o.hp -= dmg; if (t.o.hp <= 0) this.barricades = this.barricades.filter((x) => x !== t.o); }
-    else { t.o.hp -= dmg; if (t.o.hp <= 0) this.traps = this.traps.filter((x) => x !== t.o); }
+    else if (t.k === 'e') { t.o.hp! -= dmg; if (t.o.hp! <= 0) this.removeEnt(t.o); }
   }
 
   damagePlayer(v: Player, dmg: number, attacker: string | null, raw = false) {
-    if (!v.alive || this.phase !== 'playing' || this.now < v.dashUntil) return; // 突撃中のアルは無敵
+    if (!v.alive || this.phase !== 'playing' || this.effect(v, 'invincible')) return; // 無敵の状態
     // 被ダメ軽減（重なるときは掛け算）: defense / balance（近くに味方がいない）/ ウルトの変身先。raw（罰のダメージ）は軽減しない
     const role = raw ? undefined : roleOf(v.char)?.name;
     if (role === 'defense') dmg *= 1 - C.DEFENSE_CUT;
@@ -883,7 +881,7 @@ export class GameRoom extends Room {
     v.alive = false;
     v.hp = 0;
     v.recallAt = null;
-    v.chargeAt = null; // タメ中に倒されたら突撃は不発（CTは消費済み）
+    this.cancelStatuses(v); // KOで消える状態（タメ中に倒されたら突撃は不発。CTは消費済み）
     const killer = attacker ? this.players.get(attacker) : undefined;
     if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char }); // KOカットイン用（アシストは立ち絵がないので出さない）
     for (const c of this.clients) c.send('kill', { kc: killer?.char ?? null, kt: killer?.team ?? 1 - v.team, vc: v.char, vt: v.team }); // キルログ用（kc なし＝大将の反撃）
@@ -1053,12 +1051,12 @@ export class GameRoom extends Room {
     if (mine.length > C.BARRICADE_MAX) this.barricades = this.barricades.filter((b) => b !== mine[0]);
   }
 
-  // 位置を持つもの（キャラ・大将・ファンネル）
+  // 位置を持つもの（キャラ・大将・ユニット扱いの場の物）
   bodies() {
     return [
       ...[...this.players.values()].filter((p) => p.alive).map((p) => ({ x: p.x, y: p.y, r: C.PLAYER_RADIUS })),
       ...this.bosses.map((b) => ({ x: b.x, y: b.y, r: C.BOSS_RADIUS })),
-      ...this.funnels.map((f) => ({ x: f.x, y: f.y, r: S.mochiko.radius })),
+      ...this.ents.filter((e) => e.body === 'unit').map((e) => ({ x: e.x, y: e.y, r: e.r })),
     ];
   }
 
@@ -1067,17 +1065,19 @@ export class GameRoom extends Room {
     const p = this.players.get(id);
     if (!p || this.phase !== 'playing' || !p.alive) return;
     const x = p.x + Math.cos(p.face) * C.PLACE_DIST, y = p.y + Math.sin(p.face) * C.PLACE_DIST;
-    if (!canPlace('barricade', x, y, this.bodies())) return;
+    if (!canPlace(x, y, this.bodies())) return;
     if (this.broken.some(([bx, by]) => bx === Math.floor(x / T) && by === Math.floor(y / T))) this.addBarricade(p.team, x, y);
   }
 
-  // ---- 弾・ファンネル・罠 ----
+  // ---- 弾 ----
 
   shoot(p: Player, kind: Shot['kind'], a: number, range: number, dmg: number, sp = C.BULLET_SPEED) {
-    this.shots.push({ id: this.nextId++, kind, team: p.team, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, left: range, dmg });
+    const s: Shot = { id: this.nextId++, kind, team: p.team, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, left: range, dmg };
+    this.shots.push(s);
+    return s;
   }
 
-  // 弾・矢: 壁で止まり、敵（プレイヤー・大将・ファンネル・バリケード・罠）に当たると消える
+  // 弾・矢: 壁で止まり、敵（プレイヤー・大将・場の物・バリケード）に当たると消える
   updateShots(dt: number) {
     for (const s of [...this.shots]) {
       const owner = this.players.get(s.owner);
@@ -1090,8 +1090,8 @@ export class GameRoom extends Room {
         if (hit) {
           done = true;
           if (s.boom) break;
-          if (s.kind !== 'arrow') this.hitThing(owner!, hit, s.dmg);
-          else if (hit.k === 'p' && this.now >= hit.o.dashUntil && this.phase === 'playing') hit.o.mochiUntil = this.now + S.zunko.dur; // ずんだアロー: ずんだ餅に変える（大将・突撃中のアルには効かない）
+          if (s.onHit) s.onHit(hit);
+          else this.hitThing(owner!, hit, s.dmg);
           break;
         }
         if (this.barricades.some((b) => b.team === s.team && inRect(s.x, s.y, b))) { done = true; break; } // 味方のバリケードでも止まる
@@ -1099,118 +1099,6 @@ export class GameRoom extends Room {
       if (!(done || s.left <= 0)) continue;
       this.shots = this.shots.filter((x) => x !== s);
       if (s.boom && this.phase === 'playing') this.explode(s.team, s.x, s.y, s.boom, s.dmg); // 大将の弾: 着弾地点で爆発
-    }
-  }
-
-  // 花丸の巨大拳: 直進し、キャラ（1体1回）にダメージ、壁は壊して貫通。射程を飛ぶか外周の壁に当たると消える。結果画面では壁を壊さない
-  updateFists(dt: number) {
-    const H = S.hanamaru;
-    for (const f of [...this.fists]) {
-      const owner = this.players.get(f.owner);
-      let step = Math.min(H.speed * dt, f.left), gone = !owner;
-      while (step > 0 && !gone) {
-        const d = Math.min(8, step);
-        f.x += Math.cos(f.a) * d; f.y += Math.sin(f.a) * d; f.left -= d; step -= d;
-        const tiles: number[][] = [];
-        for (let ty = Math.floor((f.y - H.r) / T); ty <= Math.floor((f.y + H.r) / T); ty++) for (let tx = Math.floor((f.x - H.r) / T); tx <= Math.floor((f.x + H.r) / T); tx++) {
-          if (this.tiles[ty]?.[tx] !== '#' || !circleRect(f.x, f.y, H.r, { x: tx * T, y: ty * T, w: T, h: T })) continue;
-          if (PERIMETER[ty]?.[tx] ?? true) gone = true; else tiles.push([tx, ty]);
-        }
-        if (gone) break;
-        if (tiles.length && this.phase === 'playing') {
-          this.breakWalls(tiles);
-          this.addFx(f, 'wall', { tiles, r: 0 });
-          if (!f.broke) { f.broke = true; this.addToku(f.team, owner!, 'wall'); } // 1回の技につき1回
-        }
-        for (const t of this.enemyThings(f.team)) {
-          if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || Math.hypot(t.x - f.x, t.y - f.y) > H.r + t.r) continue;
-          f.hit.add(thingId(t));
-          this.hitThing(owner!, t, H.dmg);
-        }
-      }
-      if (gone || f.left <= 0) this.fists = this.fists.filter((x) => x !== f);
-    }
-  }
-
-  // 花丸のパッシブ: 壁へ押し込み続ける（移動入力の向きに壁があって進めない）と、push 秒でその壁を壊す。触れた瞬間では壊れない
-  // 対象は移動を実際に止めている壁タイル（進む向きに少しずらした体と新たに重なる壁のうち、体の中心に一番近いもの）。壁の端・角に一部だけ触れていても壊せる
-  hanamaruPush(p: Player, px: number, py: number) {
-    const H = S.hanamaru, [ix, iy] = this.moveIntent(p);
-    if (p.char !== 'hanamaru' || (!ix && !iy)) { p.pushTile = null; return; }
-    const [dx, dy] = Math.abs(ix) >= Math.abs(iy) ? [Math.sign(ix), 0] : [0, Math.sign(iy)];
-    const moved = dx ? Math.abs(p.x - px) : Math.abs(p.y - py), R = C.PLAYER_RADIUS, nx = p.x + dx * 4.5, ny = p.y + dy * 4.5; // 4.5: 移動の1ステップ（最大4px）より少し先
-    const blockers: number[][] = [];
-    for (let ty = Math.floor((ny - R) / T); ty <= Math.floor((ny + R) / T); ty++) {
-      for (let tx = Math.floor((nx - R) / T); tx <= Math.floor((nx + R) / T); tx++) {
-        const b = { x: tx * T, y: ty * T, w: T, h: T };
-        if (this.tiles[ty]?.[tx] === '#' && !PERIMETER[ty][tx] && circleRect(nx, ny, R, b) && !circleRect(p.x, p.y, R, b)) blockers.push([tx, ty]);
-      }
-    }
-    const hit = blockers.sort((u, v) => Math.hypot((u[0] + 0.5) * T - p.x, (u[1] + 0.5) * T - p.y) - Math.hypot((v[0] + 0.5) * T - p.x, (v[1] + 0.5) * T - p.y))[0];
-    if (!hit || moved > 0.5) { p.pushTile = null; return; }
-    const key = `${hit[0]},${hit[1]}`;
-    if (p.pushTile !== key) { p.pushTile = key; p.pushAt = this.now; return; }
-    if (this.now - p.pushAt < H.push) return;
-    const tiles = this.breakTiles(p, Math.atan2(dy, dx), hit);
-    p.pushTile = null;
-    if (!tiles.length) return;
-    this.breakWalls(tiles);
-    this.addToku(p.team, p, 'wall');
-    this.addFx(p, 'wall', { tiles, r: 0 });
-  }
-
-  // ファンネル: 経路で届く敵を選び、敵を囲む円周上の自分の位置へ移動 → 止まって射撃 → 次の位置へ、を繰り返す
-  updateFunnels(dt: number) {
-    const F = S.mochiko;
-    this.funnels = this.funnels.filter((f) => this.now < f.until);
-    const obs = this.obstacles();
-    for (const f of this.funnels) {
-      const owner = this.players.get(f.owner);
-      const find = (id: string | null) => (id ? this.enemyThings(f.team).find((t) => thingId(t) === id && (t.k === 'p' || t.k === 'boss')) : undefined);
-      let tgt = find(f.tgt);
-      if (this.now >= f.retargetAt || !tgt) {
-        f.retargetAt = this.now + F.retarget;
-        // 近い順に、経路長が上限以下の敵（壁の向こうで回り道が長すぎる敵は選ばない）
-        const near = this.enemyThings(f.team).filter((t) => (t.k === 'p' || t.k === 'boss') && Math.hypot(t.x - f.x, t.y - f.y) <= F.sense)
-          .sort((u, v) => Math.hypot(u.x - f.x, u.y - f.y) - Math.hypot(v.x - f.x, v.y - f.y)).slice(0, 2);
-        tgt = near.find((t) => pathLength(f, t, obs, this.walls) <= F.pathMax);
-        f.tgt = tgt ? thingId(tgt) : null;
-        const to = tgt ? { x: tgt.x + Math.cos(f.slot) * F.ring, y: tgt.y + Math.sin(f.slot) * F.ring } : owner;
-        f.path = to ? findPath(f, to, obs, this.walls) : [];
-      }
-      const slot = tgt ? { x: tgt.x + Math.cos(f.slot) * F.ring, y: tgt.y + Math.sin(f.slot) * F.ring } : null;
-      const to = slot ?? (owner?.alive ? owner : null);
-      if (!to) continue;
-      const stop = slot ? 3 : 40;
-      if (Math.hypot(to.x - f.x, to.y - f.y) > stop) {
-        // 移動中（射撃しない）: 経路の次の点、なければ目的地へ
-        while (f.path.length > 1 && Math.hypot(f.path[0].x - f.x, f.path[0].y - f.y) < 6) f.path.shift();
-        const n = f.path.length > 1 ? f.path[0] : to, d = Math.hypot(n.x - f.x, n.y - f.y) || 1, m = Math.min(F.speed * dt, d);
-        Object.assign(f, moveBody(f.x, f.y, ((n.x - f.x) / d) * m, ((n.y - f.y) / d) * m, F.radius, obs));
-      } else if (tgt && this.now >= f.nextAtk && Math.hypot(tgt.x - f.x, tgt.y - f.y) <= F.range && lineOfSight(f.x, f.y, tgt.x, tgt.y, obs)) {
-        // 止まって射撃し、次の射撃位置へ回り込む
-        f.nextAtk = this.now + F.every;
-        if (owner) this.hitThing(owner, tgt, F.dmg);
-        this.addFx(f, 'beam', { x2: tgt.x, y2: tgt.y });
-        f.slot += F.slotStep;
-        f.retargetAt = 0;
-      }
-    }
-  }
-
-  // bii の罠: 向いた方向の扇形にいる敵を一定間隔で攻撃。時間でも耐久が減る
-  updateTraps(dt: number) {
-    const B = S.bii;
-    for (const tr of [...this.traps]) {
-      const owner = this.players.get(tr.owner);
-      tr.hp -= B.decay * dt;
-      if (tr.hp <= 0 || !owner) { this.traps = this.traps.filter((x) => x !== tr); continue; }
-      if (this.now < tr.nextAtk) continue;
-      const hits = this.enemyThings(tr.team).filter((t) => (t.k === 'p' || t.k === 'boss' || t.k === 'f') && this.inArc({ ...owner, x: tr.x, y: tr.y }, t.x, t.y, t.r, tr.a, B.range, B.arc) && lineOfSight(tr.x, tr.y, t.x, t.y, this.obstacles()));
-      if (!hits.length) continue;
-      tr.nextAtk = this.now + B.every;
-      hits.forEach((t) => this.hitThing(owner, t, B.dmg));
-      this.addFx(tr, 'arc', { a: tr.a, r: B.range, arc: B.arc, color: 'trap' });
     }
   }
 
@@ -1235,33 +1123,9 @@ export class GameRoom extends Room {
 
   // はじき: 向き(ux,uy)へ dist 動かす。大将・構造物には効かない。壁・バリケードで止まる
   push(t: Thing, ux: number, uy: number, dist: number) {
-    if (t.k !== 'p' && t.k !== 'f') return;
-    if (t.k === 'p' && this.now < t.o.dashUntil) return; // 突撃中のアルははじかれない
-    Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : S.mochiko.radius, this.obstacles(), false));
-  }
-
-  // hanamaru: 前方の壁（幅 w × 奥行 d タイル）。外周の壁は除く
-  // from: 壊し始める壁タイル（なければ p の正面 reach マス以内の最初の壁）
-  breakTiles(p: Pt, a: number, from?: number[]): number[][] {
-    const H = S.hanamaru;
-    const [dx, dy] = Math.abs(Math.cos(a)) >= Math.abs(Math.sin(a)) ? [Math.sign(Math.cos(a)), 0] : [0, Math.sign(Math.sin(a))];
-    let sx: number, sy: number;
-    if (from) [sx, sy] = from;
-    else {
-      const tx = Math.floor(p.x / T), ty = Math.floor(p.y / T);
-      let k = 1;
-      while (k <= H.reach && this.tiles[ty + dy * k]?.[tx + dx * k] !== '#') k++;
-      if (k > H.reach) return [];
-      sx = tx + dx * k; sy = ty + dy * k;
-    }
-    const out: number[][] = [];
-    for (let j = 0; j < H.d; j++) {
-      for (let i = -Math.floor(H.w / 2); i <= Math.floor(H.w / 2); i++) {
-        const x = sx + dx * j + (dy ? i : 0), y = sy + dy * j + (dx ? i : 0);
-        if (this.tiles[y]?.[x] === '#' && !PERIMETER[y][x]) out.push([x, y]);
-      }
-    }
-    return out;
+    if (t.k !== 'p' && !(t.k === 'e' && t.o.body === 'unit')) return;
+    if (t.k === 'p' && this.effect(t.o, 'noPush')) return; // はじき無効の状態
+    Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : t.o.r, this.obstacles(), false));
   }
 
   breakWalls(tiles: number[][]) {
@@ -1272,99 +1136,16 @@ export class GameRoom extends Room {
 
   skill(id: string) {
     const p = this.players.get(id);
-    const sk = p && S[p.char];
-    if (!p || !sk || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.now < p.mochiUntil) return; // ずんだ餅の間は技を使えない
+    const sk = p && CHARS[p.char]?.skill, h = p && SKILLS[p.char];
+    if (!p || !sk || !h || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.effect(p, 'noSkill')) return; // 技不可の状態（ずんだ餅など）
     if (p.ult && !p.ult.pending) return; // ウルト中はキャラ技を使えない
     p.skillReadyAt = this.now + sk.ct;
-    const a = this.aimOf(p), ux = Math.cos(a), uy = Math.sin(a);
-    const allies = (r: number) => [...this.players.values()].filter((q) => q.team === p.team && q.alive && Math.hypot(q.x - p.x, q.y - p.y) <= r);
-    switch (p.char) {
-      case 'hanamaru':
-        // 巨大拳飛ばし: 前方へ直進する拳を出す（命中・破壊は updateFists）
-        this.fists.push({ id: this.nextId++, team: p.team, owner: p.id, x: p.x, y: p.y, a, left: sk.range, hit: new Set(), broke: false });
-        break;
-      case 'sayo':
-        p.danceUntil = this.now + sk.dur; p.danceNext = this.now;
-        break;
-      case 'zunko':
-        this.shoot(p, 'arrow', a, sk.range, 0);
-        break;
-      case 'whitecul':
-        for (const t of this.inRectAhead(p, a, sk.len, sk.w)) { this.hitThing(p, t, sk.dmg); this.push(t, ux, uy, sk.push); }
-        this.addFx(p, 'rect', { a, len: sk.len, w: sk.w });
-        break;
-      case 'aru':
-        // 突撃: タメに入る（方向はこの瞬間に決める: 移動入力 → 照準の対象 → 向いている方向）
-        const [ix, iy] = this.moveIntent(p);
-        p.chargeAt = this.now;
-        p.chargeA = ix || iy ? Math.atan2(iy, ix) : a;
-        break;
-      case 'bii': {
-        // 罠設置: 向いている方向に置く（前が塞がっていれば足元）。同時に max 個まで、超えたら古い方が消える
-        let x = p.x + Math.cos(p.face) * C.PLACE_DIST, y = p.y + Math.sin(p.face) * C.PLACE_DIST;
-        if (!canPlace('trap', x, y, this.bodies().filter((b) => b.x !== p.x || b.y !== p.y))) { x = p.x; y = p.y; }
-        this.traps.push({ id: this.nextId++, team: p.team, owner: p.id, x, y, a: p.face, hp: sk.hp, nextAtk: this.now });
-        const mine = this.traps.filter((t) => t.owner === p.id);
-        if (mine.length > sk.max) this.traps = this.traps.filter((t) => t !== mine[0]);
-        this.addFx({ x, y, team: p.team }, 'arc', { a: p.face, r: sk.range, arc: sk.arc, color: 'trap' });
-        break;
-      }
-      case 'mochiko':
-        for (let i = 0; i < sk.n; i++) {
-          const ang = (i / sk.n) * Math.PI * 2;
-          this.funnels.push({ id: this.nextId++, team: p.team, owner: p.id, x: p.x + Math.cos(ang) * 20, y: p.y + Math.sin(ang) * 20, hp: sk.hp, until: this.now + sk.life, nextAtk: this.now, slot: ang, tgt: null, path: [], retargetAt: 0 });
-        }
-        this.addFx(p, 'aura', { r: 30, color: 'funnel' });
-        break;
-      case 'metan':
-        for (const t of this.enemyThings(p.team)) {
-          if (!this.inArc(p, t.x, t.y, t.r, a, sk.range, sk.arc)) continue;
-          this.hitThing(p, t, sk.dmg);
-          const d = Math.hypot(t.x - p.x, t.y - p.y) || 1;
-          this.push(t, (t.x - p.x) / d, (t.y - p.y) / d, sk.push);
-        }
-        this.addFx(p, 'arc', { a, r: sk.range, arc: sk.arc });
-        break;
-      case 'ierutan':
-        allies(sk.r).forEach((q) => (q.accelUntil = this.now + sk.dur));
-        this.addFx(p, 'aura', { r: sk.r, color: 'accel' });
-        break;
-      case 'kiritan':
-        p.flyUntil = this.now + sk.dur;
-        this.addFx(p, 'aura', { r: 30, color: 'fly' });
-        break;
-    }
+    h.use(this, p, this.aimOf(p));
   }
 
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
   moveIntent(p: Player): [number, number] {
     return p.bot ? [p.dx, p.dy] : [p.inDx, p.inDy];
-  }
-
-  // アルの突撃の1tick: 決めた方向へ進み、垂直方向は移動入力で少し動ける。エフェクトの範囲の壁・バリケードを壊し、触れた敵に1回ずつ当たる
-  dashStep(p: Player, dt: number) {
-    const sk = S.aru, a = p.chargeA, ux = Math.cos(a), uy = Math.sin(a), sp = this.speedOf(p);
-    const [ix, iy] = this.moveIntent(p), il = Math.hypot(ix, iy) || 1;
-    const side = Math.max(-1, Math.min(1, (-ix * uy + iy * ux) / il)); // 移動入力の垂直成分
-    const nx = p.x + ux * sp * sk.speed * dt - uy * side * sp * sk.side * dt, ny = p.y + uy * sp * sk.speed * dt + ux * side * sp * sk.side * dt;
-    if (this.phase === 'ended') { Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, [...this.obstacles(), ...cage(this.cageOf(p)!)], false)); return; } // 結果画面: 部屋の中を動くだけ
-    // 進んだ先のエフェクトの範囲に入る壁タイル（外周に当たったら壊さずそこで終わる）
-    const tiles: number[][] = [];
-    let stop = false;
-    const R = sk.len + sk.w;
-    for (let ty = Math.floor((ny - R) / T); ty <= Math.floor((ny + R) / T); ty++) for (let tx = Math.floor((nx - R) / T); tx <= Math.floor((nx + R) / T); tx++) {
-      if (this.tiles[ty]?.[tx] !== '#' || !inDashShape(tx * T + T / 2, ty * T + T / 2, nx, ny, a, T / 2)) continue;
-      if (PERIMETER[ty][tx]) stop = true; else tiles.push([tx, ty]);
-    }
-    if (stop) { p.dashUntil = 0; return; }
-    if (tiles.length) { this.breakWalls(tiles); if (!p.dashBroke) { p.dashBroke = true; this.addToku(p.team, p, 'wall'); } }
-    this.barricades = this.barricades.filter((b) => !inDashShape(Math.max(b.x, Math.min(nx + ux * sk.head, b.x + b.w)), Math.max(b.y, Math.min(ny + uy * sk.head, b.y + b.h)), nx, ny, a));
-    Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, this.obstacles(), false));
-    for (const t of this.enemyThings(p.team)) {
-      if (t.k === 'bar' || t.k === 'trap' || p.dashHit.has(thingId(t)) || !inDashShape(t.x, t.y, p.x, p.y, a, t.r)) continue;
-      p.dashHit.add(thingId(t));
-      this.hitThing(p, t, sk.dmg);
-    }
   }
 
   // ---- アシスト（男性キャラ3人の専用ユニット） ----
@@ -1405,7 +1186,7 @@ export class GameRoom extends Room {
       if (w.follow) { w.x = owner.x; w.y = owner.y; }
       if (this.now < w.at) continue;
       this.warns = this.warns.filter((x) => x !== w);
-      for (const t of this.enemyThings(w.team)) if ((t.k === 'p' || t.k === 'boss' || t.k === 'f') && Math.hypot(t.x - w.x, t.y - w.y) <= w.r + t.r) this.hitThing(owner, t, w.dmg);
+      for (const t of this.enemyThings(w.team)) if (isUnit(t) && Math.hypot(t.x - w.x, t.y - w.y) <= w.r + t.r) this.hitThing(owner, t, w.dmg);
       this.addFx(w, 'ring', { r: w.r, color: 'dash' });
     }
   }
@@ -1419,46 +1200,12 @@ export class GameRoom extends Room {
 
   // Botが技を使う価値があるか（技の範囲内に対象がいるか）
   botSkillUseful(p: Player): boolean {
-    const sk = S[p.char], a = this.aimOf(p);
-    const near = (r: number, kinds = ['p', 'boss', 'f']) => this.inCircle(p, p.x, p.y, r).filter((t) => kinds.includes(t.k) && this.reach(p, t)).length > 0;
-    switch (p.char) {
-      case 'hanamaru': return this.inRectAhead(p, a, sk.range, sk.r * 2).some((t) => (t.k === 'p' || t.k === 'boss') && this.reach(p, t)); // 拳の進路に敵
-      case 'sayo': return near(sk.r + 10, ['p', 'boss', 'f', 'bar']);
-      case 'zunko': return near(sk.range, ['p']);
-      case 'whitecul': return this.inRectAhead(p, a, sk.len, sk.w).some((t) => this.reach(p, t));
-      case 'aru': { const d = p.dx || p.dy ? Math.atan2(p.dy, p.dx) : a; return this.inRectAhead(p, d, sk.speed * this.speedOf(p) * sk.dur, sk.w).some((t) => t.k === 'p' || t.k === 'boss'); } // 予測進路に敵か敵大将
-      case 'bii': return near(sk.range, ['p', 'boss']);
-      case 'mochiko': return near(sk.sense, ['p', 'boss']);
-      case 'metan': return this.enemyThings(p.team).some((t) => this.inArc(p, t.x, t.y, t.r, a, sk.range, sk.arc) && this.reach(p, t));
-      case 'ierutan': return near(C.BOT_SKILL_SENSE, ['p', 'boss']);
-      case 'kiritan': return near(C.BOT_SKILL_SENSE, ['p', 'boss']);
-    }
-    return false;
+    return SKILLS[p.char]?.botUse(this, p) ?? false;
   }
 
-  // hanamaru のBot: 壁を壊すと目的地への経路が大きく短くなるなら壁破壊（その方向を向いて使う）
-  botWallBreak(p: Player, to: Pt, obs: Rect[]): boolean {
-    if (p.char !== 'hanamaru' || this.phase !== 'playing' || this.now < p.skillReadyAt || this.now < p.mochiUntil || this.now < p.wallCheckAt) return false;
-    p.wallCheckAt = this.now + C.BOT_WALLBREAK_CHECK;
-    const base = findPath(p, to, obs, this.walls).length;
-    if (!base) return false;
-    for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-      if (!this.breakTiles(p, a).length) continue;
-      // 壊した後の経路長 ≒ 壁の向こうの床からの経路長 + 壁までと壁の厚み
-      const dx = Math.round(Math.cos(a)), dy = Math.round(Math.sin(a)), tx = Math.floor(p.x / T), ty = Math.floor(p.y / T);
-      let k = 1;
-      while (this.tiles[ty + dy * k]?.[tx + dx * k] !== '#') k++;
-      const bx = tx + dx * (k + S.hanamaru.d), by = ty + dy * (k + S.hanamaru.d);
-      if (this.tiles[by]?.[bx] !== '.') continue; // 壁が厚くて抜けない
-      const rest = findPath({ x: bx * T + T / 2, y: by * T + T / 2 }, to, obs, this.walls).length;
-      const len = rest && rest + k + S.hanamaru.d;
-      if (len && (base - len) * C.GRID_CELL >= C.BOT_WALLBREAK_SAVE) {
-        p.face = a; p.tgt = null; // 壁の方向へ使う
-        this.skill(p.id);
-        return true;
-      }
-    }
-    return false;
+  // Bot の技の判定用: 半径 r 内に ok を満たす敵の対象がいて、遮られていないか
+  nearFoe(p: Player, r: number, ok: (t: Thing) => boolean) {
+    return this.inCircle(p, p.x, p.y, r).some((t) => ok(t) && this.reach(p, t));
   }
 
   // 詰まり判定: 戦闘中でないのに一定時間ほとんど動いていなければ、今の目的地を一時的に避ける
@@ -1489,7 +1236,7 @@ export class GameRoom extends Room {
     if (p.recallAt === null && !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP) p.recallAt = this.now;
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
-    if (this.phase === 'playing' && this.now >= p.skillReadyAt && this.now >= p.mochiUntil && this.botSkillUseful(p)) this.skill(p.id);
+    if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && this.botSkillUseful(p)) this.skill(p.id);
     // 1. 近くの敵を攻撃（指名手配中の敵を優先）
     const foes = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && dist(e) <= C.BOT_AGGRO_RANGE && this.visibleTo(p.team, e.x, e.y, obs));
     const wanted = foes.find((e) => e.id === this.teams[1 - p.team].wanted);
@@ -1507,9 +1254,9 @@ export class GameRoom extends Room {
     // 3. 見えている荷物を拾いに行く（触れると拾う）
     const box = best(this.items.filter((i) => i.kind.startsWith('box_') && this.visibleTo(p.team, i.x, i.y, obs)), (i) => `item:${i.id}`);
     if (box) return go(box, `item:${box.id}`);
-    // 壊し屋（バリケード・罠へ×3）は視界内の敵のバリケード・罠を優先して壊す
-    if (C.BREAKERS.includes(p.char)) {
-      const st = best(this.enemyThings(p.team).filter((t) => (t.k === 'bar' || t.k === 'trap') && this.visibleTo(p.team, t.x, t.y, obs)), (t) => thingId(t));
+    // 壊し屋（構造物へ×3）は視界内の敵の構造物を優先して壊す
+    if (CHARS[p.char]?.breaker) {
+      const st = best(this.enemyThings(p.team).filter((t) => isStruct(t) && this.visibleTo(p.team, t.x, t.y, obs)), (t) => thingId(t));
       if (st) { p.goal = thingId(st); return this.botFight(p, st, st.r, obs); }
     }
     // 4. 役割: 資材集め（一番近い資材）か、敵陣の見回り
@@ -1529,7 +1276,7 @@ export class GameRoom extends Room {
       p.raidBase = next();
     }
     const b = bs[p.raidBase];
-    if (this.botWallBreak(p, b, obs)) return;
+    if (SKILLS[p.char]?.botMove?.(this, p, b, obs)) return;
     go(b, `room:${p.raidBase}`);
   }
 
@@ -1587,19 +1334,25 @@ export class GameRoom extends Room {
     return { n: list.filter((p) => p.bot || this.backVotes.has(p.id)).length, total: list.length };
   }
 
+  // スナップショットで送る状態: 有効な状態の key → 描画用の値（なければ true）
+  statusView(p: Player) {
+    const out: Record<string, any> = {};
+    for (const k in p.st) if (this.now < p.st[k].until) out[k] = p.st[k].view?.() ?? true;
+    return out;
+  }
+
   sendSnapshots() {
     const obs = this.obstacles();
     const vis = [0, 1].map((team) => ({
       players: [...this.players.values()].filter((p) => p.team === team || (p.alive && this.visibleTo(team, p.x, p.y, obs))),
       bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.visibleTo(team, b.x, b.y, obs)), // 開幕中は敵大将も映す
-      funnels: this.funnels.filter((f) => f.team === team || this.visibleTo(team, f.x, f.y, obs)),
+      ents: this.ents.filter((e) => e.team === team || !ENTS[e.kind].fog || this.visibleTo(team, e.x, e.y, obs)),
       shots: this.shots.filter((s) => s.team === team || this.visibleTo(team, s.x, s.y, obs)),
-      fists: this.fists.filter((f) => f.team === team || this.visibleTo(team, f.x, f.y, obs)),
       fx: this.fx.filter((f) => f.team === team || this.visibleTo(team, f.x, f.y, obs)), // 視界内なら他プレイヤーの技も見える
       warns: this.warns.filter((w) => w.team === team || this.visibleTo(team, w.x, w.y, obs)),
     }));
     const wanted = this.teams.map((t) => this.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
-    const all = { players: [...this.players.values()], bosses: this.bosses, funnels: this.funnels, shots: this.shots, fists: this.fists, fx: this.fx, warns: this.warns };
+    const all = { players: [...this.players.values()], bosses: this.bosses, ents: this.ents, shots: this.shots, fx: this.fx, warns: this.warns };
     const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive }));
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
@@ -1614,18 +1367,17 @@ export class GameRoom extends Room {
           face: p.face, stunned: this.now < p.stunUntil, cd: Math.max(0, p.cooldownUntil - this.now),
           respawnIn: p.alive ? 0 : p.respawnAt - this.now,
           ack: p.ack, cage: this.cageOf(p), maxHp: this.maxHp(p), spd: this.speedOf(p), aim: p.aim, tgt: p.tgt ? thingId(p.tgt) : null, skillCd: Math.max(0, p.skillReadyAt - this.now),
-          mochi: this.now < p.mochiUntil, accel: this.now < p.accelUntil, dance: this.now < p.danceUntil, fly: this.now < p.flyUntil,
+          st: this.statusView(p), lock: this.effect(p, 'lock'),
           recall: p.recallAt === null ? null : (this.now - p.recallAt) / C.RECALL_HOLD,
           assist: p.assist, tier: p.tier, ult: p.ult ? { form: p.ult.form, tier: p.ult.tier, left: p.ult.pending ? null : p.ult.until - this.now } : null,
-          charge: p.chargeAt !== null ? { a: p.chargeA, len: this.speedOf(p) * S.aru.speed * S.aru.dur, left: S.aru.windup - (this.now - p.chargeAt) } : null, dash: this.now < p.dashUntil ? { a: p.chargeA } : null, boost: this.now < p.boostUntil, slow: this.now < p.slowUntil, weak: this.now < p.weakUntil, cdMax: this.atkCooldown(p),
+          boost: this.now < p.boostUntil, slow: this.now < p.slowUntil, weak: this.now < p.weakUntil, cdMax: this.atkCooldown(p),
         })),
         bosses: v.bosses.map((b) => ({ team: b.team, x: b.x, y: b.y, hp: b.hp, base: b.base })),
-        materials: this.materials.map((m) => ({ id: m.id, x: m.x, y: m.y, hi: m.hi })), items: this.items, traps: this.traps, barricades: this.barricades,
-        funnels: v.funnels.map((f) => ({ id: f.id, team: f.team, x: f.x, y: f.y, hp: f.hp })),
+        materials: this.materials.map((m) => ({ id: m.id, x: m.x, y: m.y, hi: m.hi })), items: this.items, barricades: this.barricades,
+        ents: v.ents.map((e) => ({ id: e.id, kind: e.kind, team: e.team, x: e.x, y: e.y, r: e.r, body: e.body, hp: e.hp, a: e.a })),
         couriers: this.couriers.map((c) => ({ id: c.id, team: c.team, x: c.x, y: c.y, box: c.box })), // コバコは両陣営に見せる（ミニマップ）
         warns: v.warns.map((w) => ({ id: w.id, team: w.team, x: w.x, y: w.y, r: w.r, left: w.at - this.now, boss: !!w.boss })),
         shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),
-        fists: v.fists.map((f) => ({ id: f.id, team: f.team, x: f.x, y: f.y, a: f.a })),
         fx: v.fx, broken: this.broken, bossRooms: this.bossRooms, ...(this.reveal.has(client.sessionId) ? { reveal: true } : {}),
       });
     }

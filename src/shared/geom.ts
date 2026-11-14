@@ -74,10 +74,10 @@ export function pushOut(x: number, y: number, r: number, obstacles: Rect[]) {
   return { x, y };
 }
 
-// 罠・バリケードを置けるか（キャラ・大将・ファンネルと重なる位置には置けない）
-export function canPlace(kind: string, x: number, y: number, bodies: { x: number; y: number; r: number }[]): boolean {
+// バリケードを置けるか（キャラ・大将・ファンネルと重なる位置には置けない）
+export function canPlace(x: number, y: number, bodies: { x: number; y: number; r: number }[]): boolean {
   const s = CONFIG.BARRICADE_SIZE;
-  return !bodies.some((b) => (kind === 'trap' ? Math.hypot(b.x - x, b.y - y) < CONFIG.TRAP_RADIUS + b.r : circleRect(b.x, b.y, b.r, { x: x - s / 2, y: y - s / 2, w: s, h: s })));
+  return !bodies.some((b) => circleRect(b.x, b.y, b.r, { x: x - s / 2, y: y - s / 2, w: s, h: s }));
 }
 
 // 部屋の内側 r から出られないようにする壁（r の外側を囲む4つの長方形）
@@ -87,9 +87,9 @@ export function cage(r: Rect): Rect[] {
 }
 
 // アルの突撃のエフェクト（＝攻撃判定）: 雫を寸詰まりにして横に倒した形。(x, y) は自キャラ、a は進行方向
-// 頭（半径 w/2 の円）の中心が進行方向へ head 前、全体の長さ len、尾は頭の中心から後ろへ細くなる。margin だけ広げて判定する
-export function inDashShape(px: number, py: number, x: number, y: number, a: number, margin = 0) {
-  const S = CONFIG.SKILLS.aru, R = S.w / 2, ux = Math.cos(a), uy = Math.sin(a);
+// 頭（半径 w/2 の円）の中心が進行方向へ head 前、全体の長さ len、尾は頭の中心から後ろへ細くなる。margin だけ広げて判定する。S: 形（技の定義の w・head・len）
+export function inDashShape(S: Record<string, number>, px: number, py: number, x: number, y: number, a: number, margin = 0) {
+  const R = S.w / 2, ux = Math.cos(a), uy = Math.sin(a);
   const rx = px - x, ry = py - y, along = rx * ux + ry * uy, side = Math.abs(-rx * uy + ry * ux);
   if (Math.hypot(along - S.head, side) <= R + margin) return true;
   const tail = S.head + R - S.len; // 尾の端（自キャラから見た進行方向の位置。負なら後ろ）

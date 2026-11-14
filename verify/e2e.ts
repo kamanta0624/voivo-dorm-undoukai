@@ -1,7 +1,8 @@
 // 通常の `npm run dev` に対し、実クライアントを実キー入力で操作して完成基準を確認する
 // 実行: npx tsx verify/e2e.ts   （証拠: verify/evidence/）
 // サーバーは `E2E_HOOKS=1 npm run dev` で起動する（大将の逃亡・反撃の確認に使うテスト用の仕掛けを有効にする）
-import { CONFIG as C, visionRadius, wallRects, roomLayout } from '../src/shared/config';
+import { CONFIG as C, wallRects, roomLayout } from '../src/shared/config';
+import { CHARS as DEFS, visionRadius } from '../src/shared/chars';
 import { lineOfSight } from '../src/shared/geom';
 import MAP from '../src/shared/map.json';
 import { OUT, launch, Tab, log, check, failures, sleep } from './lib';
@@ -265,8 +266,8 @@ async function result(A: Tab) {
   // 結果画面でも技（R）を使える。エフェクトは出るが壁は壊れない（部屋からは出られない）
   const b0 = s.broken.length;
   await A.page.keyboard.down('d'); await sleep(150); await A.press('r'); await sleep(100); await A.page.keyboard.up('d');
-  const ch = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.charge, 1500); await sleep(200); await A.shot('s9c_result_skill_windup');
-  const da = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.dash, 1500); await sleep(300); await A.shot('s9c_result_skill_dash');
+  const ch = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.charge, 1500); await sleep(200); await A.shot('s9c_result_skill_windup');
+  const da = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); await sleep(300); await A.shot('s9c_result_skill_dash');
   const s2 = await A.snap(), me2 = s2.players.find((p: any) => p.id === s2.me), room = roomLayout(s2.bossRooms).homes[0][s2.bosses.find((b: any) => b.team === 0).base];
   check('リザルト: 技を使える（エフェクトは出る）。壁は壊れず、部屋から出ない', ch && da && s2.broken.length === b0 && inR(me2, room), { ch, da, broken: [b0, s2.broken.length] });
 }
@@ -442,17 +443,17 @@ async function hanamaruCheck(A: Tab) {
   await send(A, 'e2eChar', { char: 'hanamaru' }); await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
   const b0 = (await A.snap()).broken.length;
   await A.page.keyboard.down('w'); await sleep(120); await A.page.keyboard.up('w'); await A.press('r');
-  const flying = await A.until((x) => (x.fists ?? []).length > 0, 1500); await sleep(250);
-  const drawn = await A.page.evaluate(() => (window as any).snap.fists?.length ?? 0); await A.shot('h1_fist');
-  await A.until((x) => !(x.fists ?? []).length, 3000); await sleep(200);
+  const flying = await A.until((x) => x.ents.some((e: any) => e.kind === 'fist'), 1500); await sleep(250);
+  const drawn = await A.page.evaluate(() => (window as any).snap.ents.filter((e: any) => e.kind === 'fist').length); await A.shot('h1_fist');
+  await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
   check('花丸の巨大拳: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
   // パッシブ: hall の西の壁（食堂との間）へ押し込む
   await aliveOf(A); await send(A, 'e2eTeleport', { x: 85 * 16 + 11, y: 66 * 16 + 8 }); await sleep(150);
   const p0 = (await A.snap()).broken.length;
-  await A.page.keyboard.down('a'); await sleep(C.SKILLS.hanamaru.push * 1000 + 500); await A.page.keyboard.up('a');
+  await A.page.keyboard.down('a'); await sleep(DEFS.hanamaru.skill.push * 1000 + 500); await A.page.keyboard.up('a');
   await sleep(150); const p1 = (await A.snap()).broken.length; await A.shot('h3_push');
-  check(`花丸のパッシブ: 壁へ押し込むと壊す（${C.SKILLS.hanamaru.push}秒。触れてすぐ壊れないことはサーバー単体で確認）`, p1 > p0, { p0, p1 });
+  check(`花丸のパッシブ: 壁へ押し込むと壊す（${DEFS.hanamaru.skill.push}秒。触れてすぐ壊れないことはサーバー単体で確認）`, p1 > p0, { p0, p1 });
   await send(A, 'e2eChar', { char: 'aru' }); // 結果画面の確認はアルで行う
 }
 
@@ -499,12 +500,12 @@ async function aruCheck(A: Tab) {
     await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
     await A.page.keyboard.down(key); await sleep(150); await A.press('r'); await sleep(100); await A.page.keyboard.up(key);
     await sleep(300);
-    const c = (await A.me()).charge; await A.shot(`r1_windup_${key}`);
-    await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.dash, 1500); await sleep(300);
-    const d = (await A.me()).dash; await A.shot(`r2_dash_${key}`);
-    await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.dash, 2500);
+    const c = (await A.me()).st.charge; await A.shot(`r1_windup_${key}`);
+    await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); await sleep(300);
+    const d = (await A.me()).st.rush; await A.shot(`r2_dash_${key}`);
+    await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
     if (c && d || tries === 1) { got.push({ key, charge: c && +c.a.toFixed(2), dash: d && +d.a.toFixed(2) }); break; }
-    const m = await A.me(); log('  突撃が出なかった（再試行）', key, { alive: m.alive, mochi: m.mochi, ult: m.ult, skillCd: m.skillCd });
+    const m = await A.me(); log('  突撃が出なかった（再試行）', key, { alive: m.alive, mochi: m.st.mochi, ult: m.ult, skillCd: m.skillCd });
   }
   await A.shot('r3_after_wall');
   const b1 = (await A.snap()).broken.length;
