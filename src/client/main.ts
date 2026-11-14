@@ -82,7 +82,19 @@ css.textContent = `
 #fx .pop.warn{color:#fff59a;font-size:calc(var(--z) * 7px)}
 @keyframes popup{0%{opacity:1;margin-top:0}100%{opacity:0;margin-top:calc(var(--z) * -14px)}}
 html.touch,html.touch body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
-html.touch #lobby{touch-action:pan-y;max-height:90vh;overflow:auto}
+html.touch #lobby{top:env(safe-area-inset-top)!important;right:env(safe-area-inset-right)!important;bottom:env(safe-area-inset-bottom)!important;left:env(safe-area-inset-left)!important;transform:none!important;box-sizing:border-box;overflow:hidden;background:#111!important;padding:6px 10px 14px!important;font-size:12px!important}
+html.touch #lobby h3{font-size:13px;height:18px;line-height:18px;margin:0!important}
+html.touch #lobby .cards{height:calc(100% - 112px);gap:4px;margin:4px 0}
+html.touch #lobby .card{flex:1 1 0;min-width:0;width:auto;display:flex;flex-direction:column;font-size:10px;white-space:nowrap;overflow:hidden}
+html.touch #lobby .card img{flex:1 1 0;min-height:0;height:auto}
+html.touch #roster{display:flex;gap:16px;line-height:1.3;margin-right:96px}
+html.touch #roster>br{display:none}
+html.touch #roster .tm{flex:1;min-width:0;white-space:nowrap;overflow:hidden}
+html.touch #roster button{font-size:11px}
+html.touch #start{position:absolute;right:10px;bottom:14px;margin:0!important;font-size:16px!important;padding:6px 16px!important}
+html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc(env(safe-area-inset-bottom) + 1px)!important}
+#lobby .pwa{position:absolute;right:10px;top:6px;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
+#lobby .pwa button{border:0;background:none;font:bold 14px/1 sans-serif;padding:0 6px;color:#000}
 #rotate{display:none;position:fixed;inset:0;z-index:10;background:#111;color:#fff;font:bold 20px sans-serif;align-items:center;justify-content:center}
 @media (orientation:portrait){html.touch #rotate{display:flex}}
 #fx .tb{display:none;position:absolute;pointer-events:auto;touch-action:none;width:calc(var(--z) * 36px);height:calc(var(--z) * 36px);border-radius:50%;border:2px solid #fff;background:#335c;color:#fff;font:bold calc(var(--z) * 7px)/1.1 sans-serif;padding:0}
@@ -92,13 +104,16 @@ html.touch #fx .atk{right:calc(var(--z) * 54px);bottom:calc(var(--z) * 84px);wid
 html.touch #fx .rc{right:calc(var(--z) * 8px);bottom:calc(var(--z) * 132px)}
 html.touch #fx .aimb{right:calc(var(--z) * 50px);bottom:calc(var(--z) * 132px)}
 html.touch #fx .skill span:last-child{display:none}
-html.touch #fx .skill{left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 84px);transform:none;pointer-events:auto;touch-action:none}
+html.touch #fx .skill{width:calc(var(--z) * 42px);height:calc(var(--z) * 42px);font-size:max(9px,calc(var(--z) * 7px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 84px);transform:none;pointer-events:auto;touch-action:none}
+html.touch #fx .tb{font-size:max(12px,calc(var(--z) * 9px));background:#1a2a5a;text-shadow:0 1px 2px #000}
+html.touch #fx .atk{font-size:max(14px,calc(var(--z) * 10px))}
 #fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;left:50%;bottom:1.5%;transform:translateX(-50%);width:calc(var(--z) * 40px);height:calc(var(--z) * 40px);border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
 #fx .skill i{position:absolute;inset:0;background:conic-gradient(#000b var(--p), transparent 0)}
 #fx .skill b,#fx .skill span{position:relative}
 #fx .skill b{font-size:calc(var(--z) * 11px)}
+html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .roster{position:absolute;top:5.8%;display:flex;flex-direction:column;gap:calc(var(--z) * 1px)}
 #fx .roster.r0{left:1.2%}
 #fx .roster.r1{right:1.2%;flex-direction:row;gap:calc(var(--z) * 2px)}
@@ -172,7 +187,7 @@ if (TOUCH) {
   document.documentElement.classList.add('touch');
   hudEl.insertAdjacentHTML('beforeend', '<button class="tb atk">攻撃</button><button class="tb rc">設置<br>帰還</button><button class="tb aimb"></button>');
   for (const t of ['gesturestart', 'dblclick', 'contextmenu']) document.addEventListener(t, (e) => e.preventDefault());
-  document.addEventListener('touchmove', (e) => { if (!(e.target as HTMLElement).closest('#lobby')) e.preventDefault(); }, { passive: false }); // キャラ選択だけはスクロールできる
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない
 }
 const rotate = document.createElement('div');
 rotate.id = 'rotate';
@@ -285,6 +300,18 @@ class GameScene extends Phaser.Scene {
     document.body.appendChild(lobby);
     lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => (el.onclick = () => this.room?.send('pick', { char: el.dataset.k })));
+    // ブラウザで開いている時だけ「ホーム画面に追加」で全画面になる案内（閉じたら二度と出さない）
+    const ua = navigator.userAgent, standalone = (navigator as any).standalone === true || matchMedia('(display-mode: standalone)').matches;
+    const how = /iPhone|iPad|iPod/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) ? '共有 → ホーム画面に追加' : /Android/.test(ua) && /Chrome\//.test(ua) && !/; wv\)|SamsungBrowser|EdgA|OPR|Firefox/.test(ua) ? 'メニュー（⋮）→ ホーム画面に追加' : '';
+    let closed = false;
+    try { closed = localStorage.getItem('pwaHintClosed') === '1'; } catch {}
+    if (TOUCH && !standalone && how && !closed) {
+      const hint = document.createElement('div');
+      hint.className = 'pwa';
+      hint.innerHTML = `<span>${how} で全画面になる</span><button>×</button>`;
+      hint.querySelector('button')!.onclick = () => { hint.remove(); try { localStorage.setItem('pwaHintClosed', '1'); } catch {} };
+      lobby.appendChild(hint);
+    }
     document.getElementById('start')!.onclick = () => this.room?.send('start');
     document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
@@ -615,6 +642,7 @@ class GameScene extends Phaser.Scene {
   lobbyUpdate(s: any) {
     const lobby = document.getElementById('lobby')!;
     lobby.style.display = s.phase === 'waiting' ? 'block' : 'none';
+    if (TOUCH) ver.style.visibility = s.phase === 'waiting' ? '' : 'hidden'; // スマホは試合中のHUDと重なるので、ビルド番号はキャラ選択の時だけ出す
     if (s.phase !== 'waiting') return;
     const key = JSON.stringify([s.roster, s.me]);
     if (key === this.lobbyKey) return;
@@ -626,8 +654,8 @@ class GameScene extends Phaser.Scene {
       const rows = list.map((r: any) => `${r.bot ? 'Bot' : '人間'}${r.id === s.me ? '（あなた）' : ''} ${CHARS[r.char]?.name ?? ''}`);
       while (rows.length < C.TEAM_SIZE) rows.push('（空き: 開始時にBot）');
       const me = s.roster.find((r: any) => r.id === s.me), join = me && me.team !== t && list.length < C.TEAM_SIZE ? ` <button data-t="${t}">この陣営に入る</button>` : '';
-      return `<b>${TEAM_NAME[t]}</b>${join}<br>${rows.join('<br>')}`;
-    }).join('<br><br>') + (s.me ? '' : '<br><br>観戦中');
+      return `<div class="tm"><b>${TEAM_NAME[t]}</b>${join}<br>${rows.join('<br>')}</div>`;
+    }).join('<br>') + (s.me ? '' : '<br>観戦中');
   }
 
   // 1点からの視界ポリゴン（壁タイルで遮る）
@@ -1050,8 +1078,8 @@ class GameScene extends Phaser.Scene {
       ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
       `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  ウルト: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier]}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
-      `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}（Tabで切替）  技: ${sk ? `${sk.name}（R）` : 'なし'}`,
-      'WASD移動 / オート攻撃・SPACE手動攻撃 / Q設置（長押しで帰還） / R技 / Tab照準',
+      `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
+      ...(TOUCH ? [] : ['WASD移動 / オート攻撃・SPACE手動攻撃 / Q設置（長押しで帰還） / R技 / Tab照準']), // タッチ端末にはPCのキー操作を出さない
     ].join('\n');
   }
 }
