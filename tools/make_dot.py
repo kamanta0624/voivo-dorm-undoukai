@@ -18,6 +18,7 @@ CHARS = {  # key: (PSDの名前の頭, 脚, 固有差分)
     'ierutan': ('あいえるたん', 'shoes01', None),
     'zunko': ('東北ずん子', 'shoes01', None),
     'kiritan': ('東北きりたん', 'shoes01', None),
+    'himari': ('冥鳴ひまり', 'shoes01', None),
     'ankomon': ('あんこもん', 'shoes01', None),
     'zundamon': ('ずんだもん', 'shoes01', None),
     'kobako': ('ブイブイ・コバコ', 'shoes01', None),  # ブイブイ・コバコ（選べるキャラではない）
@@ -27,10 +28,12 @@ CHARS = {  # key: (PSDの名前の頭, 脚, 固有差分)
 }
 # 腰（スカート）: 服の色に合うほう。01=青、02=灰。腰がないと正座に見える
 WAIST = {'hanamaru': '02', 'whitecul': '01', 'sayo': '02', 'metan': '02', 'mochiko': '02', 'aru': '02', 'bii': '02',
-         'ierutan': '02', 'zunko': '02', 'kiritan': '01', 'ankomon': '02', 'zundamon': '02', 'kobako': '02',
+         'ierutan': '02', 'zunko': '02', 'kiritan': '01', 'himari': '02', 'ankomon': '02', 'zundamon': '02', 'kobako': '02',
          'kurono': None, 'shirakami': None, 'aoyama': None}  # None: 腰なし（ズボン）
 # コマ: (脚, 目, 左腕, 右腕)。腕は *armL_han<番号> / *armR_han<番号>、'dummy' は空レイヤー（描かない）
 # 歩きは walk1 ⇔ walk2 の交互（PSDのままの向きで右から左へ歩く。左から右へは左右反転で表示）。banzai は万歳
+# 技の見た目用の追加のコマ: key → {コマ: 目レイヤー}。目レイヤーだけを描く（client/skills の frames）
+EYES_ONLY = {'himari': {'eyes': '*eye_R04'}}
 FRAMES = {'idle': ('A', None, '01', '01'), 'walk1': ('C', None, '02', '03'), 'walk2': ('B', None, '05', 'dummy'),
           'half': ('A', 'hanme01', '01', '01'), 'close': ('A', 'toji01', '01', '01'), 'banzai': ('A', None, '04', '04')}
 
@@ -51,5 +54,9 @@ for key, (head, legs, own) in CHARS.items():
         if eye: put(c, L('目', f'*eye_{eye}'))
         if own: put(c, L('固有差分', own))
         put(c, arm('左腕', 'L', al)); put(c, arm('右腕', 'R', ar))
+        c.resize((32, 42), Image.NEAREST).save(f'{OUT}/{key}/{name}.png')
+    for name, eye in EYES_ONLY.get(key, {}).items():
+        c = Image.new('RGBA', (512, 672), (0, 0, 0, 0))
+        put(c, L('目', eye))
         c.resize((32, 42), Image.NEAREST).save(f'{OUT}/{key}/{name}.png')
     print(key, legs, own or '-')

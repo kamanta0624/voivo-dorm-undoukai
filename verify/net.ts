@@ -33,7 +33,7 @@ function run(label: string, seconds: number, lat: number, jit: number, keys: (t:
     // 敵Botは消す（はじき・突撃などの正当な大移動を混ぜない）。味方Botは動かして他キャラの描画を見る
     for (const p of r.players.values()) if (p.team === 1) { p.alive = false; p.respawnAt = 1e9; p.x = p.y = -999; }
   };
-  const obsOf = (snap: any, m: any) => [...r.walls, ...snap.barricades, ...(m.cage ? cage(m.cage) : [])];
+  const obsOf = (_snap: any, m: any) => [...r.walls, ...(m.cage ? cage(m.cage) : [])];
   const pred = new Predictor(), interp = new Interp();
   let snap: any = null, acc = 0, nextTick = 0;
   let measured = 0, selfWarps = 0, selfMax = 0, otherWarps = 0, otherMax = 0, diffMax = 0;

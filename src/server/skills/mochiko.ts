@@ -12,12 +12,12 @@ function updateFunnel(room: GameRoom, f: Ent, dt: number) {
   if (room.now >= f.until) return room.removeEnt(f);
   const obs = room.obstacles();
   const owner = room.players.get(f.owner);
-  const find = (id: string | null) => (id ? room.enemyThings(f.team).find((t) => thingId(t) === id && (t.k === 'p' || t.k === 'boss')) : undefined);
+  const find = (id: string | null) => (id ? room.enemyThings(f.team).find((t) => thingId(t) === id && (t.k === 'p' || t.k === 'boss') && room.targetable(t)) : undefined);
   let tgt = find(f.tgt);
   if (room.now >= f.retargetAt || !tgt) {
     f.retargetAt = room.now + F.retarget;
     // 近い順に、経路長が上限以下の敵（壁の向こうで回り道が長すぎる敵は選ばない）
-    const near = room.enemyThings(f.team).filter((t) => (t.k === 'p' || t.k === 'boss') && Math.hypot(t.x - f.x, t.y - f.y) <= F.sense)
+    const near = room.enemyThings(f.team).filter((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t) && Math.hypot(t.x - f.x, t.y - f.y) <= F.sense)
       .sort((u, v) => Math.hypot(u.x - f.x, u.y - f.y) - Math.hypot(v.x - f.x, v.y - f.y)).slice(0, 2);
     tgt = near.find((t) => pathLength(f, t, obs, room.walls) <= F.pathMax);
     f.tgt = tgt ? thingId(tgt) : null;

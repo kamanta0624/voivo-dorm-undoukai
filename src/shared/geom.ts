@@ -8,7 +8,7 @@ export function circleRect(x: number, y: number, r: number, b: Rect): boolean {
 
 function blocked(ox: number, oy: number, nx: number, ny: number, r: number, obstacles: Rect[]): boolean {
   if (nx < r || ny < r || nx > CONFIG.MAP_W - r || ny > CONFIG.MAP_H - r) return true;
-  // 元から重なっている障害物（足元に置いたバリケード等）は無視
+  // 元から重なっている障害物は無視
   return obstacles.some((b) => circleRect(nx, ny, r, b) && !circleRect(ox, oy, r, b));
 }
 
@@ -49,7 +49,7 @@ export function overlaps(x: number, y: number, r: number, obstacles: Rect[]): bo
   return obstacles.some((b) => circleRect(x, y, r, b));
 }
 
-// キャラ・大将・ファンネルの位置を変える唯一の関数。細かく刻んで動かし、壁・バリケードを通り抜けない
+// キャラ・大将・ファンネルの位置を変える唯一の関数。細かく刻んで動かし、壁を通り抜けない
 // slide=true: 通常移動（壁に沿って滑る）／ false: 強制移動（はじき・突撃。途中で当たったらそこで止まる）
 export function moveBody(x: number, y: number, dx: number, dy: number, r: number, obstacles: Rect[], slide = true) {
   ({ x, y } = pushOut(x, y, r, obstacles)); // 重なった状態から動くと、その壁を無視して抜けてしまうため
@@ -62,7 +62,7 @@ export function moveBody(x: number, y: number, dx: number, dy: number, r: number
   return { x, y };
 }
 
-// 壁・バリケードと重なっていれば、最寄りの空き位置へ押し出す（重なっていなければそのまま）
+// 壁と重なっていれば、最寄りの空き位置へ押し出す（重なっていなければそのまま）
 export function pushOut(x: number, y: number, r: number, obstacles: Rect[]) {
   if (!overlaps(x, y, r, obstacles)) return { x, y };
   for (let d = 2; d <= 96; d += 2) {
@@ -72,12 +72,6 @@ export function pushOut(x: number, y: number, r: number, obstacles: Rect[]) {
     }
   }
   return { x, y };
-}
-
-// バリケードを置けるか（キャラ・大将・ファンネルと重なる位置には置けない）
-export function canPlace(x: number, y: number, bodies: { x: number; y: number; r: number }[]): boolean {
-  const s = CONFIG.BARRICADE_SIZE;
-  return !bodies.some((b) => circleRect(b.x, b.y, b.r, { x: x - s / 2, y: y - s / 2, w: s, h: s }));
 }
 
 // 部屋の内側 r から出られないようにする壁（r の外側を囲む4つの長方形）

@@ -1,6 +1,6 @@
-// 猫使アル: 突撃（タメ → 決めた方向へ突進。範囲の壁・バリケードを壊し、触れた敵に1回ずつ当たる。タメ中・突撃中は動けず攻撃しない、突撃中は無敵）
+// 猫使アル: 突撃（タメ → 決めた方向へ突進。範囲の壁を壊し、触れた敵に1回ずつ当たる。タメ中・突撃中は動けず攻撃しない、突撃中は無敵）
 import type { GameRoom, Player } from '../GameRoom';
-import { PERIMETER, thingId, isStruct } from '../GameRoom';
+import { PERIMETER, thingId } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
@@ -20,7 +20,7 @@ function step(room: GameRoom, p: Player, dt: number) {
   if (room.stat(p, 'rush')) dashStep(room, p, dt);
 }
 
-// 突撃の1tick: 決めた方向へ進み、垂直方向は移動入力で少し動ける。エフェクトの範囲の壁・バリケードを壊し、触れた敵に1回ずつ当たる
+// 突撃の1tick: 決めた方向へ進み、垂直方向は移動入力で少し動ける。エフェクトの範囲の壁を壊し、触れた敵に1回ずつ当たる
 function dashStep(room: GameRoom, p: Player, dt: number) {
   const a = p.sk.a, ux = Math.cos(a), uy = Math.sin(a), sp = room.speedOf(p);
   const [ix, iy] = room.moveIntent(p), il = Math.hypot(ix, iy) || 1;
@@ -37,10 +37,9 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
   }
   if (stop) { delete p.st.rush; return; }
   if (tiles.length) { room.breakWalls(tiles); if (!p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); } }
-  room.barricades = room.barricades.filter((b) => !inDashShape(S, Math.max(b.x, Math.min(nx + ux * S.head, b.x + b.w)), Math.max(b.y, Math.min(ny + uy * S.head, b.y + b.h)), nx, ny, a));
   Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), false));
   for (const t of room.enemyThings(p.team)) {
-    if (isStruct(t) || p.sk.hit.has(thingId(t)) || !inDashShape(S, t.x, t.y, p.x, p.y, a, t.r)) continue;
+    if (p.sk.hit.has(thingId(t)) || !inDashShape(S, t.x, t.y, p.x, p.y, a, t.r)) continue;
     p.sk.hit.add(thingId(t));
     room.hitThing(p, t, S.dmg);
   }

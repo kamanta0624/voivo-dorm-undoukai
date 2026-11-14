@@ -23,7 +23,7 @@ ok('スティックを離すと止まる', JSON.stringify(mv({})) === '{"dx":0,"
 console.log('--- コマンド（キー・ボタンとも同じ関数を呼ぶ）');
 sent.length = 0;
 c.attack(); c.skill(); c.qDown(); c.qUp();
-ok('攻撃=attack、技=skill、設置/帰還=qdown→qup', JSON.stringify(sent) === JSON.stringify([['attack'], ['skill'], ['qdown'], ['qup']]), sent);
+ok('攻撃=attack、技=skill、帰還=qdown→qup', JSON.stringify(sent) === JSON.stringify([['attack'], ['skill'], ['qdown'], ['qup']]), sent);
 sent.length = 0;
 for (let i = 0; i < C.AIM_MODES.length; i++) c.cycleAim();
 ok(`照準: ${C.AIM_MODES.join('→')}→最初に戻る`, JSON.stringify(sent.map((x) => x[1].mode)) === JSON.stringify([...C.AIM_MODES.slice(1), C.AIM_MODES[0]]) && sent.every((x) => x[0] === 'aim'), sent);

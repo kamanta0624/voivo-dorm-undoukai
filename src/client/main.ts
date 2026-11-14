@@ -3,8 +3,8 @@ import Phaser from 'phaser';
 import { Client, Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf } from '../shared/chars';
-import { canPlace, cage, lineOfSight } from '../shared/geom';
-import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS } from './skills';
+import { cage, lineOfSight } from '../shared/geom';
+import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
@@ -34,6 +34,7 @@ const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 const isWall = (x: number, y: number) => tiles[Math.floor(y / T)]?.[Math.floor(x / T)] === '#';
 const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, ...SKILL_COLORS }; // 技ごとの色は client/skills
+const views = (p: any) => Object.keys(STATUS_VIEW).filter((k) => p?.st?.[k]).map((k) => STATUS_VIEW[k]); // 有効な状態の描画（client/skills）
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
 
 type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; cd?: number; flashUntil: number };
@@ -161,6 +162,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .tk .rf{margin-left:.5em;color:#9fe8ff}
 #fx .lbl.introlbl{font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .6px) #000}
 #fx .lbl.wanted{color:#ff4040;font-size:calc(var(--z) * 7px)}
+#fx .lbl.pick{color:#ffe066;font-size:calc(var(--z) * 6px)}
 @keyframes fadein{0%{opacity:0}100%{opacity:1}}
 @keyframes slidein{0%{transform:translateX(-40%);opacity:0}100%{transform:none;opacity:1}}
 @keyframes logoin{0%{transform:translateX(30%) skewX(-8deg);opacity:0}100%{transform:skewX(-8deg);opacity:1}}
@@ -185,7 +187,7 @@ const TOUCH = matchMedia('(pointer: coarse)').matches;
 const AIM_SHORT: Record<string, string> = { nearest: '近い', lowhp: 'HP', boss: '大将', manual: '手動' };
 if (TOUCH) {
   document.documentElement.classList.add('touch');
-  hudEl.insertAdjacentHTML('beforeend', '<button class="tb atk">攻撃</button><button class="tb rc">設置<br>帰還</button><button class="tb aimb"></button>');
+  hudEl.insertAdjacentHTML('beforeend', '<button class="tb atk">攻撃</button><button class="tb rc">帰還</button><button class="tb aimb"></button>');
   for (const t of ['gesturestart', 'dblclick', 'contextmenu']) document.addEventListener(t, (e) => e.preventDefault());
   document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない
 }
@@ -246,6 +248,7 @@ class GameScene extends Phaser.Scene {
 
   preload() {
     for (const k of DOT_KEYS) for (const f of DOT_FRAMES) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`);
+    for (const [k, f] of DOT_EXTRA) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`); // 技の見た目用のコマ（client/skills）
   }
 
   create() {
@@ -284,7 +287,7 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, C.MAP_W, C.MAP_H).setRoundPixels(true).centerOn(C.MAP_W / 2, C.MAP_H / 2);
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,SPACE,Q,R,TAB') as any;
     this.keys.SPACE.on('down', () => this.ctl.attack());
-    this.keys.Q.on('down', () => this.ctl.qDown()); // 短押しで設置、長押しでリコール（判定はサーバー）
+    this.keys.Q.on('down', () => this.ctl.qDown()); // 長押しでリコール（判定はサーバー）
     this.keys.Q.on('up', () => this.ctl.qUp());
     this.keys.R.on('down', () => this.ctl.skill());
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
@@ -397,7 +400,7 @@ class GameScene extends Phaser.Scene {
   }
 
   // スマホの操作: ボタン以外の画面全体（ゲーム画面の外の黒い余白も含む）が仮想スティック（触れた位置に出て、離すまで指に追従）、
-  // 右下は 攻撃・技・設置/帰還（長押し）・照準 のボタン。余白にも出せるよう、スティックは画面全体の DOM に描く
+  // 右下は 攻撃・技・帰還（長押し）・照準 のボタン。余白にも出せるよう、スティックは画面全体の DOM に描く
   touchControls() {
     const stick = document.createElement('div');
     stick.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;display:none';
@@ -436,7 +439,7 @@ class GameScene extends Phaser.Scene {
 
   // 自キャラの移動予測に使う障害物（カウント中と終了後は部屋の外へ出られない）
   obstacles(s: any, m: any) {
-    return [...this.walls, ...s.barricades, ...(m?.cage ? cage(m.cage) : [])];
+    return [...this.walls, ...(m?.cage ? cage(m.cage) : [])];
   }
 
   // スロットの当たり・連チャンのカットイン（両陣営）: 当てた陣営と連チャン数、払い出し
@@ -552,6 +555,7 @@ class GameScene extends Phaser.Scene {
     // 頭上・画面中央の文字
     if (cut === 'enemyBoss' && foe) this.label('introFoe', '↓やっつけろ！', foe.x, foe.y - I.labelUp, 'introlbl', labelSeen);
     if (cut === 'ownBoss' && own) this.label('introOwn', '↓まもれ！', own.x, own.y - I.labelUp, 'introlbl', labelSeen);
+    if (cut === 'mess') for (const m of s.materials) this.label(`pick${m.id}`, '↓ひろって！', m.x, m.y - 14, 'pick', labelSeen); // 「徳を積め」の間、資材それぞれに
     this.introBanner = cut === 'mess' ? ['mess', '徳を積め！'] : cut === 'allies' ? ['allies', 'なかよくしろ！'] : cut === 'ready' ? ['ready', '準備してね'] : null;
   }
 
@@ -675,13 +679,6 @@ class GameScene extends Phaser.Scene {
     return pts;
   }
 
-  // バリケード: 茶色の木箱（陣営色の縁取り）
-  drawCrate(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, team: number, alpha: number) {
-    g.fillStyle(0x8b5a2b, alpha).fillRect(x, y, w, h);
-    g.lineStyle(2, 0x5c3a1a, alpha).strokeRect(x + 3, y + 3, w - 6, h - 6).lineBetween(x + 3, y + 3, x + w - 3, y + h - 3).lineBetween(x + w - 3, y + 3, x + 3, y + h - 3);
-    g.lineStyle(2, TEAM_COLOR[team], alpha).strokeRect(x, y, w, h);
-  }
-
   // 資材: 黄色の箱。高ポイント（裏側）はピンクの大きい箱で、明滅する光をまとう
   drawMaterial(g: Phaser.GameObjects.Graphics, x: number, y: number, s = 10, hi = false) {
     if (hi) { const k = 0.5 + 0.5 * Math.sin(performance.now() / 150); g.fillStyle(0xffffff, 0.2 + 0.3 * k).fillCircle(x, y, 12 + 4 * k); s = 14; }
@@ -744,7 +741,7 @@ class GameScene extends Phaser.Scene {
     const myTeam = mine?.team ?? 0;
     const sinceSnap = (now - this.snapAt) / 1000;
     const labelSeen = new Set<string>();
-    // 対象のid（p:/boss:/c:/e:/bar:）→ 位置
+    // 対象のid（p:/boss:/c:/e:）→ 位置
     const thingPos = (id: string | null): { x: number; y: number } | null => {
       if (!id) return null;
       const k = id.slice(0, id.indexOf(':')), v = id.slice(id.indexOf(':') + 1);
@@ -752,7 +749,6 @@ class GameScene extends Phaser.Scene {
       if (k === 'boss') return s.bosses.find((b: any) => String(b.team) === v) ?? null;
       if (k === 'c') return s.couriers.find((c: any) => String(c.id) === v) ?? null;
       if (k === 'e') return s.ents.find((e: any) => String(e.id) === v) ?? null;
-      if (k === 'bar') { const b = s.barricades.find((b: any) => String(b.id) === v); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null; }
       return null;
     };
 
@@ -771,18 +767,20 @@ class GameScene extends Phaser.Scene {
       const cx = x, cy = y; // 他キャラは補間済みの位置
       const moving = isMe ? MOVE_PHASES.includes(s.phase) && alpha === 1 && (dx || dy) : Math.hypot(cx - e.tx, cy - e.ty) > 0.3;
       e.tx = cx; e.ty = cy;
-      const sp = e.s;
-      if (s.phase === 'intro' && p && C.INTRO_MODE === 'old') sp.stop().setTexture(`${char}_banzai`); // 旧開幕は万歳
+      const sp = e.s, vs = views(p), frame = vs.find((v) => v.frame)?.frame, bare = vs.some((v) => v.bare); // 状態による見た目の差し替え・目印なし
+      if (frame) sp.stop().setTexture(`${char}_${frame}`);
+      else if (s.phase === 'intro' && p && C.INTRO_MODE === 'old') sp.stop().setTexture(`${char}_banzai`); // 旧開幕は万歳
       else if (moving && walkOf(char) === 'normal') sp.play(`${char}_walk`, true); // 歩行タイプ（chars.ts の walk）
-      else if (sp.texture.key === `${char}_banzai`) sp.setTexture(`${char}_idle`);
+      else if (moving && walkOf(char) === 'hover') sp.stop().setTexture(`${char}_walk1`);
+      else if (!sp.anims.isPlaying && sp.texture.key !== `${char}_idle`) sp.setTexture(`${char}_idle`); // 万歳・ホバー・状態の差し替えから戻す
       else if (sp.anims.isPlaying && sp.anims.currentAnim?.key === `${char}_walk`) sp.stop().setTexture(`${char}_idle`);
       else if (time >= e.blinkAt) { sp.play(`${char}_blink`); e.blinkAt = time + 2000 + Math.random() * 4000; } // ときどき瞬き
       const f = isMe ? this.face : face;
       sp.setPosition(Math.round(cx), Math.round(cy)).setFlipX(Math.cos(f) > 0.01).setAlpha(alpha).setDepth(10 + cy / 10000);
       // 足元の陣営色と頭上のHP
       const h = sp.displayHeight * 0.85;
-      feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
-      if (alpha === 1) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
+      if (!bare) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
+      if (alpha === 1 && !bare) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
       // 被弾: 白く点滅してダメージ数値
       if (e.hp !== undefined && hp < e.hp) {
         e.flashUntil = time + C.HIT_FLASH_MS;
@@ -798,6 +796,7 @@ class GameScene extends Phaser.Scene {
         this.slashes.push({ x: cx, y: cy - 8, face: tp ? Math.atan2(tp.y - cy, tp.x - cx) : f, t0: time });
       }
       e.cd = p.cd;
+      if (bare) return;
       // 指名手配: 頭上に手配マーク
       if (p.alive && s.teams[p.team]?.wanted === p.id) this.label(`wanted${id}`, '★手配★', cx, cy - h - 30, 'wanted', labelSeen);
       if (p.boost) feet.lineStyle(2, SKILL_FX_COLOR.heal, 0.9).strokeEllipse(cx, cy, 30, 12); // 白上虎太郎の移動速度上昇
@@ -920,23 +919,6 @@ class GameScene extends Phaser.Scene {
       this.label(`item${it.id}`, ITEM_LABEL[it.kind], it.x, it.y - 15, '', labelSeen);
     }
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team));
-    for (const b of s.barricades) {
-      this.drawCrate(g, b.x, b.y, b.w, b.h, b.team, 1);
-      g.fillStyle(0x000000, 0.6).fillRect(b.x, b.y - 6, b.w, 3).fillStyle(0xffffff).fillRect(b.x, b.y - 6, b.w * Math.max(0, b.hp / C.BARRICADE_HP), 3);
-    }
-    // Q の設置プレビュー: 壁破壊の穴の上なら半透明の木箱。キャラと重なる位置は赤く表示
-    if (mine?.alive) {
-      const px = this.me.x + Math.cos(this.face) * C.PLACE_DIST, py = this.me.y + Math.sin(this.face) * C.PLACE_DIST;
-      if (s.broken.some(([bx, by]: number[]) => bx === Math.floor(px / T) && by === Math.floor(py / T))) {
-        this.drawCrate(g, px - C.BARRICADE_SIZE / 2, py - C.BARRICADE_SIZE / 2, C.BARRICADE_SIZE, C.BARRICADE_SIZE, myTeam, 0.45);
-        const bodies = [
-          ...s.players.filter((p: any) => p.alive).map((p: any) => ({ ...(p.id === s.me ? this.me : p), r: C.PLAYER_RADIUS })),
-          ...s.bosses.map((b: any) => ({ x: b.x, y: b.y, r: C.BOSS_RADIUS })),
-          ...s.ents.filter((e: any) => e.body === 'unit').map((e: any) => ({ x: e.x, y: e.y, r: e.r })),
-        ];
-        if (!canPlace(px, py, bodies)) g.fillStyle(0xff2020, 0.5).fillRect(px - C.BARRICADE_SIZE / 2, py - C.BARRICADE_SIZE / 2, C.BARRICADE_SIZE, C.BARRICADE_SIZE);
-      }
-    }
 
     // 視界（観戦者はフォグなし）
     const vg = this.visG.clear().fillStyle(0xffffff);
@@ -978,7 +960,7 @@ class GameScene extends Phaser.Scene {
     // ミニマップ
     const ui = this.ui.clear();
     const mx = C.VIEW_W - 4 - MAP.width * MINI, my = C.VIEW_H - 4 - MAP.height * MINI, ms = MINI / T;
-    for (const p of s.players) if (p.alive) ui.fillStyle(p.id === s.me ? 0xffffff : TEAM_COLOR[p.team]).fillRect(mx + (p.id === s.me ? this.me.x : p.x) * ms - 1, my + (p.id === s.me ? this.me.y : p.y) * ms - 1, 3, 3);
+    for (const p of s.players) if (p.alive && (p.team === myTeam || !views(p).some((v) => v.bare))) ui.fillStyle(p.id === s.me ? 0xffffff : TEAM_COLOR[p.team]).fillRect(mx + (p.id === s.me ? this.me.x : p.x) * ms - 1, my + (p.id === s.me ? this.me.y : p.y) * ms - 1, 3, 3);
     // 大将: 味方は常時、敵は見えている間は塗り、見えていなければ最後に見た位置を枠だけ
     const foeBoss = s.bosses.find((x: any) => x.team !== myTeam);
     if (foeBoss) this.lastSeenBoss = { x: foeBoss.x, y: foeBoss.y };
@@ -990,7 +972,7 @@ class GameScene extends Phaser.Scene {
     for (const w of s.wanted) ui.lineStyle(1.5, 0xff3030).strokeRect(mx + w.x * ms - 3, my + w.y * ms - 3, 7, 7);
     // 資材: 味方の視界内にあるもの（観戦者はすべて）
     const eyes = [...s.players.filter((p: any) => p.team === myTeam && p.alive), ...s.bosses.filter((b: any) => b.team === myTeam)];
-    const seeObs = [...this.walls, ...s.barricades];
+    const seeObs = this.walls;
     for (const m of s.materials) {
       if (mine && !eyes.some((e: any) => Math.hypot(e.x - m.x, e.y - m.y) <= visionRadius(e.char) && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
       if (m.hi) ui.fillStyle(0xff7ad9).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高ポイントはピンクで大きく
@@ -1022,7 +1004,7 @@ class GameScene extends Phaser.Scene {
       `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  ウルト: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier]}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
       `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
-      ...(TOUCH ? [] : ['WASD移動 / オート攻撃・SPACE手動攻撃 / Q設置（長押しで帰還） / R技 / Tab照準']), // タッチ端末にはPCのキー操作を出さない
+      ...(TOUCH ? [] : ['WASD移動 / オート攻撃・SPACE手動攻撃 / Q長押しで帰還 / R技 / Tab照準']), // タッチ端末にはPCのキー操作を出さない
     ].join('\n');
   }
 }

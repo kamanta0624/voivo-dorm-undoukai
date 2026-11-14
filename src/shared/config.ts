@@ -120,7 +120,6 @@ export const CONFIG = {
   BALANCE_ALONE_CUT: 0.2,
   DEFENSE_CUT: 0.2, // defense: 被ダメ軽減
   ATTACKER_BOSS_MULT: 2, // attacker: 大将へのダメージ倍率（技にも掛かる）
-  BREAKER_MULT: 3, // 壊し屋（chars.ts の breaker）のバリケード・罠へのダメージ倍率（技にも掛かる）
   MELEE_BONUS: { hp: 1.2, speed: 1.1, atk: 1.2 }, // 近接補正: chars.ts の melee のキャラの最大HP・移動・通常攻撃に掛ける（引き撃ち対策）
   BULLET_SPEED: 600, // 弾・矢の速さ(px/秒)
   BULLET_RADIUS: 4,
@@ -143,7 +142,8 @@ export const CONFIG = {
   BOSS_INTENSITY: { time: { max: 1.5, min: 0.8, curve: 1 }, hp: { min: 1, max: 1.6, curve: 1 } },
 
   MATERIAL_SPAWN_INTERVAL: 3, // 資材の再出現の間隔(秒)。MATERIAL_MAX に足りない分を1個ずつ
-  MATERIAL_MAX: 14, // マップに落ちている資材の数（試合開始時にこの数だけ置く）
+  MATERIAL_MAX: 14, // マップに落ちている資材の数の基準（×MATERIAL_MAX_MULT。試合開始時にこの数だけ置く）
+  MATERIAL_MAX_MULT: 3,
   MATERIAL_TOUCH: 16, // 資材に触れたとみなす距離（キャラ中心から）。触れると拾う（持ち運ばない）
   MATERIAL_GAP: 32, // 資材どうしを離す距離(px)
   MATERIAL_BACK: 0.7, // 資材が裏側（FRONT_ROOMS 以外の部屋・廊下）に出る比率。裏側の資材は高ポイント（TOKU.materialBack）
@@ -155,7 +155,7 @@ export const CONFIG = {
   TOKU_MIN: 0,
   TOKU_MAX: 10,
   TOKU_INIT: 5,
-  TOKU: { material: 0.6, materialBack: 1.2, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
+  TOKU: { material: 0.2, materialBack: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
   WANTED_MIN: 3, // 悪行ポイント（徳を下げた量の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
 
@@ -204,16 +204,11 @@ export const CONFIG = {
     } as Record<string, any>,
   },
   RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）
-  RECALL_TAP: 0.3, // これ未満の短押しはバリケード設置
   BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する
   HEAL_ITEM_AMOUNT: 30, // 回復アイテムの回復量
   HEAL_RESPAWN: 3, // 回復アイテム（ご飯）が取られてから同じ場所に再出現するまでの秒数
   DAMAGE_MULT: 1.3, // 全キャラの通常攻撃と技のダメージに掛ける倍率
-  BARRICADE_SIZE: 40,
-  BARRICADE_HP: 80,
-  BARRICADE_MAX: 3, // 各陣営の同時設置数。超えたら一番古いものが消える
-  PLACE_DIST: 32, // Qの設置位置: キャラ中心から向いている方向への距離
 
   RAGE_KILL: 10,
   RAGE_ASSIST: 5,

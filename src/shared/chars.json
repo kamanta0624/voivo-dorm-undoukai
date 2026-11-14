@@ -10,6 +10,7 @@
   "ierutan": { "name": "あいえるたん", "dir": "あいえるたん", "select": "通常", "ko": "いかり", "koed": "なき" },
   "zunko": { "name": "東北ずん子", "dir": "東北ずん子", "select": "制服", "ko": "制服", "koed": null },
   "kiritan": { "name": "東北きりたん", "dir": "きりたん", "select": "通常", "ko": "煽り", "koed": null },
+  "himari": { "name": "冥鳴ひまり", "dir": "冥鳴ひまりv2", "select": "直立", "ko": "怒り", "koed": "ショック" },
   "ankomon": { "name": "あんこもん", "dir": "あんこもん", "select": "通常", "ko": "通常", "koed": null, "boss": 0 },
   "zundamon": { "name": "ずんだもん", "dir": "zundamon", "select": "普通", "ko": "得意", "koed": "泣き", "boss": 1 }
 }

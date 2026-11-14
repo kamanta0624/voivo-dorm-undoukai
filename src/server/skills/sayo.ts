@@ -18,7 +18,7 @@ const skill: Skill = {
   ended(room, p) {
     if (room.stat(p, 'dance') && room.now >= p.sk.danceNext) { p.sk.danceNext += S.every; room.addFx(p, 'ring', { r: S.r }); }
   },
-  botUse: (room, p) => room.nearFoe(p, S.r + 10, (t) => isUnit(t) || t.k === 'bar'),
+  botUse: (room, p) => room.nearFoe(p, S.r + 10, isUnit),
   statuses: ['dance'],
 };
 export default skill;

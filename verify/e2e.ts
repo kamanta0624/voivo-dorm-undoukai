@@ -69,6 +69,7 @@ async function match1() {
   await courierCheck(A);
   await assistCheck(A, B);
   mark('コバコ・アシスト');
+  await send(A, 'e2eSlotMiss', { on: true }); // ここからの技の検証中はスロットが当たらない（ウルト変身で技が出ないことによる揺らぎをなくす）
   await aruCheck(A);
   mark('アルの突撃');
   await hanamaruCheck(A);
@@ -193,12 +194,12 @@ async function miniWatch(A: Tab, mm: any) {
       const w = window as any, s = w.snap, buf: number[] = w.game.scene.scenes[0].ui.commandBuffer;
       let mats = 0;
       for (let k = 0; k < buf.length - 1; k++) if (buf[k + 1] === 0xffd700 || buf[k + 1] === 0xff7ad9) mats++; // 通常（黄）と高ポイント（ピンク）
-      return { mats, s: { me: s.me, phase: s.phase, players: s.players.map((p: any) => ({ id: p.id, team: p.team, alive: p.alive, x: p.x, y: p.y, char: p.char })), bosses: s.bosses, materials: s.materials, barricades: s.barricades, broken: s.broken } };
+      return { mats, s: { me: s.me, phase: s.phase, players: s.players.map((p: any) => ({ id: p.id, team: p.team, alive: p.alive, x: p.x, y: p.y, char: p.char })), bosses: s.bosses, materials: s.materials, broken: s.broken } };
     });
     const s = r.s, me = s.players.find((p: any) => p.id === s.me);
     if (s.phase === 'playing' && me) {
       const eyes = [...s.players.filter((p: any) => p.team === me.team && p.alive), ...s.bosses.filter((b: any) => b.team === me.team)];
-      const obs = [...wallsAt(s.broken), ...s.barricades];
+      const obs = wallsAt(s.broken);
       const vis = s.materials.filter((m: any) => eyes.some((e: any) => dist(e, m) <= visionRadius(e.char) && lineOfSight(e.x, e.y, m.x, m.y, obs))).length;
       if (r.mats === vis && vis > 0 && !mm.shown) { mm.shown = { drawn: r.mats, visible: vis, all: s.materials.length }; await A.shot('s5b_minimap_materials'); }
       if (r.mats === vis && s.materials.length > vis) mm.hidden = { drawn: r.mats, visible: vis, all: s.materials.length };

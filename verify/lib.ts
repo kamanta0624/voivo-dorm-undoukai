@@ -49,7 +49,7 @@ export class Tab {
       const w = window as any;
       w.hist = [];
       w.room.onMessage('s', (s: any) => w.hist.push({
-        t: s.timeLeft, me: s.me, couriers: s.couriers, phase: s.phase, teams: s.teams, bosses: s.bosses, barricades: s.barricades,
+        t: s.timeLeft, me: s.me, couriers: s.couriers, phase: s.phase, teams: s.teams, bosses: s.bosses,
         items: s.items, mats: s.materials.map((m: any) => [m.id, m.x, m.y]), roster: s.roster, broken: s.broken, reveal: s.reveal,
         players: s.players.map((p: any) => ({ id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, respawnIn: p.respawnIn, ult: p.ult, assist: p.assist })),
       }));
@@ -89,7 +89,7 @@ export class Tab {
         const m = s.players.find((p: any) => p.id === s.me);
         if (!m || !m.alive || s.phase !== 'playing') return false;
         if (Math.hypot(x - m.x, y - m.y) <= tol) return true;
-        if (Date.now() - at > 500) { path = findPath(m, { x, y }, [...C.WALLS, ...s.barricades]); at = Date.now(); }
+        if (Date.now() - at > 500) { path = findPath(m, { x, y }, C.WALLS); at = Date.now(); }
         while (path.length > 1 && Math.hypot(path[0].x - m.x, path[0].y - m.y) < 12) path.shift();
         const n = path[0] ?? { x, y };
         const d = Math.hypot(n.x - m.x, n.y - m.y) || 1;

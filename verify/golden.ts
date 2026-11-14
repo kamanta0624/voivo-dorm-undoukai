@@ -1,16 +1,16 @@
 // 整理の前後で挙動が変わっていないかの照合（ブラウザ・通信なし）。実行: npx tsx verify/golden.ts [--write]
 // Math.random を固定シードの擬似乱数に差し替え、Botだけの4vs4を試合内120秒まわす。毎秒の状態を1行にし、全行のハッシュを verify/golden.txt と比べる
-// --write: 今の結果で verify/golden.txt を書き直す（整理前のコードでだけ使う）
+// --write: 今の結果で verify/golden.txt を書き直す（仕様を変えたときだけ使う）
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { GameRoom } from '../src/server/GameRoom';
 
 const FILE = 'verify/golden.txt';
 const SEC = 120, DT = 0.05;
-// プレイアブル10キャラ全員が出る編成（2試合目は1試合目の陣営0を陣営1へ入れ替え、残りの2キャラを加える）
+// プレイアブル11キャラ全員が出る編成（2試合目は1試合目の陣営0を陣営1へ入れ替え、残りの3キャラを加える）
 const MATCHES = [
   { seed: 1, teams: [['hanamaru', 'whitecul', 'sayo', 'metan'], ['mochiko', 'aru', 'bii', 'ierutan']] },
-  { seed: 2, teams: [['zunko', 'kiritan', 'mochiko', 'aru'], ['hanamaru', 'whitecul', 'sayo', 'metan']] },
+  { seed: 2, teams: [['zunko', 'kiritan', 'himari', 'aru'], ['hanamaru', 'whitecul', 'sayo', 'metan']] },
 ];
 
 // mulberry32
