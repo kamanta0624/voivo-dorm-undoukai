@@ -1,0 +1,10 @@
+node_modules/
+dist/
+logs/
+# 素材（32dotドット・立ち絵）。二次配布防止のため管理外。npm run assets で再生成
+public/assets/gen/
+verify/evidence/
+.env
+.env.*
+certs/
+.DS_Store

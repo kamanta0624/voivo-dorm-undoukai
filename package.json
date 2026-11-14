@@ -1,0 +1,32 @@
+{
+  "name": "kiritan_zunda_proto",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently -k -n server,client \"tsx watch src/server/index.ts\" \"vite --host\"",
+    "typecheck": "tsc",
+    "assets": "sh tools/build_assets.sh",
+    "share": "sh tools/share.sh",
+    "test:server": "tsx verify/server.ts && tsx verify/net.ts && tsx verify/input.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.9",
+    "colyseus": "^0.18.12",
+    "express": "5.3.0",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "concurrently": "^10.0.7",
+    "playwright-core": "^1.65.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7"
+  }
+}
