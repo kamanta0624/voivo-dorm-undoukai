@@ -2,7 +2,7 @@ import { Room, Client } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
-import { CHARS, PICKABLE, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode } from '../shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
 import { findPath } from './pathfind';
@@ -56,6 +56,7 @@ export type Player = {
   boostUntil: number; // 白上虎太郎の移動速度上昇
   inDx: number; inDy: number; // 人間: 最後に届いた移動入力
   eating: boolean; // Bot: リコールして給湯室でご飯を食べている（HPが満タンになるまで）
+  ok: boolean; // 待機画面でキャラを確定した（OK!）。開始の条件には使わない
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、box: 持っている荷物（ult / assist）
@@ -161,7 +162,12 @@ export class GameRoom extends Room {
     },
     pick: (client: Client, m: { char: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) p.char = m.char;
+      if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) { p.char = m.char; p.ok = true; } // 確定（OK!）
+    },
+    // 確定を取り消す（キャラはそのまま）
+    unpick: (client: Client) => {
+      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
+      if (p && this.phase === 'waiting') p.ok = false;
     },
     // 待機画面で陣営を移る（満員なら移れない）
     team: (client: Client, m: { team: number }) => {
@@ -317,7 +323,7 @@ export class GameRoom extends Room {
       skillReadyAt: 0, st: {}, sk: {},
       assist: false, tier: 1, ult: null,
       goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
-      boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false,
+      boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false,
     };
     this.players.set(id, p);
     return p;
@@ -376,7 +382,10 @@ export class GameRoom extends Room {
 
   startMatch() {
     for (let t = 0; t < 2; t++) {
-      while ([...this.players.values()].filter((p) => p.team === t).length < C.TEAM_SIZE) this.addPlayer(`bot${++this.botSeq}`, t, true);
+      while ([...this.players.values()].filter((p) => p.team === t).length < C.TEAM_SIZE) {
+        const b = this.addPlayer(`bot${++this.botSeq}`, t, true);
+        if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
+      }
       [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = i % 2 === 0 ? 'gather' : 'raid'));
     }
     for (const p of this.players.values()) p.hp = this.maxHp(p); // キャラ確定後にロールのHPを反映
@@ -1317,7 +1326,7 @@ export class GameRoom extends Room {
     }));
     const wanted = this.teams.map((t) => this.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
     const all = { players: [...this.players.values()], bosses: this.bosses, ents: this.ents, shots: this.shots, fx: this.fx, warns: this.warns };
-    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive }));
+    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok }));
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
       const v = me && !this.reveal.has(client.sessionId) ? vis[me.team] : all; // 観戦者はフォグなし

@@ -1124,5 +1124,24 @@ console.log('--- もち子（ホバー）・ずん子');
   ok('ずんだアローの CT は旧の2/3（18→12秒）', Math.abs(CHARS.zunko.skill.ct - (18 * 2) / 3) < 1e-9);
 }
 
+console.log('--- 待機画面の確定（OK!）・e2e の Bot 編成');
+{
+  const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
+  const sent: any[] = []; Object.defineProperty(r, 'clients', { value: [{ sessionId: 'c0', send: (t: string, m: any) => { if (t === 's') sent.push(m); } }] });
+  r.onCreate(); r.onJoin({ sessionId: 'c0' });
+  const cl = { sessionId: 'c0' }, me = () => r.players.get('c0');
+  const ok0 = me().ok; r.messages.pick(cl, { char: 'zunko' }); r.sendSnapshots(); const s1 = sent[sent.length - 1].roster.find((x: any) => x.id === 'c0');
+  r.messages.unpick(cl); r.sendSnapshots(); const s2 = sent[sent.length - 1].roster.find((x: any) => x.id === 'c0');
+  ok('pick で確定（OK!）、unpick で取り消し（キャラはそのまま）。ロスターで他のクライアントにも送る', ok0 === false && s1.ok === true && s1.char === 'zunko' && s2.ok === false && s2.char === 'zunko');
+  r.startMatch(); ok('確定していなくても開始できる（開始の条件は変えない）', r.phase === 'intro');
+  const prev = process.env.E2E_HOOKS;
+  process.env.E2E_HOOKS = '1'; const e: any = new (GameRoom as any)(); e.setSimulationInterval = () => {}; e.lock = () => {}; e.unlock = () => {}; Object.defineProperty(e, 'clients', { value: [] }); e.onCreate(); e.startMatch();
+  if (prev === undefined) delete process.env.E2E_HOOKS; else process.env.E2E_HOOKS = prev;
+  const bots = [...e.players.values()].map((p: any) => p.char);
+  const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; n.lock = () => {}; n.unlock = () => {}; Object.defineProperty(n, 'clients', { value: [] }); n.onCreate();
+  const seen = new Set<string>(); for (let i = 0; i < 30; i++) { n.players.clear(); n.startMatch(); n.players.forEach((p: any) => seen.add(p.char)); n.phase = 'waiting'; }
+  ok('e2e（E2E_HOOKS）の Bot は固定の編成で、ひまり・ビィを入れない。通常の試合の Bot はランダムのまま（ひまり・ビィも出る）', JSON.stringify(bots) === JSON.stringify(['hanamaru', 'whitecul', 'sayo', 'metan', 'mochiko', 'aru', 'ierutan', 'zunko']) && seen.has('himari') && seen.has('bii'), { bots });
+}
+
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

@@ -46,6 +46,8 @@ export const CHARS: Record<string, CharDef> = {
 type JsonChar = { name: string; boss?: number };
 const JSON_CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, JsonChar>;
 export const PICKABLE = Object.keys(JSON_CHARS).filter((k) => JSON_CHARS[k].boss === undefined); // 大将以外
+// e2e（E2E_HOOKS）の試合の Bot の編成（順に割り当てる）。一撃で倒すひまり・壁を壊すビィは入れない（検証が揺らぐため。両者の検証は人間の操作で行う）
+export const E2E_BOTS = ['hanamaru', 'whitecul', 'sayo', 'metan', 'mochiko', 'aru', 'ierutan', 'zunko', 'kiritan'];
 export const BOSS_CHAR = [0, 1].map((t) => Object.keys(JSON_CHARS).find((k) => JSON_CHARS[k].boss === t)!); // 陣営 → 大将のキャラ
 
 // キャラのロール倍率。char なし（大将）や role なしは null

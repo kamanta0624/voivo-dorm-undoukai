@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { Client, Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
-import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf } from '../shared/chars';
+import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf, charStats } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
@@ -25,6 +25,10 @@ const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), �
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
 const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
+const TITLE = 'ブイブイ運動会';
+// 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
+const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty: '#ffffff26', ok: '#66ff99', pending: '#bbbbbb' };
+const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
 const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, box_assist: 0x66ccff, assist: 0x66ccff };
 const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'ウルト箱', box_assist: 'アシスト箱' };
 const PAYOUT_LABEL: Record<string, string> = { ult: 'ウルト', assist: 'アシスト召喚' };
@@ -83,19 +87,43 @@ css.textContent = `
 #fx .pop.warn{color:#fff59a;font-size:calc(var(--z) * 7px)}
 @keyframes popup{0%{opacity:1;margin-top:0}100%{opacity:0;margin-top:calc(var(--z) * -14px)}}
 html.touch,html.touch body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
-html.touch #lobby{top:env(safe-area-inset-top)!important;right:env(safe-area-inset-right)!important;bottom:env(safe-area-inset-bottom)!important;left:env(safe-area-inset-left)!important;transform:none!important;box-sizing:border-box;overflow:hidden;background:#111!important;padding:6px 10px 14px!important;font-size:12px!important}
-html.touch #lobby h3{font-size:13px;height:18px;line-height:18px;margin:0!important}
-html.touch #lobby .cards{height:calc(100% - 112px);gap:4px;margin:4px 0}
-html.touch #lobby .card{flex:1 1 0;min-width:0;width:auto;display:flex;flex-direction:column;font-size:10px;white-space:nowrap;overflow:hidden}
-html.touch #lobby .card img{flex:1 1 0;min-height:0;height:auto}
-html.touch #roster{display:flex;gap:16px;line-height:1.3;margin-right:96px}
-html.touch #roster>br{display:none}
-html.touch #roster .tm{flex:1;min-width:0;white-space:nowrap;overflow:hidden}
-html.touch #roster button{font-size:11px}
-html.touch #start{position:absolute;right:10px;bottom:14px;margin:0!important;font-size:16px!important;padding:6px 16px!important}
 html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc(env(safe-area-inset-bottom) + 1px)!important}
-#lobby .pwa{position:absolute;right:10px;top:6px;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
+#lobby .pwa{position:absolute;left:50%;transform:translateX(-50%);top:6px;z-index:3;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
 #lobby .pwa button{border:0;background:none;font:bold 14px/1 sans-serif;padding:0 6px;color:#000}
+#fx #lobby{position:absolute;inset:0;display:none;overflow:clip;pointer-events:auto;background:radial-gradient(ellipse at 70% 40%,#3a2f5a,#111 70%);color:#fff;font:calc(var(--z) * 6.5px) sans-serif}
+#lobby .tachie{position:absolute;bottom:0;right:3%;height:96%;pointer-events:none;transition:right .35s,transform .35s,height .35s}
+#lobby.confirm .tachie,#lobby.ok .tachie{right:50%;transform:translateX(50%);height:100%}
+#lobby .ttl{position:absolute;left:2%;top:2%;font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 3px) #000}
+#lobby .info{position:absolute;left:2%;top:11%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 3px) calc(var(--z) * 5px)}
+#lobby .info .nm{font:900 calc(var(--z) * 11px) sans-serif}
+#lobby .info .role{color:#ddd;margin-bottom:calc(var(--z) * 2px)}
+#lobby .st{display:flex;align-items:center;gap:calc(var(--z) * 3px);height:calc(var(--z) * 8px)}
+#lobby .st b{width:calc(var(--z) * 54px);font-weight:bold;white-space:nowrap;overflow:hidden}
+#lobby .st i{display:inline-block;width:calc(var(--z) * 11px);height:calc(var(--z) * 4px);margin-right:1px;background:var(--c);border-radius:1px}
+#lobby .selbar{position:absolute;left:0;right:0;bottom:0;height:46%;background:linear-gradient(transparent,#000d 18%);transition:transform .35s;z-index:1}
+#lobby.confirm .selbar,#lobby.ok .selbar{transform:translateY(105%)}
+#lobby .cards{display:flex;gap:calc(var(--z) * 2px);height:100%;box-sizing:border-box;padding:calc(var(--z) * 10px) calc(var(--z) * 4px) calc(var(--z) * 4px)}
+#lobby .card{flex:1 1 0;min-width:0;display:flex;flex-direction:column;cursor:pointer;border:calc(var(--z) * 1px) solid #fff4;border-radius:calc(var(--z) * 2px);background:#fff1;text-align:center;font-size:calc(var(--z) * 5.5px);white-space:nowrap;overflow:hidden}
+#lobby .card img{flex:1 1 0;min-height:0;width:100%;object-fit:cover;object-position:top}
+#lobby .card.mine{border-color:#ffd700;background:#ffd70033}
+#lobby #roster{position:absolute;right:2%;top:2%;width:32%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 2px) calc(var(--z) * 4px);line-height:1.35;z-index:2}
+#lobby #roster .tm b{font-size:calc(var(--z) * 7px)}
+#lobby #roster .row{display:flex;justify-content:space-between;gap:calc(var(--z) * 3px);white-space:nowrap}
+#lobby #roster .row em{font-style:normal;font-weight:bold}
+#lobby #roster .foe{color:#aaa;font-size:calc(var(--z) * 5.5px);margin-top:calc(var(--z) * 2px)}
+#lobby #roster button{font-size:calc(var(--z) * 5.5px);pointer-events:auto}
+#lobby button.big{position:absolute;z-index:2;border:0;cursor:pointer;font:900 calc(var(--z) * 13px) sans-serif;color:#fff;border-radius:calc(var(--z) * 6px);padding:calc(var(--z) * 3px) calc(var(--z) * 14px)}
+#lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
+#lobby.confirm #okbtn,#lobby.ok #okbtn{display:block}
+#lobby.ok #okbtn{background:linear-gradient(#5ce07a,#20a040);box-shadow:0 calc(var(--z) * 2px) 0 #0a5020;-webkit-text-stroke:calc(var(--z) * .4px) #063010}
+#lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#lobby.confirm #backsel,#lobby.ok #backsel{display:block}
+#lobby #start{right:2%;bottom:48%;font-size:calc(var(--z) * 15px);padding:calc(var(--z) * 4px) calc(var(--z) * 12px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 10px) #ff7a3c;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
+#lobby.confirm #start,#lobby.ok #start{bottom:5%}
+@keyframes startpulse{0%,100%{filter:brightness(1);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c}50%{filter:brightness(1.18);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a}}
+#fx .skill .seal{display:none;position:absolute;left:-10%;right:-10%;top:38%;background:#b00d;color:#fff;font:900 calc(var(--z) * 8px)/1.3 sans-serif;transform:rotate(-14deg);z-index:2}
+#fx .skill.sealed::after{content:'×';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff3030cc;font:900 calc(var(--z) * 40px)/1 sans-serif;z-index:1}
+#fx .skill.sealed .seal{display:block}
 #rotate{display:none;position:fixed;inset:0;z-index:10;background:#111;color:#fff;font:bold 20px sans-serif;align-items:center;justify-content:center}
 @media (orientation:portrait){html.touch #rotate{display:flex}}
 #fx .tb{display:none;position:absolute;pointer-events:auto;touch-action:none;width:calc(var(--z) * 36px);height:calc(var(--z) * 36px);border-radius:50%;border:2px solid #fff;background:#335c;color:#fff;font:bold calc(var(--z) * 7px)/1.1 sans-serif;padding:0}
@@ -111,6 +139,7 @@ html.touch #fx .atk{font-size:max(14px,calc(var(--z) * 10px))}
 #fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;left:50%;bottom:1.5%;transform:translateX(-50%);width:calc(var(--z) * 40px);height:calc(var(--z) * 40px);border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
+#fx .skill{isolation:isolate}
 #fx .skill i{position:absolute;inset:0;background:conic-gradient(#000b var(--p), transparent 0)}
 #fx .skill b,#fx .skill span{position:relative}
 #fx .skill b{font-size:calc(var(--z) * 11px)}
@@ -167,10 +196,6 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 @keyframes slidein{0%{transform:translateX(-40%);opacity:0}100%{transform:none;opacity:1}}
 @keyframes logoin{0%{transform:translateX(30%) skewX(-8deg);opacity:0}100%{transform:skewX(-8deg);opacity:1}}
 @keyframes pop{0%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:1}}
-#lobby .cards{display:flex;gap:6px;margin:8px 0}
-#lobby .card{width:96px;cursor:pointer;border:2px solid transparent;text-align:center;font-size:12px;border-radius:4px}
-#lobby .card img{width:100%;height:150px;object-fit:cover;object-position:top}
-#lobby .card.mine{border-color:#ffd700}
 `;
 document.head.appendChild(css);
 const down = document.createElement('div');
@@ -179,7 +204,7 @@ down.innerHTML = '<img><div></div>';
 fx.appendChild(down);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
 // スマホ（指で操作する端末）: タッチUIを出し、ブラウザのスクロール・拡大・長押しメニュー・選択を止める
@@ -214,6 +239,8 @@ class GameScene extends Phaser.Scene {
   interp = new Interp(); // 他キャラ・大将の補間
   acc = 0; // 次の入力までの経過時間(ms)
   lobbyKey = '';
+  selMode: 'browse' | 'confirm' | 'ok' = 'browse'; // 待機画面: browse=選択バー、confirm=OK?（未確定）、ok=OK!（確定済み）
+  selChar = ''; // 待機画面で選んでいるキャラ
   slashes: { x: number; y: number; face: number; t0: number }[] = [];
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
   labels = new Map<string, HTMLElement>();
@@ -293,14 +320,19 @@ class GameScene extends Phaser.Scene {
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
     if (TOUCH) this.touchControls();
 
-    // 待機画面（キャラ選択）
+    // 待機画面（キャラ選択）: 背後に選んだキャラの立ち絵・名前・ロール・ステータス、下半分に選択バー、右上に味方の選択状況
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
-    lobby.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#000d;color:#fff;padding:16px 24px;font:14px sans-serif;display:none';
-    lobby.innerHTML = '<h3 style="margin:0 0 4px">キャラ選択</h3><div class="cards"></div><div id="roster"></div><button id="start" style="margin-top:12px;font-size:18px;padding:6px 24px">開始</button>';
-    document.body.appendChild(lobby);
+    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div></div><div id="roster"></div>`
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><button id="start" class="big">バトル開始！</button>';
+    fx.appendChild(lobby);
     lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
-    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => (el.onclick = () => this.room?.send('pick', { char: el.dataset.k })));
+    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => (el.onclick = () => { this.selChar = el.dataset.k!; this.selMode = 'confirm'; this.lobbyRender(); })); // 選ぶ → 選択バーが退場して OK?
+    document.getElementById('okbtn')!.onclick = () => { if (this.selMode !== 'confirm') return; this.selMode = 'ok'; this.room?.send('pick', { char: this.selChar }); this.lobbyRender(); }; // OK? → OK!（確定）
+    document.getElementById('backsel')!.onclick = () => { // OK! → OK?（確定解除）、OK? → 選択バーへ
+      if (this.selMode === 'ok') { this.selMode = 'confirm'; this.room?.send('unpick'); } else this.selMode = 'browse';
+      this.lobbyRender();
+    };
     // ブラウザで開いている時だけ「ホーム画面に追加」で全画面になる案内（閉じたら二度と出さない）
     const ua = navigator.userAgent, standalone = (navigator as any).standalone === true || matchMedia('(display-mode: standalone)').matches;
     const how = /iPhone|iPad|iPod/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) ? '共有 → ホーム画面に追加' : /Android/.test(ua) && /Chrome\//.test(ua) && !/; wv\)|SamsungBrowser|EdgA|OPR|Firefox/.test(ua) ? 'メニュー（⋮）→ ホーム画面に追加' : '';
@@ -319,10 +351,10 @@ class GameScene extends Phaser.Scene {
 
     // 本番ビルド（npm run share）はページと同じ場所（https→wss、http→ws）。開発時は従来どおり（HTTPS は Vite の中継 vite.config.ts を通す）
     const client = new Client(import.meta.env.PROD ? location.origin : location.protocol === 'https:' ? `${location.origin}/colyseus` : `ws://${location.hostname}:${C.PORT}`);
-    const e2e = new URLSearchParams(location.search).has('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt'; // ?e2e=1 はテスト専用の部屋
+    const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt'; // ?e2e=<値> はテスト専用の部屋（値ごとに別の部屋）
     // 再読み込みしたタブは、待ってもらっている試合に戻る（RECONNECT_SEC 秒以内）。戻れなければ新しく入る
     const saved = sessionStorage.getItem(tokenKey);
-    (saved ? client.reconnect(saved).catch(() => client.joinOrCreate('game', e2e ? { e2e: true } : {})) : client.joinOrCreate('game', e2e ? { e2e: true } : {})).then((room) => {
+    (saved ? client.reconnect(saved).catch(() => client.joinOrCreate('game', e2e ? { e2e } : {})) : client.joinOrCreate('game', e2e ? { e2e } : {})).then((room) => {
       this.room = room;
       (window as any).room = room; // 検証用
       sessionStorage.setItem(tokenKey, room.reconnectionToken);
@@ -655,15 +687,42 @@ class GameScene extends Phaser.Scene {
     const key = JSON.stringify([s.roster, s.me]);
     if (key === this.lobbyKey) return;
     this.lobbyKey = key;
-    const myChar = s.roster.find((r: any) => r.id === s.me)?.char;
-    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === myChar));
-    document.getElementById('roster')!.innerHTML = [0, 1].map((t) => {
-      const list = s.roster.filter((r: any) => r.team === t);
-      const rows = list.map((r: any) => `${r.bot ? 'Bot' : '人間'}${r.id === s.me ? '（あなた）' : ''} ${CHARS[r.char]?.name ?? ''}`);
-      while (rows.length < C.TEAM_SIZE) rows.push('（空き: 開始時にBot）');
-      const me = s.roster.find((r: any) => r.id === s.me), join = me && me.team !== t && list.length < C.TEAM_SIZE ? ` <button data-t="${t}">この陣営に入る</button>` : '';
-      return `<div class="tm"><b>${TEAM_NAME[t]}</b>${join}<br>${rows.join('<br>')}</div>`;
-    }).join('<br>') + (s.me ? '' : '<br>観戦中');
+    const me = s.roster.find((r: any) => r.id === s.me), myTeam = me?.team ?? 0;
+    // サーバーの確定状態に合わせる（陣営を移ると確定は外れる）
+    if (me?.ok) { this.selMode = 'ok'; this.selChar = me.char; } else if (this.selMode === 'ok') this.selMode = 'confirm';
+    if (!this.selChar && me) this.selChar = me.char;
+    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === me?.char));
+    // 右上: 味方の選択状況（キャラと確定済みか）、敵陣営の一覧と陣営の移動
+    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : r.id === s.me ? 'あなた' : '人間'} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? 'OK!' : '選択中…'}</em></div>`;
+    const team = (t: number) => {
+      const list = s.roster.filter((r: any) => r.team === t), rows = list.map(row);
+      while (rows.length < C.TEAM_SIZE) rows.push('<div class="row"><span>（空き: 開始時にBot）</span></div>');
+      const join = me && me.team !== t && list.length < C.TEAM_SIZE ? ` <button data-t="${t}">この陣営に入る</button>` : '';
+      return `<b>${TEAM_NAME[t]}</b>${join}${rows.join('')}`;
+    };
+    document.getElementById('roster')!.innerHTML = `<div class="tm">${team(myTeam)}</div><div class="tm foe">${team(1 - myTeam)}</div>` + (s.me ? '' : '<div>観戦中</div>');
+    this.lobbyRender();
+  }
+
+  // 待機画面の表示: 段階（選択バー／OK?／OK!）と、選んでいるキャラの立ち絵・名前・ロール・ステータス
+  lobbyRender() {
+    const lobby = document.getElementById('lobby')!, k = this.selChar;
+    lobby.className = this.selMode;
+    document.getElementById('okbtn')!.textContent = this.selMode === 'ok' ? 'OK!' : 'OK?';
+    if (!k || lobby.dataset.k === k) return;
+    lobby.dataset.k = k;
+    lobby.querySelector<HTMLImageElement>('.tachie')!.src = TACHIE(k, 'select');
+    lobby.querySelector('.nm')!.textContent = CHARS[k].name;
+    const role = DEFS[k].role;
+    lobby.querySelector('.role')!.textContent = `ロール: ${role ? ROLE_LABEL[role] : 'なし'}`;
+    const st = charStats(k), bars = (n: number, c: string) => [1, 2, 3, 4, 5].map((i) => `<i style="--c:${i <= n ? c : LOBBY_COLOR.empty}"></i>`).join('');
+    const line = (label: string, n: number, c: string) => `<div class="st"><b>${label}</b>${bars(n, c)}</div>`;
+    const modeColor = (kind: string) => (kind === 'shot' ? LOBBY_COLOR.shot : LOBBY_COLOR.melee);
+    lobby.querySelector('.stats')!.innerHTML = line('HP', st.hp, LOBBY_COLOR.stat)
+      + st.aa.map((m) => line(`攻撃（${m.name}）`, m.atk, modeColor(m.kind))).join('')
+      + line('速度', st.speed, LOBBY_COLOR.stat)
+      + st.aa.map((m) => line(`射程（${m.name}）`, m.range, modeColor(m.kind))).join('')
+      + line('技CT', st.ct, LOBBY_COLOR.stat);
   }
 
   // 1点からの視界ポリゴン（壁タイルで遮る）
@@ -713,7 +772,7 @@ class GameScene extends Phaser.Scene {
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
       this.room.send('input', this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move));
     }
-    if (this.lastPhase === 'ended' && s.phase === 'waiting') this.resetMatch();
+    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; } // 連戦は選択バーから
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 
@@ -948,6 +1007,7 @@ class GameScene extends Phaser.Scene {
     // 技のアイコンとクールタイム
     const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
     skEl.style.display = sk ? 'flex' : 'none';
+    skEl.classList.toggle('sealed', !!sk && (['waiting', 'intro', 'countdown'].includes(s.phase) || (mine.ult && mine.ult.left !== null))); // 封印: 戦闘開始前・ウルト中
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示

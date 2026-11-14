@@ -30,7 +30,7 @@ async function match1() {
   await A.shot('1a_lobby');
   check('基準1 入室で待機画面', s.phase === 'waiting' && (await A.page.locator('#lobby').isVisible()));
   await send(A, 'e2eBossGuard', { on: true }); // Bot の攻撃で大将が減らない（確認の途中で決着しないように）
-  await A.page.click('.card[data-k="aru"]'); // 突撃の確認に使う
+  await A.page.click('.card[data-k="aru"]'); await A.page.click('#okbtn'); // 突撃の確認に使う（選んで OK? → OK! で確定）
   await A.page.click('#start');
   await intro(A);
   s = await A.snap();

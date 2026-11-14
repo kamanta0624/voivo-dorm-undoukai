@@ -4,6 +4,7 @@ import { mkdirSync, appendFileSync } from 'node:fs';
 import { CONFIG as C } from '../src/shared/config';
 import { findPath } from '../src/server/pathfind';
 
+export const RUN = Date.now().toString(36); // この実行の e2e の部屋
 export const OUT = `verify/evidence/${new Date().toISOString().replace(/[:.]/g, '-')}`; // 実行ごとに分ける
 mkdirSync(OUT, { recursive: true });
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +42,7 @@ export class Tab {
     page.on('pageerror', (e) => log('pageerror', name, e.message));
     page.on('console', (m) => { if (m.type() === 'error') log('console.error', name, m.text()); });
     page.on('response', (r) => { if (r.status() >= 400) log('http', r.status(), name, r.url()); });
-    await page.goto('http://localhost:5173/?e2e=1'); // 普段のプレイの部屋と混ざらないように
+    await page.goto(`http://localhost:5173/?e2e=${RUN}`); // 普段のプレイの部屋と混ざらないように。実行ごとに別の部屋（前の実行の再接続待ちのタブと混ざらないように）
     const t = new Tab(page, name);
     await page.waitForFunction(() => (window as any).snap);
     // 受信したスナップショットを記録（検証用。アプリ側のコードは変えない）
