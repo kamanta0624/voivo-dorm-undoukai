@@ -58,6 +58,8 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - 期限のない状態（`until: Infinity`）は技処理が `delete p.st.<key>` で消す
 - `view: () => 値` を付けると、その値がスナップショットで送られる（なければ `true`）。クライアントは `p.st.<key>` で受け取る
 - 技固有のデータ（向き・当てた相手など）は `p.sk` に置く
+- 技の fx（`room.addFx`）を技ごとに描くときは、fx に技固有の `color`（例: `dance`・`blizzard`）を付け、client/skills の `fx.<color>` に `{ ms?, draw(g, f, time, k, s) }` を書く（共通の形の描画の代わりになる。k は 0→1 の経過）。color を付けるだけなら判定・数値は変わらない
+- 弾の見た目は client/skills の `shots.<弾の種類>` に `(g, sh, time)` を書く（共通の弾の描画の代わり）
 - 描画: client/skills の `status.<key>` に `mark`（ユニットの描画中。足元の目印・スプライトの表示・点滅）・`fx`（技のエフェクトの層）・`hud`（技ボタンの文字）・`frame`（その間スプライトをこのコマに差し替える。歩き・瞬きもしない）・`bare`（足元の陣営色・HP・目印を出さず、敵のミニマップにも出さない）
 - 追加のコマは client/skills の `frames` に書く（`assets/gen/dot/<key>/<コマ>.png` を読み込む）
 - 状態はスナップショットの今の値、スプライトは補間で `NET_INTERP_DELAY` 秒遅れて動く。動きに合わせる描画（残像など）は、状態を見てからその分長く続ける（client/skills/bii.ts）
@@ -83,3 +85,5 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - `npm run typecheck`、`npm run test:server`（技を足したら verify/server.ts に検証を足す）
 - 既存キャラの挙動を変えていないか: `npx tsx verify/golden.ts`（仕様を変えたときは `--write` で取り直す）
 - `E2E_HOOKS=1 npm run dev` で起動し、選択・技の発動を見る。e2e は `npx tsx verify/e2e.ts`
+- `npm run share` で公開中は 2567・5173 を使わない。`GAME_PORT=2568 CLIENT_PORT=5174 E2E_HOOKS=1 npm run dev` で別ポートに起動し、e2e・スクショも `GAME_PORT=2568 CLIENT_PORT=5174 npx tsx verify/e2e.ts`（verify/lib.ts が同じ変数に従う）。止めるのは自分が起動したプロセスだけ
+- 技の判定を変えるとき: 変更前に、そのキャラを含まない編成の golden を取っておき、変更後も一致することを確かめてから verify/golden.txt を取り直す

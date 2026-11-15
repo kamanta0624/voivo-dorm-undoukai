@@ -4,7 +4,7 @@ import { Client, Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf, charStats } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
-import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA } from './skills';
+import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
@@ -48,6 +48,7 @@ type SkillFx = { kind: string; t0: number; [k: string]: any };
 // 立ち絵の層（DOM）。ドットとは別に高解像度で表示する
 // ビルドの識別子（gitの短縮ハッシュ＋ビルド日時、vite.config.ts で埋め込む）を画面の隅に常に出す
 declare const __BUILD__: string;
+declare const __GAME_PORT__: number; // 開発時に繋ぐゲームサーバーのポート（vite.config.ts の GAME_PORT）
 const ver = document.createElement('div');
 ver.id = 'ver';
 ver.textContent = __BUILD__;
@@ -362,7 +363,7 @@ class GameScene extends Phaser.Scene {
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
 
     // 本番ビルド（npm run share）はページと同じ場所（https→wss、http→ws）。開発時は従来どおり（HTTPS は Vite の中継 vite.config.ts を通す）
-    const client = new Client(import.meta.env.PROD ? location.origin : location.protocol === 'https:' ? `${location.origin}/colyseus` : `ws://${location.hostname}:${C.PORT}`);
+    const client = new Client(import.meta.env.PROD ? location.origin : location.protocol === 'https:' ? `${location.origin}/colyseus` : `ws://${location.hostname}:${__GAME_PORT__}`);
     const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt'; // ?e2e=<値> はテスト専用の部屋（値ごとに別の部屋）
     // 再読み込みしたタブは、待ってもらっている試合に戻る（RECONNECT_SEC 秒以内）。戻れなければ新しく入る
     const saved = sessionStorage.getItem(tokenKey);
@@ -957,8 +958,11 @@ class GameScene extends Phaser.Scene {
       else this.skillFx.push({ ...f, t0: time });
     }
     this.fxQueue = [];
-    this.skillFx = this.skillFx.filter((f) => time - f.t0 < C.SKILL_FX_MS);
+    const fxMs = (f: SkillFx) => (f.color && FX_VIEW[f.color]?.ms) || C.SKILL_FX_MS;
+    this.skillFx = this.skillFx.filter((f) => time - f.t0 < fxMs(f));
     for (const f of this.skillFx) {
+      const v = f.color && FX_VIEW[f.color];
+      if (v) { v.draw(fxG, f, time, (time - f.t0) / fxMs(f), s); continue; } // 技ごとの描画（client/skills）
       const al = 0.5 * (1 - (time - f.t0) / C.SKILL_FX_MS), col = SKILL_FX_COLOR[f.color ?? f.kind];
       if (f.kind === 'ring') fxG.lineStyle(3, col, al * 1.6).strokeCircle(f.x, f.y, f.r);
       if (f.kind === 'aura') fxG.fillStyle(col, al * 0.6).fillCircle(f.x, f.y, f.r).lineStyle(2, col, al * 1.6).strokeCircle(f.x, f.y, f.r);
@@ -987,9 +991,8 @@ class GameScene extends Phaser.Scene {
     for (const m of CLIENT_SKILLS) m.frame?.(fxG, time);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team));
     for (const sh of s.shots) {
-      const l = Math.hypot(sh.vx, sh.vy) || 1;
+      if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）
       if (sh.kind === 'cannon') fxG.fillStyle(0xc87a3a).fillCircle(sh.x, sh.y, 5).lineStyle(1, 0x5a3010).strokeCircle(sh.x, sh.y, 5); // きりたん砲
-      else if (sh.kind === 'arrow') fxG.lineStyle(3, 0x4fbf2f).lineBetween(sh.x - (sh.vx / l) * 14, sh.y - (sh.vy / l) * 14, sh.x, sh.y).fillStyle(0xd8f5b0).fillCircle(sh.x, sh.y, 3);
       else fxG.fillStyle(0x8fdf5f).fillCircle(sh.x, sh.y, C.BULLET_RADIUS).lineStyle(1, 0x2f6f1f).strokeCircle(sh.x, sh.y, C.BULLET_RADIUS);
     }
 

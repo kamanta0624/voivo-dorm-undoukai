@@ -56,8 +56,8 @@ console.log('--- 壁へのめり込み');
   const { r, A, B } = mk('metan', 'sayo');
   Object.assign(A, { x: 380, y: 360 }); Object.assign(B, { x: 410, y: 390 });
   A.tgt = null; A.face = Math.atan2(30, 30);
-  r.skill('a');
-  ok('ドリルで壁の角へ斜めにはじいてもめり込まない', clear(r, B) && B.x < 27 * T && B.y < 26 * T, { x: B.x, y: B.y });
+  r.skill('a'); r.updatePlayers(0.05); // ドリルは出ている間の毎tickで当たる
+  ok('ドリルで壁の角へ斜めにはじいてもめり込まない', clear(r, B) && B.x < 27 * T && B.y < 26 * T && (B.x !== 410 || B.y !== 390), { x: B.x, y: B.y });
 }
 {
   // 大きな距離のはじきでも、1タイル厚の壁を通り抜けない
@@ -1049,7 +1049,7 @@ console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');
   const bi = mk('bii', 'himari'); bi.A.aim = 'nearest'; Object.assign(bi.B, { x: 1552 + 100 }); bi.r.skill('b'); bi.A.face = Math.PI; bi.r.skill('a');
   ok('透明化中は敵の技（ビィの再現江湖）の狙いにならない（向いている方向へ出る）', bi.A.sk.phantom.a === Math.PI);
   // 被弾（範囲攻撃を含む）で即死
-  const d = mk('metan', 'himari'); d.r.skill('b'); d.A.face = 0; d.A.tgt = null; d.r.skill('a');
+  const d = mk('metan', 'himari'); d.r.skill('b'); d.A.face = 0; d.A.tgt = null; d.r.skill('a'); d.r.updatePlayers(0.05);
   ok('透明化中は被弾（範囲攻撃）で即死', !d.B.alive);
   // 5秒で解除（攻撃なしで姿を現す）
   const e = mk('himari', 'sayo'); Object.assign(e.B, { x: 1552 + 300 }); e.r.skill('a'); tick(e, H.dur - 0.1); const still = !!e.r.stat(e.A, 'cloak'); tick(e, 0.2);
@@ -1061,10 +1061,9 @@ console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');
   ok(`跳ぶ速さは通常移動の${H.jumpSpeed}倍、跳ぶ間は動けない`, Math.abs(j.A.x - jx - sp * H.jumpSpeed * 0.05) < 1e-6 && j.r.effect(j.A, 'lock'));
   const w = mk('himari', 'metan'); Object.assign(w.A, { x: 400, y: 300, face: 0 }); Object.assign(w.B, { x: 420, y: 300 }); w.A.tgt = null; w.r.skill('a'); w.r.attack('a'); tick(w, 1);
   ok('跳ぶのは壁で止まる（study の東壁）', w.A.x < 27 * T && clear(w.r, w.A), { x: w.A.x });
-  // 大将にはめたんのドリル相当（同じ基本値。全体の倍率・ロール倍率は他の攻撃と同じく掛かる）
+  // 大将には旧めたんのドリル相当（同じ基本値30。全体の倍率・ロール倍率は他の攻撃と同じく掛かる）。めたんの技はドリル出しっぱなしに変わったが、ひまりの値は変えない
   const b = mk('himari'); Object.assign(b.r.bosses[1], { x: 1592, y: 900 }); b.A.face = 0; b.A.tgt = null; b.r.skill('a'); b.r.attack('a');
-  const m = mk('metan'); Object.assign(m.r.bosses[1], { x: 1592, y: 900 }); m.A.face = 0; m.A.tgt = null; m.r.skill('a');
-  ok(`鎌の大将へのダメージはドリルと同じ基本値（${H.bossDmg}。ひまり ${C.BOSS_HP - b.r.bosses[1].hp}＝ドリル ${C.BOSS_HP - m.r.bosses[1].hp}×attacker の${C.ATTACKER_BOSS_MULT}倍）`, H.bossDmg === CHARS.metan.skill.dmg && Math.abs((C.BOSS_HP - b.r.bosses[1].hp) - (C.BOSS_HP - m.r.bosses[1].hp) * C.ATTACKER_BOSS_MULT) < 1e-9);
+  ok(`鎌の大将へのダメージは旧ドリルと同じ基本値（${H.bossDmg}。ひまり ${C.BOSS_HP - b.r.bosses[1].hp}＝${H.bossDmg}×全体の倍率×attacker の${C.ATTACKER_BOSS_MULT}倍）`, H.bossDmg === 30 && Math.abs((C.BOSS_HP - b.r.bosses[1].hp) - 30 * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT) < 1e-9);
   // 透明化していないときの Space は通常の近接攻撃
   const n = mk('himari', 'metan'); n.A.face = 0; n.A.tgt = null; n.r.attack('a');
   ok('透明化していないときは通常攻撃（鎌ではない）', n.B.alive && n.B.hp < n.r.maxHp(n.B) && !n.A.st.leap);
@@ -1113,7 +1112,7 @@ console.log('--- 猫使ビィ（再現江湖）');
   const ms = mk('bii'); ms.A.face = 0; const mx = ms.A.x; ms.r.skill('a'); ms.r.fx = []; run(ms);
   ok(`空振りは最大距離（${B.range}px）で止まり、爆発しない`, Math.abs(ms.A.x - mx - B.range) < 1 && !ms.r.fx.some((f: any) => f.color === 'boom') && ms.r.broken.length === 0);
   const bs = mk('bii'); Object.assign(bs.r.bosses[1], { x: 1552 + 100, y: 900 }); bs.A.aim = 'boss'; bs.r.skill('a'); run(bs);
-  ok(`大将へはドリルと同じ基本値（${B.bossDmg}）`, B.bossDmg === CHARS.metan.skill.dmg && C.BOSS_HP - bs.r.bosses[1].hp === B.bossDmg * C.DAMAGE_MULT);
+  ok(`大将へは旧ドリルと同じ基本値（${B.bossDmg}）`, B.bossDmg === 30 && C.BOSS_HP - bs.r.bosses[1].hp === B.bossDmg * C.DAMAGE_MULT);
   const bt = mk('bii', 'metan'); Object.assign(bt.B, { x: 1552 + 150 }); bt.A.bot = true;
   ok('Bot: 射程内に敵がいれば使う', bt.r.botSkillUseful(bt.A) && (Object.assign(bt.B, { x: 1552 + B.range + 60 }), !bt.r.botSkillUseful(bt.A)));
 }
@@ -1173,6 +1172,35 @@ console.log('--- 待機画面の開始の流れ（出撃・選択猶予）');
   const g = lobby(2); g.r.messages.go(g.h(0), { char: 'sayo' }); g.r.dropped.add('h0'); g.r.dropped.add('h1'); g.run(G + 0.1);
   ok('接続中の人間がいないまま猶予が切れたら開始せず、カウントを止める', g.r.phase === 'waiting' && g.r.lobbyLeft === null);
   ok('開始ボタン（start メッセージ）はない', !('start' in lobby(1).r.messages));
+}
+
+console.log('--- 四国めたん（ドリル: 出しっぱなし・接触でダメージ＋はじき・再ヒット間隔）');
+{
+  const D = CHARS.metan.skill;
+  const run = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); } };
+  const z = mk('metan', 'sayo'); z.A.face = 0; z.A.tgt = null; z.B.hp = 9999; const x0 = z.B.x;
+  z.r.skill('a'); const noHitYet = z.B.hp === 9999; run(z, 0.05);
+  ok(`ドリル出現中、触れた敵にダメージ（${D.dmg}×全体の倍率）＋はじき`, noHitYet && 9999 - z.B.hp === Math.round(D.dmg * C.DAMAGE_MULT) && z.B.x > x0, { dmg: 9999 - z.B.hp, push: z.B.x - x0 });
+  const h0 = z.B.hp; Object.assign(z.B, { x: z.A.x + 40 }); run(z, D.rehit - 0.1); const h1 = z.B.hp; run(z, 0.15);
+  ok(`同じ敵には${D.rehit}秒おきに再ヒット`, h1 === h0 && z.B.hp < h1, { h0, h1, h2: z.B.hp });
+  const o = mk('metan', 'sayo'); o.A.face = 0; o.A.tgt = null; o.B.hp = 9999; Object.assign(o.B, { x: o.A.x + D.len + 30 }); o.r.skill('a'); run(o, 0.5);
+  ok(`ドリルの長さ（${D.len}px）の外の敵には当たらない`, o.B.hp === 9999);
+  const t = mk('metan', 'sayo'); t.A.face = 0; t.A.tgt = null; t.B.hp = 9999; t.r.skill('a'); run(t, D.dur + 0.1); const hd = t.B.hp; Object.assign(t.B, { x: t.A.x + 40, y: t.A.y }); run(t, 0.5);
+  ok(`${D.dur}秒でドリルが消え、以後は当たらない`, !t.r.stat(t.A, 'drill') && t.B.hp === hd);
+  const f = mk('metan', 'sayo'); f.A.face = 0; f.A.tgt = null; f.A.bot = true; f.B.hp = 9999; Object.assign(f.B, { x: f.A.x, y: f.A.y + 40 }); f.A.dx = 0; f.A.dy = 1; f.A.face = Math.PI / 2; f.r.skill('a'); run(f, 0.05);
+  ok('ドリルの向きは移動・照準に追従（向きを変えた先の敵に当たる）', f.B.hp < 9999);
+  const m = mk('metan', 'sayo'); m.A.face = 0; m.A.tgt = null; m.r.skill('a'); m.A.cooldownUntil = 0; const cd = m.A.cooldownUntil; m.r.attack('a'); const x1 = m.A.x; m.A.bot = true; m.A.dx = 0; m.A.dy = 1; m.r.updatePlayers(0.05);
+  ok('ドリル中は通常攻撃しない、移動はできる', m.A.cooldownUntil === cd && m.A.y > 900 && m.A.x === x1);
+  const bt = mk('metan', 'sayo'); bt.A.face = 0; bt.A.tgt = null; const yes = bt.r.botSkillUseful(bt.A); Object.assign(bt.B, { x: bt.A.x + D.len + 40 }); const no = bt.r.botSkillUseful(bt.A);
+  ok('Bot: ドリルの範囲に敵がいれば使う（いなければ使わない）', yes && !no);
+  // 視界外の敵のドリルは送らない（スナップショットにその敵ごと入らない。技の fx も視界内だけ）
+  const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; q.unlock = () => {}; let got: any = null;
+  Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (tp: string, msg: any) => { if (tp === 's') got = msg; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay();
+  const me = q.players.get('x'), foe = [...q.players.values()].find((p: any) => p.team !== me.team);
+  foe.char = 'metan'; q.skill(foe.id); Object.assign(foe, { x: me.x + 2000 }); q.sendSnapshots();
+  const far = !got.players.some((p: any) => p.id === foe.id) && !JSON.stringify(got).includes('"drill"');
+  Object.assign(foe, { x: me.x + 60, y: me.y }); q.sendSnapshots();
+  ok('視界外の敵のドリルは送らない（視界内なら送る）', far && !!got.players.find((p: any) => p.id === foe.id)?.st.drill);
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

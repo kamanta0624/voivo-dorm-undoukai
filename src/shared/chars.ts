@@ -22,19 +22,20 @@ export const CHARS: Record<string, CharDef> = {
   hanamaru: def({ role: 'balance', skill: { name: '巨大拳飛ばし', ct: 10, speed: 360, range: 520, r: 30, dmg: 40, reach: 3, w: 3, d: 2, push: 0.05, botSave: 320, botCheck: 0.25 } }), // 巨大拳: 前方へ直進（speed px/秒、range px で消える）、半径 r の拳がキャラ（1体1回）にダメージ・壁を破壊して貫通。パッシブ: 壁へ push 秒押し込み続けるとその壁を壊す（reach: 前方の壁を探すタイル数、w×d: 壊す範囲(タイル)）。Bot: 壁破壊で経路が botSave(px)以上短くなるなら使う（botCheck 秒ごとに判定）
   whitecul: def({ role: 'speed', skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
   sayo: def({ role: 'attacker', skill: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 } }),
-  metan: def({ role: 'defense', skill: { name: 'ドリル', ct: 4.8, range: 70, arc: Math.PI / 2, dmg: 30, push: 120 } }),
+  // ドリル: dur 秒、前方（向きは移動・照準に追従）に長さ len・幅 w のドリルを出しっぱなし。触れた敵に dmg ＋自分から離れる向きへ push はじく。同じ相手には rehit 秒おき。ドリル中は通常攻撃しない（移動は可）
+  metan: def({ role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 3, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),
   mochiko: def({ role: 'defense', walk: 'hover', skill: { name: 'ファンネル', ct: 30, n: 6, hp: 20, life: 15, sense: 250, dmg: 6, every: 1, range: 60, speed: 220, radius: 6, pathMax: 400, ring: 44, slotStep: Math.PI / 3, retarget: 0.5 } }), // pathMax: 向かう敵までの経路長の上限、ring: 敵を囲む半径、slotStep: 射撃ごとに回り込む角度、retarget: 対象と経路の見直し間隔
   // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
   // fx: 見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
   aru: def({ role: 'speed', skill: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9, fx: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 } } }),
-  // 再現江湖: 射程 range 内の敵（照準モードに従う。いなければ向いている方向）へ残像を残して高速移動（speed px/秒、最大 range）。敵に当たったらさらに extra 進み、止まった瞬間に当てた相手を中心に半径 r の爆発（dmg、大将へは bossDmg＝めたんのドリルと同じ基本値）。範囲の壁も壊す。当たらなければ爆発なし
+  // 再現江湖: 射程 range 内の敵（照準モードに従う。いなければ向いている方向）へ残像を残して高速移動（speed px/秒、最大 range）。敵に当たったらさらに extra 進み、止まった瞬間に当てた相手を中心に半径 r の爆発（dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。範囲の壁も壊す。当たらなければ爆発なし
   bii: def({ role: 'support', skill: { name: '再現江湖', ct: 10, range: 200, speed: 900, extra: 60, r: 70, dmg: 60, bossDmg: 30 } }),
   ierutan: def({ role: 'support', skill: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 } }), // regen: 効果中の毎秒の回復量
   zunko: def({ role: 'attacker', melee: false, aa: [{ name: '遠距離', kind: 'shot', range: 200, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 1, shot: 'bullet', speed: C.BULLET_SPEED }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5 } }), // 当たった敵はずんだ餅（移動×speed、技不可）
   // 足が遅い。対象が 60 より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁
   // 全弾斉射: 1回目でロックオン（射程 range 内の敵に近い順で lockEvery 秒ごとに1体ずつ。最大 lockMax 秒）、2回目でロックした全員へホーミング弾（各 perTarget 発 × volleys 回、volleyGap 秒おき、1発 dmg）。CT は発射（またはロックの時間切れ）から
   // 弾道（3種を順に）: straight=直進して追う、spread=左右へゆっくり展開（spreadT 秒、spreadSpeed）→加速（accel）して目標へ、brake=前方／後方へ偏差的に速く飛ぶ（leadT 秒、leadSpeed、leadAngle）→急制動（brakeT 秒）→目標へ。速さの上限 maxSpeed、life 秒で消える、弾の半径 r
-  // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中の Space で鎌（前方 range・arc、dmg、大将へは bossDmg＝めたんのドリルと同じ基本値）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
+  // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中の Space で鎌（前方 range・arc、dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
   himari: def({ role: 'attacker', skill: { name: '死神の鎌', ct: 12, dur: 5, range: 60, arc: Math.PI / 2, dmg: 999, bossDmg: 30, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
   kiritan: def({
     melee: false, mult: { speed: 0.8 },

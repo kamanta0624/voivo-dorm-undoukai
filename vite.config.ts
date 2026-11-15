@@ -10,10 +10,14 @@ try { hash = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 
 const d = new Date(), z = (n: number) => String(n).padStart(2, '0');
 const BUILD = `${hash} ${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
 
+// GAME_PORT・CLIENT_PORT: 公開中のサーバー（npm run share）と別のポートで開発・検証するとき。未指定なら 2567・5173
+const GAME_PORT = Number(process.env.GAME_PORT) || 2567;
+
 export default defineConfig({
-  define: { __BUILD__: JSON.stringify(BUILD) },
+  define: { __BUILD__: JSON.stringify(BUILD), __GAME_PORT__: GAME_PORT },
   server: {
     https: process.env.HTTPS ? { key: readFileSync('certs/key.pem'), cert: readFileSync('certs/cert.pem') } : undefined,
-    proxy: { '/colyseus': { target: 'http://localhost:2567', ws: true, rewrite: (p) => p.replace(/^\/colyseus/, '') } },
+    ...(process.env.CLIENT_PORT ? { port: Number(process.env.CLIENT_PORT), strictPort: true } : {}),
+    proxy: { '/colyseus': { target: `http://localhost:${GAME_PORT}`, ws: true, rewrite: (p) => p.replace(/^\/colyseus/, '') } },
   },
 });

@@ -36,25 +36,26 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | key | 技の中身 | 呼び口 | 状態 | 場の物 | クライアント描画 |
 |---|---|---|---|---|---|
 | `hanamaru` | 直進する拳がキャラに1回ずつダメージ、壁を壊して貫通。パッシブ：壁へ押し込み続けると壊す | `afterMove`（押し込み）、`botMove`（壁破壊で近道） | ― | `fist`（対象外、視界外は送らない） | ents `fist` |
-| `whitecul` | 前方の長方形にダメージ＋はじき | ― | ― | ― | 共通fx `rect` のみ |
-| `sayo` | 一定時間、移動が速くなり自分中心の円に周期ダメージ | `tick`、`ended` | `dance`（speed） | ― | status `dance` の目印 |
-| `metan` | 前方の扇形にダメージ＋はじき | ― | ― | ― | 共通fx `arc` のみ |
-| `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、色 `funnel` |
+| `whitecul` | 前方の長方形にダメージ＋はじき | ― | ― | ― | fx `blizzard`（長方形に雪の粒・白い筋） |
+| `sayo` | 一定時間、移動が速くなり自分中心の円に周期ダメージ | `tick`、`ended` | `dance`（speed） | ― | status `dance` の目印、fx `dance`（周期ごとの斬線・命中の印） |
+| `metan` | 一定時間、前方（移動・照準に追従）にドリルを出しっぱなし。触れた敵にダメージ＋はじき、同じ相手には一定間隔で再ヒット。ドリル中は通常攻撃しない | `afterMove`（ドリルの当たり） | `drill`（noAttack） | ― | status `drill`（回転するドリル・流れる縞・先端の火花） |
+| `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
 | `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
 | `bii` | 敵へ残像を残して高速移動。当たったら少し進んで爆発、壁も壊す。空振りは爆発なし | `afterMove`、`ended` | `phantom`（lock・noAttack・cancel） | ― | status `phantom`（残像）、色 `boom` |
-| `ierutan` | 範囲内の味方と自分を加速＋毎秒回復 | ― | `accel`（speed・regen）を味方に付ける | ― | status `accel` の目印、色 `accel` |
-| `zunko` | 矢を撃ち、当たった敵をずんだ餅に（減速・技不可） | ― | `mochi`（speed・noSkill）を敵に付ける | ―（矢は共通の弾） | status `mochi`（餅の姿、技ボタンに「餅」） |
+| `ierutan` | 範囲内の味方と自分を加速＋毎秒回復 | ― | `accel`（speed・regen）を味方に付ける | ― | status `accel` の目印（足元の輪・上へ流れる矢印）、fx `accel`（広がる二重の輪・放射線） |
+| `zunko` | 矢を撃ち、当たった敵をずんだ餅に（減速・技不可） | ― | `mochi`（speed・noSkill）を敵に付ける | ―（矢は共通の弾） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾） |
 | `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
 | `himari` | 発動で透明化。透明化中の Space で鎌（即死級）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
 
-使用中の状態 key：`dance` `charge` `rush` `phantom` `accel` `mochi` `lockon` `cloak` `leap`
+使用中の状態 key：`dance` `drill` `charge` `rush` `phantom` `accel` `mochi` `lockon` `cloak` `leap`
 使用中の場の物の種類：`fist` `funnel` `missile`
 （どちらも全キャラで重ねない）
 
 ## 技の型と手本
 | 作りたいもの | 手本 |
 |---|---|
-| 即時の範囲攻撃（扇形・長方形）、はじき | `metan`、`whitecul` |
+| 即時の範囲攻撃（長方形）、はじき | `whitecul` |
+| 前方に判定を出しっぱなし（持続する接触判定・同じ相手への再ヒット間隔）、向きの追従 | `metan` |
 | 自分に付く持続状態＋周期的な効果 | `sayo` |
 | 味方へのバフ | `ierutan` |
 | 弾を撃ち、命中時に敵へ状態を付ける | `zunko` |
@@ -64,6 +65,9 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | 直進する貫通物、パッシブ、Botの移動中判定 | `hanamaru` |
 | 2段階発動、CTの自前管理、ロックオン、追尾する弾 | `kiritan` |
 | 透明化、通常攻撃の上書き、被弾即死、追加コマの表示 | `himari` |
+| 技の fx を技ごとに描く（fx の color を技固有にして描き分け） | `sayo`（斬線・命中の印）、`whitecul`（雪） |
+| 状態の描画を形で作る（コード描画のアニメーション） | `metan`（ドリル） |
+| 弾の見た目の差し替え・尾の粒 | `zunko` |
 | 歩行タイプの追加 | `mochiko`（hover） |
 | 通常攻撃を2モード持つ | `kiritan` |
 
@@ -93,3 +97,4 @@ koed「なし」は選択画面の絵をグレー化してずり落とす。
 
 ## 更新履歴
 - 2026-11-15：初版。雛形化（9794717）と、ひまり追加・きりたん全弾斉射・ビィ再現江湖・もち子ホバー・バリケード廃止（db81202）時点
+- 2026-11-15：技エフェクト強化（fx1）。めたんの技をドリル出しっぱなしに作り直し。小夜の斬撃、WhiteCUL・あいえるたん・ずん子・もち子の描画を強化（metan・sayo・whitecul・ierutan・zunko・mochiko）

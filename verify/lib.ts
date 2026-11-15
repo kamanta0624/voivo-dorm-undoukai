@@ -1,9 +1,11 @@
 // 実クライアント(http://localhost:5173)を Playwright の実キー入力で操作するための補助
+// GAME_PORT・CLIENT_PORT: 別のポートで起動した dev（公開中のサーバーとぶつけないとき）に繋ぐ
 import { chromium, Page, Browser } from 'playwright-core';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { CONFIG as C } from '../src/shared/config';
 import { findPath } from '../src/server/pathfind';
 
+export const GAME_PORT = Number(process.env.GAME_PORT) || 2567, CLIENT_PORT = Number(process.env.CLIENT_PORT) || 5173;
 export const RUN = Date.now().toString(36); // この実行の e2e の部屋
 export const OUT = `verify/evidence/${new Date().toISOString().replace(/[:.]/g, '-')}`; // 実行ごとに分ける
 mkdirSync(OUT, { recursive: true });
@@ -33,7 +35,7 @@ export class Tab {
     const page = await (await b.newContext({ viewport: { width: 1600, height: 900 } })).newPage();
     if (lag) {
       const delay = () => { let last = 0; return (f: () => void) => { const at = Math.max(last, Date.now() + (lag[0] + (Math.random() * 2 - 1) * lag[1]) / 2); last = at; setTimeout(f, at - Date.now()); }; };
-      await page.routeWebSocket(/:2567/, (ws) => {
+      await page.routeWebSocket(new RegExp(`:${GAME_PORT}/`), (ws) => {
         const server = ws.connectToServer(), up = delay(), down = delay();
         ws.onMessage((m) => up(() => server.send(m)));
         server.onMessage((m) => down(() => ws.send(m)));
@@ -42,7 +44,7 @@ export class Tab {
     page.on('pageerror', (e) => log('pageerror', name, e.message));
     page.on('console', (m) => { if (m.type() === 'error') log('console.error', name, m.text()); });
     page.on('response', (r) => { if (r.status() >= 400) log('http', r.status(), name, r.url()); });
-    await page.goto(`http://localhost:5173/?e2e=${RUN}`); // 普段のプレイの部屋と混ざらないように。実行ごとに別の部屋（前の実行の再接続待ちのタブと混ざらないように）
+    await page.goto(`http://localhost:${CLIENT_PORT}/?e2e=${RUN}`); // 普段のプレイの部屋と混ざらないように。実行ごとに別の部屋（前の実行の再接続待ちのタブと混ざらないように）
     const t = new Tab(page, name);
     await page.waitForFunction(() => (window as any).snap);
     // 受信したスナップショットを記録（検証用。アプリ側のコードは変えない）

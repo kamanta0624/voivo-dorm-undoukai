@@ -8,4 +8,4 @@ const server = defineServer({
   rooms: { game: defineRoom(GameRoom).filterBy(['e2e']) }, // e2e のタブ（?e2e=<値>）は普段のプレイと別の部屋に入る（値ごとに別の部屋）
   ...(process.env.SERVE_DIST ? { express: (app) => { app.use(express.static('dist')); } } : {}), // npm run share: ビルド済みクライアントを同じポートで配信
 });
-server.listen(CONFIG.PORT);
+server.listen(Number(process.env.GAME_PORT) || CONFIG.PORT); // GAME_PORT: 公開中のサーバーと別のポートで動かすとき（開発・検証）
