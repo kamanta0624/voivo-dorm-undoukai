@@ -120,6 +120,7 @@ export class GameRoom extends Room {
   slotChain: number = C.SLOT.chain; // 連チャンの確率（e2e で変えられる）
   lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
+  noAuto = new Set<string>(); // e2e: 自動攻撃しないプレイヤーid（E2E_HOOKS のときだけ使う）
   introMess: Pt = { x: 0, y: 0 }; // 新開幕でカメラが映す「散らかったマップの一角」
   startedAt = 0; // GAME START の時刻（試合ログ用、ミリ秒）
   bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }]; // 陣営ごとの、敵大将に与えたダメージ（試合ログ用）
@@ -250,6 +251,8 @@ export class GameRoom extends Room {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
         if (p && this.phase === 'playing') { const b = this.bosses[1 - p.team]; this.damageBoss(b, Math.max(1, C.BOSS_MOVE_THRESHOLD - b.dmgAtBase), p); }
       },
+      // 自キャラの自動攻撃を止める／戻す（検証の前提を崩さないように）
+      e2eNoAuto: (c: Client, m: { on: boolean }) => { const id = this.owners.get(c.sessionId); if (id) { if (m.on) this.noAuto.add(id); else this.noAuto.delete(id); } },
       // 自キャラを撤退させる
       e2eKill: (c: Client) => {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
@@ -647,7 +650,7 @@ export class GameRoom extends Room {
       SKILLS[p.char]?.tick?.(this, p, dt);
       // オートアタック: 照準モードで選んだ対象へ、クールタイムが明けたら自動で攻撃（移動不可の状態では攻撃しない）
       p.tgt = this.pickTarget(p);
-      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto')) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
+      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id)) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
     }
   }
 

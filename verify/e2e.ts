@@ -398,15 +398,19 @@ async function courierCheck(A: Tab) {
     c0 = (await A.snap()).couriers[0]; await sleep(500); c1 = (await A.snap()).couriers[0];
   }
   await A.shot('c1_courier_patrol');
+  const aimTo = async (mode: string) => { for (let i = 0; i < 2 * C.AIM_MODES.length && (await A.me()).aim !== mode; i++) { await A.press('Tab'); await sleep(250); } }; // 1回ずつ、届くのを待って押す
+  await aimTo('courier'); // 照準を「コバコ」へ（Tab で 一番近い敵 → HP → 大将優先 → コバコ。1回ずつ届くのを待つ）
   let ko = false;
   for (let i = 0; i < 6 && !ko; i++) {
     await aliveOf(A); if (i) { await send(A, 'e2eTeleport', LIBRARY); await sleep(100); } // Bot に倒されていたら復活を待って戻る
     await send(A, 'e2eCourier', { dist: 44, box: 'assist' }); await sleep(100);
     const c = (await A.snap()).couriers[0]; if (!c) continue;
-    await A.face(c.x, c.y); await A.press(' ');
-    ko = await A.until((x) => !x.couriers.length, 600); // 足元で倒すとすぐ荷物を拾うので、KOだけを見る（落とした荷物はスクショで確認）
+    await A.face(c.x, c.y); await send(A, 'e2eNoAuto', { on: false }); // 照準「コバコ」の自動攻撃で倒す
+    ko = await A.until((x) => !x.couriers.length, 1500); // 足元で倒すとすぐ荷物を拾うので、KOだけを見る（落とした荷物はスクショで確認）
+    await send(A, 'e2eNoAuto', { on: true });
   }
   await A.shot('c2_courier_drop');
+  await aimTo('nearest'); // 照準を「一番近い敵」に戻す
   const moved = c0 && c1 ? Math.round(Math.hypot(c1.x - c0.x, c1.y - c0.y)) : 0;
   check('コバコ: 寮の中を巡回し、頭上に荷物のアイコン。攻撃すると1発でKOして荷物を落とす', moved > 20 && ko, { moved, ko });
 }

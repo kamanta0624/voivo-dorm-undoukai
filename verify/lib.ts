@@ -57,8 +57,8 @@ export class Tab {
         players: s.players.map((p: any) => ({ id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, respawnIn: p.respawnIn, ult: p.ult, assist: p.assist })),
       }));
     });
-    // 照準を「手動」にする（Tabで 一番近い敵→HP→大将優先→手動）。自動攻撃が検証の前提を崩さないように
-    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab');
+    // 自動攻撃を止める（e2e 専用の仕掛け）。自動攻撃が検証の前提を崩さないように
+    await page.evaluate(() => (window as any).room.send('e2eNoAuto', { on: true }));
     return t;
   }
   hist(): Promise<any[]> { return this.page.evaluate(() => (window as any).hist); }
