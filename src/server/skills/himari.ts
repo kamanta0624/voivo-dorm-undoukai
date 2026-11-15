@@ -1,4 +1,4 @@
-// 冥鳴ひまり: 死神の鎌（透明化 → Space で鎌。当てたら攻撃の向きへ跳ぶ）
+// 冥鳴ひまり: 死神の鎌（透明化 → 範囲に入った対象へ自動で鎌。当てたら攻撃の向きへ跳ぶ）
 import type { GameRoom, Player } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C } from '../../shared/config';
@@ -36,7 +36,7 @@ const skill: Skill = {
   use(room, p) {
     p.st.cloak = { until: room.now + S.dur, hidden: true, fragile: true, noAuto: true };
   },
-  // 透明化中の通常攻撃は鎌（オートアタックはしない）
+  // 透明化中の通常攻撃は鎌（オートアタックはしない。tick が範囲に入ったときだけ振る）
   attack(room, p, a) {
     if (!room.stat(p, 'cloak')) return false;
     scythe(room, p, a);
@@ -44,9 +44,9 @@ const skill: Skill = {
   },
   afterMove: (room, p, dt) => leap(room, p, dt),
   ended: (room, p, dt) => leap(room, p, dt),
-  // Bot: 透明化中に対象が鎌の範囲に入ったら振る（近づくのは通常の戦闘の動き）
+  // 透明化中に対象が鎌の範囲に入ったら自動で振る（人間・Bot とも。近づくのは移動操作／Bot の戦闘の動き）
   tick(room, p) {
-    if (p.bot && room.stat(p, 'cloak') && p.tgt && room.inArc(p, p.tgt.x, p.tgt.y, p.tgt.r, room.aimOf(p), S.range, S.arc)) room.attack(p.id, room.aimOf(p));
+    if (room.stat(p, 'cloak') && p.tgt && room.inArc(p, p.tgt.x, p.tgt.y, p.tgt.r, room.aimOf(p), S.range, S.arc)) room.attack(p.id, room.aimOf(p));
   },
   botUse: (room, p) => room.nearFoe(p, C.BOT_SKILL_SENSE, (t) => t.k === 'p' || t.k === 'boss'),
   statuses: ['cloak', 'leap'],

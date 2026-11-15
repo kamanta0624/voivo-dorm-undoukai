@@ -40,9 +40,9 @@ function step(room: GameRoom, p: Player, dt: number) {
 }
 
 const skill: Skill = {
-  // 対象: 射程内の敵（照準モードに従う。手動・いなければ向いている方向）
+  // 対象: 射程内の敵（照準モードに従う。いなければ向いている方向）
   use(room, p) {
-    const t = p.aim === 'manual' ? null : room.pickTarget(p, B.range);
+    const t = room.pickTarget(p, B.range);
     const a = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
     p.st.phantom = { until: Infinity, lock: true, noAttack: true, cancel: true, view: () => ({ a }) };
     p.sk.phantom = { a, left: B.range, hit: null };

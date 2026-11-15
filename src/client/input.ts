@@ -20,7 +20,6 @@ export class Controls {
   setStick(x: number, y: number) { this.stick = { x, y }; }
   releaseStick() { this.stick = null; }
 
-  attack() { this.send('attack'); }
   skill() { this.send('skill'); }
   qDown() { this.send('qdown'); } // 短押しで設置、長押しでリコール（判定はサーバー）
   qUp() { this.send('qup'); }

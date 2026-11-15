@@ -21,7 +21,7 @@ export type Skill = {
   afterMove?(room: GameRoom, p: Player, dt: number, px: number, py: number, locked: boolean): void; // 毎tick: 移動の直後（px,py: 移動前の位置、locked: このtickの移動不可）
   tick?(room: GameRoom, p: Player, dt: number): void; // 毎tick: ウルトの時間切れ・状態の回復の後、オートアタックの前
   ended?(room: GameRoom, p: Player, dt: number): void; // 結果画面の毎tick（見た目だけ）
-  attack?(room: GameRoom, p: Player, a: number): boolean; // 通常攻撃（Space・オートアタック）の上書き。true なら通常の攻撃をしない。a: 攻撃の向き
+  attack?(room: GameRoom, p: Player, a: number): boolean; // 通常攻撃（オートアタック）の上書き。true なら通常の攻撃をしない。a: 攻撃の向き
   botMove?(room: GameRoom, p: Player, to: Pt, obs: Rect[]): boolean; // Bot: 見回りの移動中（true なら移動しない）
   statuses?: string[]; // この技が付ける状態の key（移動倍率はこの表の順に掛ける）
   ents?: Record<string, EntKind>; // この技が出す場の物の種類

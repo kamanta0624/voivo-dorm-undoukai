@@ -92,13 +92,13 @@ export const CONFIG = {
   WALLS: wallRects(),
   BOSS_ROOM_CANDIDATES,
   BOSS_ROOM_DIST_SUM_MAX: 3774, // 3部屋の、中央（hall の中心）からの経路距離の合計の上限(px)
-  HEAL_SPOTS: TEAM_KEYS.flatMap((t) => { const i = inner(room(t, 'kitchen')); return [0.2, 0.35, 0.65, 0.8].flatMap((fx) => [0.3, 0.7].map((fy) => [i.x + i.w * fx, i.y + i.h * fy])); }), // 回復アイテム（ご飯）の場所: 給湯室（kitchen）だけに各8個。大将の拠点＝部屋の中心と重ならない位置
+  HEAL_SPOTS: TEAM_KEYS.flatMap((t) => { const i = inner(room(t, 'kitchen')); return [0.2, 0.8].map((fx) => [i.x + i.w * fx, i.y + i.h * 0.5]); }), // 回復アイテム（ご飯）の場所: 給湯室（kitchen）だけに各2個（上限）。大将の拠点＝部屋の中心と重ならない位置。前半が陣営0、後半が陣営1
   BOSS_ROOM_COUNT: 3, // 試合開始時に候補からランダムに選ぶ数（左右で同じ部屋）。大将の出現・逃亡先になる
   SPAWNS: TEAM_KEYS.map((t) => { const i = inner(room(t, 'study')); return { x: i.x + i.w / 2, y: i.y + i.h * 0.75 }; }), // 大将の拠点（study中心）と重ならない位置
   START_ROOMS: TEAM_KEYS.map((t) => inner(room(t, 'dining'))), // 開始した部屋（食堂。カウント中はここから出られない）
   RECALL_ROOMS: TEAM_KEYS.map((t) => inner(room(t, 'kitchen'))), // リコールの行き先（給湯室）
   COURIER_START: center(ROOMS.find((r) => r.id === 'entrance')!), // ブイブイ・コバコの出現・復活場所（マップ中央下部）
-  COURIER_ROUTE: [...ROOMS].map(center).sort((a, b) => Math.atan2(a.y - H / 2, a.x - W / 2) - Math.atan2(b.y - H / 2, b.x - W / 2)), // コバコの巡回経路: 全部屋・廊下の中心を、マップ中心から見た角度の順に回る
+  COURIER_ROUTE: [...ROOMS].map((r) => ({ ...center(r), room: r.id, path: r.type === 'path', area: inner(r) })).sort((a, b) => Math.atan2(a.y - H / 2, a.x - W / 2) - Math.atan2(b.y - H / 2, b.x - W / 2)), // コバコの巡回経路: 全部屋・廊下の中心を、マップ中心から見た角度の順に回る（room: 部屋の id、path: 廊下、area: 部屋の内側）
 
   PLAYER_HP: 100,
   PLAYER_RADIUS: 10,
@@ -124,8 +124,8 @@ export const CONFIG = {
   MELEE_BONUS: { hp: 1.2, speed: 1.1, atk: 1.2 }, // 近接補正: chars.ts の melee のキャラの最大HP・移動・通常攻撃に掛ける（引き撃ち対策）
   BULLET_SPEED: 600, // 弾・矢の速さ(px/秒)
   BULLET_RADIUS: 4,
-  AIM_MODES: ['nearest', 'lowhp', 'boss', 'manual'], // 照準モード（Tabで順に切り替え）
-  AIM_LABEL: { nearest: '一番近い敵', lowhp: '一番HPが低い敵', boss: '大将優先', manual: '手動' } as Record<string, string>,
+  AIM_MODES: ['nearest', 'lowhp', 'boss', 'courier'], // 照準モード（Tabで順に切り替え）。courier: コバコ最優先（ほかのモードでは通常攻撃がコバコに当たらない）
+  AIM_LABEL: { nearest: '一番近い敵', lowhp: '一番HPが低い敵', boss: '大将優先', courier: 'コバコ' } as Record<string, string>,
   BOT_AIM: 'boss',
 
   BOSS_HP: 1000,
@@ -142,22 +142,21 @@ export const CONFIG = {
   // 時間係数: 試合開始で max、MATCH_TIME で min（(経過/MATCH_TIME)^curve で減る）。HP係数: HP満タンで min、0で max（(減った割合)^curve で上がる）
   BOSS_INTENSITY: { time: { max: 1.5, min: 0.8, curve: 1 }, hp: { min: 1, max: 1.6, curve: 1 } },
 
-  MATERIAL_SPAWN_INTERVAL: 3, // 資材の再出現の間隔(秒)。MATERIAL_MAX に足りない分を1個ずつ
+  MATERIAL_SPAWN_INTERVAL: 1.5, // 資材の再出現の間隔(秒)。MATERIAL_MAX に足りない分を1個ずつ
   MATERIAL_MAX: 14, // マップに落ちている資材の数の基準（×MATERIAL_MAX_MULT。試合開始時にこの数だけ置く）
   MATERIAL_MAX_MULT: 3,
-  MATERIAL_TOUCH: 16, // 資材に触れたとみなす距離（キャラ中心から）。触れると拾う（持ち運ばない）
+  PICKUP_BOX: { w: 24, up: 36, down: 8 }, // アイテム（資材・回復・荷物）の取得判定: 全キャラ共通の縦長長方形。足元（キャラの位置）から左右 w/2、上へ up、下へ down(px)。触れると拾う（持ち運ばない）
   MATERIAL_GAP: 32, // 資材どうしを離す距離(px)
   MATERIAL_BACK: 0.7, // 資材が裏側（FRONT_ROOMS 以外の部屋・廊下）に出る比率。裏側の資材は高ポイント（TOKU.materialBack）
   FRONT_ROOMS: ['dining', 'smoking', 'hall', 'entrance'], // 表側: 食堂（11/12）と中央（25/26/27）
-  // 資材を拾ったときのフレーバー（部屋の種類 → 文言）。path=廊下、wall=壁に隣接したマス、other=それ以外
-  MATERIAL_FLAVOR: { study: '脆弱性に対応した', kitchen: '掃除した', path: 'ゴミを捨てた', wall: '壁を補修した', other: '掃除した' } as Record<string, string>,
 
   // 徳（陣営ごとの共有値）。小数で管理し、TOKU_MIN〜TOKU_MAX で止める
   TOKU_MIN: 0,
   TOKU_MAX: 10,
   TOKU_INIT: 5,
-  TOKU: { material: 0.2, materialBack: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
+  TOKU: { material: 0.2, materialBack: 0.4, materialBig: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
+  COURIER_BIG_RATE: 0.3, // コバコが部屋（廊下以外）に着くたび、その部屋に高性能の徳（TOKU.materialBig）を1つ置く確率
   WANTED_MIN: 3, // 悪行ポイント（徳を下げた量の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
 
   // スロット（陣営ごと）。徳で当たる確率が決まる
@@ -207,8 +206,7 @@ export const CONFIG = {
   RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）
   BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する
-  HEAL_ITEM_AMOUNT: 30, // 回復アイテムの回復量
-  HEAL_RESPAWN: 3, // 回復アイテム（ご飯）が取られてから同じ場所に再出現するまでの秒数
+  HEAL_ITEM_AMOUNT: 60, // 回復アイテムの回復量。自動では補充せず、コバコが給湯室に着いたとき HEAL_SPOTS まで補充する
   DAMAGE_MULT: 1.3, // 全キャラの通常攻撃と技のダメージに掛ける倍率
 
   RAGE_KILL: 10,
@@ -243,6 +241,7 @@ export const CONFIG = {
   CUTIN_MS: 1000, // KOカットインの長さ
   RANGE_ALPHA: 0.25, // 自キャラの射程円の不透明度
   SLASH_MS: 200, // 斬撃エフェクトの長さ
+  SWEAT_MS: 500, // 通常攻撃が当たった側の汗のエフェクトの長さ
   HIT_FLASH_MS: 120, // 被弾時の白点滅の長さ
   POPUP_MS: 900, // ダメージ数値・+1・注意表示の長さ
   NOTIFY_MS: 3000, // 画面中央の通知の長さ

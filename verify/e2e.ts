@@ -366,17 +366,17 @@ async function tokuCheck(A: Tab, B: Tab) {
   const pop = waitText(A, '#fx .pop.plus', `\\+${C.TOKU.material}`, 3000);
   await A.hold('d', 400);
   const txt = await pop; await A.shot('t3_toku_popup');
-  check(`頭上に徳の増減（「${txt}」）`, !!txt && Object.values(C.MATERIAL_FLAVOR).some((f) => txt.startsWith(f)), txt);
+  check(`頭上に徳の増減だけ（「${txt}」）`, txt === `徳+${C.TOKU.material}`, txt);
   // 裏側（図書室）の資材: 高ポイント。地面の箱・ミニマップ・頭上の表示で区別できる
   await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await sleep(150);
   await A.page.waitForFunction(() => !document.querySelector('#fx .notes div, #fx .scut'), null, { timeout: 8000 }).catch(() => {}); // スクショ用: 通知・カットインが消えるまで
   await send(A, 'e2eMaterial'); await sleep(400);
   const look = await scene(A, '({ ground: sc.g.commandBuffer.includes(0xff7ad9), mini: sc.ui.commandBuffer.includes(0xff7ad9), hi: s.materials.filter((m) => m.hi).length })');
   await A.shot('t3b_material_hi');
-  const pop2 = waitText(A, '#fx .pop.plus.hi', `^★.*\\+${C.TOKU.materialBack}`, 3000);
+  const pop2 = waitText(A, '#fx .pop.plus.hi', `^徳\\+${C.TOKU.materialBack}`, 3000);
   await A.hold('d', 400);
   const txt2 = await pop2; await A.shot('t3c_toku_popup_hi');
-  check(`裏側の資材は高ポイント: 地面はピンクの光る箱、ミニマップもピンク、頭上は★付き（「${txt2}」）`, look.ground && look.mini && look.hi >= 1 && !!txt2 && !txt?.startsWith('★'), { look, txt2 });
+  check(`裏側の資材は高ポイント: 地面はピンクの光る箱、ミニマップもピンク、頭上はピンク（「${txt2}」）`, look.ground && look.mini && look.hi >= 1 && !!txt2, { look, txt2 });
   await send(A, 'e2eBad', { v: C.WANTED_MIN + 2 });
   await A.until((x) => x.teams[0].wanted === x.me, 2000);
   const lbl = await waitText(A, '#fx .lbl.wanted', '手配', 2000);
