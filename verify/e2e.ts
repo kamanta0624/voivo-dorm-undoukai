@@ -318,12 +318,18 @@ async function recallCheck(A: Tab) {
 
 // 撤退中の視点: WASD でカメラだけ動く（壁に関係なく）。復活したら自キャラに戻る
 async function freeCamCheck(A: Tab) {
-  await A.page.evaluate(() => (window as any).room.send('e2eKill'));
-  await A.until((x) => !x.players.find((p: any) => p.id === x.me).alive, 2000); await sleep(300);
   const cam = () => scene(A, '({ x: sc.cameras.main.scrollX, y: sc.cameras.main.scrollY, w: sc.cameras.main.width, h: sc.cameras.main.height })');
-  const c0 = await cam(), m0 = await A.me();
-  await A.hold('d', 800); await A.hold('s', 600);
-  const c1 = await cam(), m1 = await A.me();
+  let c0: any, m0: any, c1: any, m1: any;
+  for (let tries = 0; tries < 3; tries++) { // 復活までの残りが確認の時間（WASD 1.4秒＋余裕）に足りなければやり直す（Bot に先に倒されていた場合など）
+    await aliveOf(A);
+    await A.page.evaluate(() => (window as any).room.send('e2eKill'));
+    await A.until((x) => !x.players.find((p: any) => p.id === x.me).alive, 2000); await sleep(300);
+    c0 = await cam(); m0 = await A.me();
+    if (m0.alive || m0.respawnIn < 2.2) { log('  撤退中の視点: 復活までの残りが足りない（再試行）', { alive: m0.alive, respawnIn: m0.respawnIn }); continue; }
+    await A.hold('d', 800); await A.hold('s', 600);
+    c1 = await cam(); m1 = await A.me();
+    break;
+  }
   await A.shot('d1_free_camera');
   check('撤退中は WASD で視点だけ動く（壁に関係なく）', c1.x - c0.x > 200 && c1.y - c0.y > 150 && !m1.alive && m1.x === m0.x && m1.y === m0.y, { from: c0, to: c1 });
   await A.until((x) => x.players.find((p: any) => p.id === x.me).alive, 16000); await sleep(1500);
@@ -446,6 +452,19 @@ async function assistCheck(A: Tab, B: Tab) {
 }
 
 // 花丸: 巨大拳（半透明の拳が直進し、壁を壊して貫通）とパッシブ（壁へ押し込み続けると壊す）
+// 花丸のパッシブを確かめる場所: 立つマス (x,y) と上下が床、西隣の縦3マスが壊れていない壁（外周以外）、東隣も床。自陣側（マップの左半分）で図書室に一番近いもの
+function pushSpot(broken: number[][]) {
+  const tile = (x: number, y: number) => (broken.some(([bx, by]) => bx === x && by === y) ? '.' : MAP.tiles[y]?.[x] ?? ' ');
+  const perimeter = (x: number, y: number) => [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '));
+  let best: { x: number; y: number } | null = null, bd = Infinity;
+  for (let y = 1; y < MAP.height - 1; y++) for (let x = 2; x < MAP.width / 2; x++) {
+    const ok = [-1, 0, 1].every((d) => tile(x, y + d) === '.' && tile(x - 1, y + d) === '#' && !perimeter(x - 1, y + d)) && tile(x + 1, y) === '.';
+    const d = Math.hypot(x * 16 - LIBRARY.x, y * 16 - LIBRARY.y);
+    if (ok && d < bd) { best = { x, y }; bd = d; }
+  }
+  return best!;
+}
+
 async function hanamaruCheck(A: Tab) {
   await aliveOf(A);
   const kitchen = { x: C.RECALL_ROOMS[0].x + C.RECALL_ROOMS[0].w / 2, y: C.RECALL_ROOMS[0].y + C.RECALL_ROOMS[0].h - 20 }; // 給湯室（まだ壁が壊れていない）から上へ撃つ
@@ -457,8 +476,9 @@ async function hanamaruCheck(A: Tab) {
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
   check('花丸の巨大拳: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
-  // パッシブ: hall の西の壁（食堂との間）へ押し込む
-  await aliveOf(A); await send(A, 'e2eTeleport', { x: 85 * 16 + 11, y: 66 * 16 + 8 }); await sleep(150);
+  // パッシブ: 自陣側で、今も壊れていない壁（外周以外、縦3マス）へ西向きに押し込む。前の確認や Bot が壊した壁は避ける（図書室に一番近い場所）
+  const spot = pushSpot((await A.snap()).broken);
+  await aliveOf(A); await send(A, 'e2eTeleport', { x: spot.x * 16 + 11, y: spot.y * 16 + 8 }); await sleep(150);
   const p0 = (await A.snap()).broken.length;
   await A.page.keyboard.down('a'); await sleep(DEFS.hanamaru.skill.push * 1000 + 500); await A.page.keyboard.up('a');
   await sleep(150); const p1 = (await A.snap()).broken.length; await A.shot('h3_push');
@@ -502,6 +522,7 @@ async function bossCheck(A: Tab) {
 
 // アルの突撃: 四方向。タメ中は進路の警告と白い点滅、突撃中は渦と煙。壁を壊して抜けたあとのマップ
 async function aruCheck(A: Tab) {
+  await send(A, 'e2eClearAssists'); // アシストの確認で出したアシストが hall に残り、突撃中の自キャラを倒すので片付ける
   const want: Record<string, number> = { d: 0, a: Math.PI, w: -Math.PI / 2, s: Math.PI / 2 };
   const b0 = (await A.snap()).broken.length, got: any[] = [];
   for (const key of ['d', 'a', 'w', 's']) for (let tries = 0; tries < 2; tries++) {

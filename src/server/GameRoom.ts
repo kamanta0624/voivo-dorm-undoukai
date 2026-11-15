@@ -253,6 +253,8 @@ export class GameRoom extends Room {
       },
       // 自キャラの自動攻撃を止める／戻す（検証の前提を崩さないように）
       e2eNoAuto: (c: Client, m: { on: boolean }) => { const id = this.owners.get(c.sessionId); if (id) { if (m.on) this.noAuto.add(id); else this.noAuto.delete(id); } },
+      // 両陣営のアシストをすべて消す（前の確認で出したアシストが後の確認に干渉しないように）
+      e2eClearAssists: () => { for (const p of [...this.players.values()]) if (p.assist) this.players.delete(p.id); },
       // 自キャラを撤退させる
       e2eKill: (c: Client) => {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
