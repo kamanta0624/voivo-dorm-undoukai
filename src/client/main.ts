@@ -28,6 +28,7 @@ const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
 const TITLE = 'ブイブイ運動会';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty: '#ffffff26', ok: '#66ff99', pending: '#bbbbbb' };
+const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサーバーへ送る間隔の下限（カーソルを動かすたびに送らない）
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
 const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, box_assist: 0x66ccff, assist: 0x66ccff };
 const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'ウルト箱', box_assist: 'アシスト箱' };
@@ -92,7 +93,7 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby .pwa button{border:0;background:none;font:bold 14px/1 sans-serif;padding:0 6px;color:#000}
 #fx #lobby{position:absolute;inset:0;display:none;overflow:clip;pointer-events:auto;background:radial-gradient(ellipse at 70% 40%,#3a2f5a,#111 70%);color:#fff;font:calc(var(--z) * 6.5px) sans-serif}
 #lobby .tachie{position:absolute;bottom:0;right:3%;height:96%;pointer-events:none;transition:right .35s,transform .35s,height .35s}
-#lobby.confirm .tachie,#lobby.ok .tachie{right:50%;transform:translateX(50%);height:100%}
+#lobby:not(.browse) .tachie{right:50%;transform:translateX(50%);height:100%}
 #lobby .ttl{position:absolute;left:2%;top:2%;font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 3px) #000}
 #lobby .info{position:absolute;left:2%;top:11%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 3px) calc(var(--z) * 5px)}
 #lobby .info .nm{font:900 calc(var(--z) * 11px) sans-serif}
@@ -101,7 +102,7 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby .st b{width:calc(var(--z) * 54px);font-weight:bold;white-space:nowrap;overflow:hidden}
 #lobby .st i{display:inline-block;width:calc(var(--z) * 11px);height:calc(var(--z) * 4px);margin-right:1px;background:var(--c);border-radius:1px}
 #lobby .selbar{position:absolute;left:0;right:0;bottom:0;height:46%;background:linear-gradient(transparent,#000d 18%);transition:transform .35s;z-index:1}
-#lobby.confirm .selbar,#lobby.ok .selbar{transform:translateY(105%)}
+#lobby:not(.browse) .selbar{transform:translateY(105%)}
 #lobby .cards{display:flex;gap:calc(var(--z) * 2px);height:100%;box-sizing:border-box;padding:calc(var(--z) * 10px) calc(var(--z) * 4px) calc(var(--z) * 4px)}
 #lobby .card{flex:1 1 0;min-width:0;display:flex;flex-direction:column;cursor:pointer;border:calc(var(--z) * 1px) solid #fff4;border-radius:calc(var(--z) * 2px);background:#fff1;text-align:center;font-size:calc(var(--z) * 5.5px);white-space:nowrap;overflow:hidden}
 #lobby .card img{flex:1 1 0;min-height:0;width:100%;object-fit:cover;object-position:top}
@@ -114,12 +115,13 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby #roster button{font-size:calc(var(--z) * 5.5px);pointer-events:auto}
 #lobby button.big{position:absolute;z-index:2;border:0;cursor:pointer;font:900 calc(var(--z) * 13px) sans-serif;color:#fff;border-radius:calc(var(--z) * 6px);padding:calc(var(--z) * 3px) calc(var(--z) * 14px)}
 #lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
-#lobby.confirm #okbtn,#lobby.ok #okbtn{display:block}
-#lobby.ok #okbtn{background:linear-gradient(#5ce07a,#20a040);box-shadow:0 calc(var(--z) * 2px) 0 #0a5020;-webkit-text-stroke:calc(var(--z) * .4px) #063010}
+#lobby:not(.browse) #okbtn{display:block}
+#lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 10px) #ff7a3c;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
+#lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
 #lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
-#lobby.confirm #backsel,#lobby.ok #backsel{display:block}
-#lobby #start{right:2%;bottom:48%;font-size:calc(var(--z) * 15px);padding:calc(var(--z) * 4px) calc(var(--z) * 12px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 10px) #ff7a3c;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
-#lobby.confirm #start,#lobby.ok #start{bottom:5%}
+#lobby:not(.browse) #backsel{display:block}
+#lobby .grace{display:none;position:absolute;left:50%;top:3%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
+
 @keyframes startpulse{0%,100%{filter:brightness(1);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c}50%{filter:brightness(1.18);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a}}
 #fx .skill .seal{display:none;position:absolute;left:-10%;right:-10%;top:38%;background:#b00d;color:#fff;font:900 calc(var(--z) * 8px)/1.3 sans-serif;transform:rotate(-14deg);z-index:2}
 #fx .skill.sealed::after{content:'×';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff3030cc;font:900 calc(var(--z) * 40px)/1 sans-serif;z-index:1}
@@ -239,8 +241,9 @@ class GameScene extends Phaser.Scene {
   interp = new Interp(); // 他キャラ・大将の補間
   acc = 0; // 次の入力までの経過時間(ms)
   lobbyKey = '';
-  selMode: 'browse' | 'confirm' | 'ok' = 'browse'; // 待機画面: browse=選択バー、confirm=OK?（未確定）、ok=OK!（確定済み）
-  selChar = ''; // 待機画面で選んでいるキャラ
+  selMode: 'browse' | 'confirm' | 'sortie' | 'go' = 'browse'; // 待機画面: browse=選択バー、confirm=OK?、sortie=出撃ボタン（未出撃）、go=出撃済み
+  selChar = ''; // 待機画面で表示している（今選んでいる）キャラ
+  pickTimer = 0; // 表示キャラをサーバーへ送る予約
   slashes: { x: number; y: number; face: number; t0: number }[] = [];
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
   labels = new Map<string, HTMLElement>();
@@ -324,13 +327,23 @@ class GameScene extends Phaser.Scene {
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
     lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div></div><div id="roster"></div>`
-      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><button id="start" class="big">バトル開始！</button>';
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div>';
     fx.appendChild(lobby);
     lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
-    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => (el.onclick = () => { this.selChar = el.dataset.k!; this.selMode = 'confirm'; this.lobbyRender(); })); // 選ぶ → 選択バーが退場して OK?
-    document.getElementById('okbtn')!.onclick = () => { if (this.selMode !== 'confirm') return; this.selMode = 'ok'; this.room?.send('pick', { char: this.selChar }); this.lobbyRender(); }; // OK? → OK!（確定）
-    document.getElementById('backsel')!.onclick = () => { // OK! → OK?（確定解除）、OK? → 選択バーへ
-      if (this.selMode === 'ok') { this.selMode = 'confirm'; this.room?.send('unpick'); } else this.selMode = 'browse';
+    // 選択バー: カーソルを乗せる（PC）か1回タップで表示を切り替え、表示中のキャラをもう一度クリック／タップで OK?
+    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => {
+      const k = el.dataset.k!;
+      el.onpointerenter = (e) => { if (e.pointerType === 'mouse') this.showChar(k); };
+      el.onclick = () => { if (this.selMode !== 'browse') return; if (this.selChar === k) { this.selMode = 'confirm'; this.lobbyRender(); } else this.showChar(k); };
+    });
+    document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン → 出撃済み
+      if (this.selMode === 'confirm') this.selMode = 'sortie';
+      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', { char: this.selChar }); }
+      this.lobbyRender();
+    };
+    document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー
+      if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
+      else this.selMode = this.selMode === 'sortie' ? 'confirm' : 'browse';
       this.lobbyRender();
     };
     // ブラウザで開いている時だけ「ホーム画面に追加」で全画面になる案内（閉じたら二度と出さない）
@@ -345,7 +358,6 @@ class GameScene extends Phaser.Scene {
       hint.querySelector('button')!.onclick = () => { hint.remove(); try { localStorage.setItem('pwaHintClosed', '1'); } catch {} };
       lobby.appendChild(hint);
     }
-    document.getElementById('start')!.onclick = () => this.room?.send('start');
     document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
 
@@ -684,16 +696,19 @@ class GameScene extends Phaser.Scene {
     lobby.style.display = s.phase === 'waiting' ? 'block' : 'none';
     if (TOUCH) ver.style.visibility = s.phase === 'waiting' ? '' : 'hidden'; // スマホは試合中のHUDと重なるので、ビルド番号はキャラ選択の時だけ出す
     if (s.phase !== 'waiting') return;
+    // 選択猶予の残り秒数（最初の出撃から。全員に出す）
+    const gr = lobby.querySelector<HTMLElement>('.grace')!, gt = s.lobbyLeft == null ? '' : `あと ${Math.ceil(Math.max(0, s.lobbyLeft - (performance.now() - this.snapAt) / 1000))} 秒で出撃`;
+    gr.style.display = gt ? 'block' : 'none';
+    if (gr.textContent !== gt) gr.textContent = gt;
     const key = JSON.stringify([s.roster, s.me]);
     if (key === this.lobbyKey) return;
     this.lobbyKey = key;
     const me = s.roster.find((r: any) => r.id === s.me), myTeam = me?.team ?? 0;
-    // サーバーの確定状態に合わせる（陣営を移ると確定は外れる）
-    if (me?.ok) { this.selMode = 'ok'; this.selChar = me.char; } else if (this.selMode === 'ok') this.selMode = 'confirm';
+    // サーバーの出撃状態に合わせる（陣営を移ると出撃は外れる）
+    if (me?.ok) { this.selMode = 'go'; this.selChar = me.char; } else if (this.selMode === 'go') this.selMode = 'sortie';
     if (!this.selChar && me) this.selChar = me.char;
-    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === me?.char));
-    // 右上: 味方の選択状況（キャラと確定済みか）、敵陣営の一覧と陣営の移動
-    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : r.id === s.me ? 'あなた' : '人間'} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? 'OK!' : '選択中…'}</em></div>`;
+    // 右上: 味方の選択状況（今選んでいるキャラと、選択中／出撃済み）、敵陣営の一覧と陣営の移動
+    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : r.id === s.me ? 'あなた' : '人間'} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? '出撃済み' : '選択中…'}</em></div>`;
     const team = (t: number) => {
       const list = s.roster.filter((r: any) => r.team === t), rows = list.map(row);
       while (rows.length < C.TEAM_SIZE) rows.push('<div class="row"><span>（空き: 開始時にBot）</span></div>');
@@ -705,10 +720,19 @@ class GameScene extends Phaser.Scene {
   }
 
   // 待機画面の表示: 段階（選択バー／OK?／OK!）と、選んでいるキャラの立ち絵・名前・ロール・ステータス
+  // 表示キャラを切り替え、サーバーへ送る（PICK_SEND_MS に1回まで。最後に表示したキャラを送る）
+  showChar(k: string) {
+    if (this.selChar === k) return;
+    this.selChar = k;
+    this.lobbyRender();
+    if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
+  }
+
   lobbyRender() {
     const lobby = document.getElementById('lobby')!, k = this.selChar;
     lobby.className = this.selMode;
-    document.getElementById('okbtn')!.textContent = this.selMode === 'ok' ? 'OK!' : 'OK?';
+    document.getElementById('okbtn')!.textContent = this.selMode === 'sortie' ? '出撃' : this.selMode === 'go' ? '出撃済み' : 'OK?';
+    lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === k)); // 枠の強調は表示中のキャラ
     if (!k || lobby.dataset.k === k) return;
     lobby.dataset.k = k;
     lobby.querySelector<HTMLImageElement>('.tachie')!.src = TACHIE(k, 'select');

@@ -16,6 +16,11 @@ const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
 const T0 = Date.now();
 let lap = T0;
 const mark = (name: string) => { const n = Date.now(); log(`  [時間] ${name}: ${((n - lap) / 1000).toFixed(0)}秒（累計 ${((n - T0) / 1000).toFixed(0)}秒）`); lap = n; };
+// 待機画面で出撃: キャラ（省略時は今選んでいるキャラ）にカーソルを乗せてクリック → OK? → 出撃
+async function sortie(T: Tab, char?: string) {
+  const s = await T.snap(), k = char ?? s.roster.find((r: any) => r.id === s.me).char;
+  await T.page.click(`.card[data-k="${k}"]`); await T.page.click('#okbtn'); await T.page.click('#okbtn');
+}
 async function match1() {
   log('=== 試合1: タブA(人間) → 開始 → 途中でタブB参加。画面の表示だけを確認（ゲームの判定はサーバー単体テスト npm run test:server）');
   const b = await launch();
@@ -30,8 +35,7 @@ async function match1() {
   await A.shot('1a_lobby');
   check('基準1 入室で待機画面', s.phase === 'waiting' && (await A.page.locator('#lobby').isVisible()));
   await send(A, 'e2eBossGuard', { on: true }); // Bot の攻撃で大将が減らない（確認の途中で決着しないように）
-  await A.page.click('.card[data-k="aru"]'); await A.page.click('#okbtn'); // 突撃の確認に使う（選んで OK? → OK! で確定）
-  await A.page.click('#start');
+  await sortie(A, 'aru'); // 突撃の確認に使う（人間1人なので出撃で開始）
   await intro(A);
   s = await A.snap();
   await A.shot('1b_started');
@@ -532,7 +536,7 @@ async function backAndRematch(A: Tab, B: Tab) {
   const back = await A.until((x) => x.phase === 'waiting', 3000) && await B.until((x) => x.phase === 'waiting', 3000);
   await sleep(300); await A.shot('b2_back_lobby');
   check('リザルト: 「戻る」で押した人数／全人数（Botは押した扱い）。人間全員が押したら全員が待機画面へ', t0 === '戻る（6/8）' && t1 === '待機中 7/8' && still === 'ended' && back && await A.page.locator('#lobby').isVisible() && await B.page.locator('#lobby').isVisible(), { t0, t1, still });
-  await A.page.click('#start');
+  await sortie(A); await sortie(B); // 人間2人: 全員が出撃したら開始
   await A.until((x) => x.phase === 'intro', 3000);
   await A.page.evaluate(() => (window as any).room.send('e2eSkipIntro'));
   const ok = await A.until((x) => x.phase === 'playing', 3000); await sleep(1500);
@@ -597,7 +601,7 @@ async function match2() {
   log('=== 試合2: 通信遅延ありのタブ1つで開始し、他キャラの描画を見る（Botだけの試合の決着はサーバー単体テスト）');
   const b = await launch();
   const A = await Tab.open(b, 'A2', [100, 50]); // 通信遅延 100ms・揺らぎ 50ms
-  await A.page.click('#start');
+  await sortie(A);
   await A.until((x) => x.phase === 'intro', 3000);
   await A.page.evaluate(() => (window as any).room.send('e2eSkipIntro')); // 開始の演出は試合1で確認済み
   await A.until((x) => x.phase === 'playing', 3000);

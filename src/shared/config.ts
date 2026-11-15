@@ -55,6 +55,7 @@ export const CONFIG = {
   NET_CATCHUP: 3, // サーバー側の入力待ちがこれを超えたら1tickに2つ処理して追いつく
   NET_QUEUE_MAX: 20, // サーバー側の入力待ちの上限
   TEAM_SIZE: 4, // 開始時に足りない枠はBotで埋める
+  LOBBY_GRACE: 15, // 待機画面: 人間が複数のとき、最初の出撃から開始までの選択猶予(秒)
   MAX_CLIENTS: 16, // 超過分は観戦
   MATCH_TIME: 300, // 秒
   // 開始と終了の演出

@@ -1124,16 +1124,17 @@ console.log('--- もち子（ホバー）・ずん子');
   ok('ずんだアローの CT は旧の2/3（18→12秒）', Math.abs(CHARS.zunko.skill.ct - (18 * 2) / 3) < 1e-9);
 }
 
-console.log('--- 待機画面の確定（OK!）・e2e の Bot 編成');
+console.log('--- 待機画面の出撃（go）・e2e の Bot 編成');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
   const sent: any[] = []; Object.defineProperty(r, 'clients', { value: [{ sessionId: 'c0', send: (t: string, m: any) => { if (t === 's') sent.push(m); } }] });
   r.onCreate(); r.onJoin({ sessionId: 'c0' });
   const cl = { sessionId: 'c0' }, me = () => r.players.get('c0');
-  const ok0 = me().ok; r.messages.pick(cl, { char: 'zunko' }); r.sendSnapshots(); const s1 = sent[sent.length - 1].roster.find((x: any) => x.id === 'c0');
+  r.onJoin({ sessionId: 'c1' }); // 人間2人（1人だとすぐ開始する）
+  const ok0 = me().ok; r.messages.pick(cl, { char: 'sayo' }); const ok1 = me().ok; r.messages.go(cl, { char: 'zunko' }); r.sendSnapshots(); const s1 = sent[sent.length - 1].roster.find((x: any) => x.id === 'c0');
   r.messages.unpick(cl); r.sendSnapshots(); const s2 = sent[sent.length - 1].roster.find((x: any) => x.id === 'c0');
-  ok('pick で確定（OK!）、unpick で取り消し（キャラはそのまま）。ロスターで他のクライアントにも送る', ok0 === false && s1.ok === true && s1.char === 'zunko' && s2.ok === false && s2.char === 'zunko');
-  r.startMatch(); ok('確定していなくても開始できる（開始の条件は変えない）', r.phase === 'intro');
+  ok('pick は今選んでいるキャラだけ（出撃しない）、go で出撃済み、unpick で取り消し（キャラはそのまま）。ロスターで他のクライアントにも送る', ok0 === false && ok1 === false && s1.ok === true && s1.char === 'zunko' && s2.ok === false && s2.char === 'zunko');
+  r.startMatch(); ok('出撃していなくても開始の処理はできる（Bot で埋める処理は現行どおり）', r.phase === 'intro');
   const prev = process.env.E2E_HOOKS;
   process.env.E2E_HOOKS = '1'; const e: any = new (GameRoom as any)(); e.setSimulationInterval = () => {}; e.lock = () => {}; e.unlock = () => {}; Object.defineProperty(e, 'clients', { value: [] }); e.onCreate(); e.startMatch();
   if (prev === undefined) delete process.env.E2E_HOOKS; else process.env.E2E_HOOKS = prev;
@@ -1141,6 +1142,37 @@ console.log('--- 待機画面の確定（OK!）・e2e の Bot 編成');
   const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; n.lock = () => {}; n.unlock = () => {}; Object.defineProperty(n, 'clients', { value: [] }); n.onCreate();
   const seen = new Set<string>(); for (let i = 0; i < 30; i++) { n.players.clear(); n.startMatch(); n.players.forEach((p: any) => seen.add(p.char)); n.phase = 'waiting'; }
   ok('e2e（E2E_HOOKS）の Bot は固定の編成で、ひまり・ビィを入れない。通常の試合の Bot はランダムのまま（ひまり・ビィも出る）', JSON.stringify(bots) === JSON.stringify(['hanamaru', 'whitecul', 'sayo', 'metan', 'mochiko', 'aru', 'ierutan', 'zunko']) && seen.has('himari') && seen.has('bii'), { bots });
+}
+
+console.log('--- 待機画面の開始の流れ（出撃・選択猶予）');
+{
+  // 人間 n 人の部屋（待機画面）。h(i): i 番目の人の client
+  const lobby = (n: number) => {
+    const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
+    Object.defineProperty(r, 'clients', { value: [] }); r.onCreate(); r.notice = () => {};
+    for (let i = 0; i < n; i++) r.onJoin({ sessionId: `h${i}` });
+    return { r, h: (i: number) => ({ sessionId: `h${i}` }), p: (i: number) => r.players.get(`h${i}`), run: (sec: number) => { for (let k = 0; k < Math.round(sec / 0.05); k++) r.tick(0.05, false); } };
+  };
+  const G = C.LOBBY_GRACE;
+  const a = lobby(1); a.r.messages.go(a.h(0), { char: 'sayo' });
+  ok('人間が1人だけなら、出撃した時点で開始', a.r.phase === 'intro' && a.p(0).char === 'sayo');
+  const b = lobby(2); b.r.messages.go(b.h(0), { char: 'sayo' });
+  ok(`人間が2人: 片方が出撃するとカウント開始（${G}秒）、まだ開始しない`, b.r.phase === 'waiting' && b.r.lobbyLeft === G);
+  b.run(3); b.r.messages.go(b.h(1), { char: 'metan' });
+  ok('カウント中に全員が出撃したら、その時点で開始', b.r.phase === 'intro' && b.p(1).char === 'metan');
+  const c = lobby(2); c.r.messages.pick(c.h(1), { char: 'zunko' }); c.r.messages.go(c.h(0), { char: 'sayo' }); c.run(G - 0.1); const before = c.r.phase; c.run(0.15);
+  ok(`${G}秒たつと、未出撃の人は今選んでいるキャラ（pick）のまま出撃して開始`, before === 'waiting' && c.r.phase === 'intro' && c.p(1).char === 'zunko' && c.p(0).char === 'sayo');
+  const d = lobby(2); d.r.messages.go(d.h(0), { char: 'sayo' }); d.run(5); const left0 = d.r.lobbyLeft; d.r.onJoin({ sessionId: 'h2' }); d.run(0); const left1 = d.r.lobbyLeft; d.run(G - 5 - 0.1); const mid = d.r.phase; d.run(0.15);
+  ok('カウント中に入ってきた人は未出撃、残り時間は延びない', Math.abs(left0 - (G - 5)) < 1e-6 && left1 === left0 && d.p(2).ok === false && mid === 'waiting' && d.r.phase === 'intro', { left0, left1 });
+  const e = lobby(2); e.r.messages.go(e.h(0), { char: 'sayo' }); e.run(3); e.r.messages.unpick(e.h(0)); e.run(2);
+  ok('カウント中に出撃を取り消してもカウントは止まらない', e.r.phase === 'waiting' && Math.abs(e.r.lobbyLeft - (G - 5)) < 1e-6 && !e.p(0).ok);
+  e.run(G - 5 - 0.1); const mid2 = e.r.phase; e.run(0.15);
+  ok(`全員が未出撃に戻っても、${G}秒で開始`, mid2 === 'waiting' && e.r.phase === 'intro');
+  const f = lobby(2); f.r.dropped.add('h1'); f.r.messages.go(f.h(0), { char: 'sayo' });
+  ok('再接続待ち（切断中）の人間は判定から除く（接続中の全員が出撃済みなら開始）', f.r.phase === 'intro');
+  const g = lobby(2); g.r.messages.go(g.h(0), { char: 'sayo' }); g.r.dropped.add('h0'); g.r.dropped.add('h1'); g.run(G + 0.1);
+  ok('接続中の人間がいないまま猶予が切れたら開始せず、カウントを止める', g.r.phase === 'waiting' && g.r.lobbyLeft === null);
+  ok('開始ボタン（start メッセージ）はない', !('start' in lobby(1).r.messages));
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

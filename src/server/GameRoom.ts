@@ -56,7 +56,7 @@ export type Player = {
   boostUntil: number; // 白上虎太郎の移動速度上昇
   inDx: number; inDy: number; // 人間: 最後に届いた移動入力
   eating: boolean; // Bot: リコールして給湯室でご飯を食べている（HPが満タンになるまで）
-  ok: boolean; // 待機画面でキャラを確定した（OK!）。開始の条件には使わない
+  ok: boolean; // 待機画面で出撃済み
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、box: 持っている荷物（ult / assist）
@@ -119,6 +119,7 @@ export class GameRoom extends Room {
   reveal = new Set<string>(); // e2e: 視界の制限なしで送るクライアント（E2E_HOOKS のときだけ使う）
   bossGuard = false; // e2e: Bot の攻撃では大将が減らない（E2E_HOOKS のときだけ変わる）
   slotChain: number = C.SLOT.chain; // 連チャンの確率（e2e で変えられる）
+  lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
   introMess: Pt = { x: 0, y: 0 }; // 新開幕でカメラが映す「散らかったマップの一角」
   startedAt = 0; // GAME START の時刻（試合ログ用、ミリ秒）
@@ -160,11 +161,20 @@ export class GameRoom extends Room {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (p && C.AIM_MODES.includes(m.mode)) p.aim = m.mode;
     },
+    // 待機画面で今選んでいる（表示している）キャラ。猶予の時間切れで未出撃なら、このキャラで出撃する
     pick: (client: Client, m: { char: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) { p.char = m.char; p.ok = true; } // 確定（OK!）
+      if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) p.char = m.char;
     },
-    // 確定を取り消す（キャラはそのまま）
+    // 出撃: そのキャラで出撃済みにする。開始の判定（全員出撃で開始、最初の出撃で選択猶予のカウント開始）
+    go: (client: Client, m: { char: string }) => {
+      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
+      if (!p || this.phase !== 'waiting' || !PICKABLE.includes(m.char)) return;
+      Object.assign(p, { char: m.char, ok: true });
+      if (this.lobbyLeft === null) this.lobbyLeft = C.LOBBY_GRACE;
+      this.updateLobby(0);
+    },
+    // 出撃を取り消す（キャラはそのまま。カウントは止まらない）
     unpick: (client: Client) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (p && this.phase === 'waiting') p.ok = false;
@@ -176,9 +186,6 @@ export class GameRoom extends Room {
       if ([...this.players.values()].filter((q) => q.team === m.team).length >= C.TEAM_SIZE) return;
       this.players.delete(p.id);
       this.addPlayer(p.id, m.team, false).char = p.char;
-    },
-    start: () => {
-      if (this.phase === 'waiting') this.startMatch();
     },
     // e2e 専用（環境変数 E2E_HOOKS=1 のときだけ有効）: 自キャラを敵大将の左隣へ移す
     ...(process.env.E2E_HOOKS ? {
@@ -292,6 +299,17 @@ export class GameRoom extends Room {
     }
   }
 
+  // 待機画面の開始の判定: 接続中の人間（再接続待ちは除く）が全員出撃済みなら開始。選択猶予が切れたら、未出撃の人は今選んでいるキャラで開始
+  // 接続中の人間がいないまま猶予が切れたら開始せず、カウントを止める（誰も操作できない試合を始めない）
+  updateLobby(dt: number) {
+    if (this.lobbyLeft === null) return;
+    this.lobbyLeft = Math.max(0, this.lobbyLeft - dt);
+    const humans = [...this.players.values()].filter((p) => !p.bot && !this.dropped.has(p.id));
+    if (humans.length && humans.every((p) => p.ok)) return this.startMatch();
+    if (this.lobbyLeft > 0) return;
+    if (humans.length) this.startMatch(); else this.lobbyLeft = null;
+  }
+
   // 人間全員が「戻る」を押したら（Botは押した扱い）待機画面へ。Botは消し、人間は陣営と選んだキャラのまま
   checkBack() {
     const list = [...this.players.values()].filter((p) => !p.assist);
@@ -381,6 +399,7 @@ export class GameRoom extends Room {
   }
 
   startMatch() {
+    this.lobbyLeft = null;
     for (let t = 0; t < 2; t++) {
       while ([...this.players.values()].filter((p) => p.team === t).length < C.TEAM_SIZE) {
         const b = this.addPlayer(`bot${++this.botSeq}`, t, true);
@@ -457,6 +476,7 @@ export class GameRoom extends Room {
       if (this.phase === 'intro' && this.phaseLeft <= 0) { this.phase = 'countdown'; this.phaseLeft += C.INTRO_MODE === 'old' ? C.COUNTDOWN : C.INTRO2.count; }
       else if (this.phase === 'countdown' && this.phaseLeft <= 0) this.beginPlay();
     }
+    if (this.phase === 'waiting') this.updateLobby(dt);
     if (this.phase === 'intro' || this.phase === 'countdown' || this.phase === 'ended') this.moveHumans();
     if (this.phase === 'countdown' && C.INTRO_MODE !== 'old') this.moveBotsCaged(dt);
     if (this.phase === 'ended') this.updateEnded(dt);
@@ -1332,7 +1352,7 @@ export class GameRoom extends Room {
       const v = me && !this.reveal.has(client.sessionId) ? vis[me.team] : all; // 観戦者はフォグなし
       const myTeam = me ? me.team : 0;
       client.send('s', {
-        me: me?.id ?? null, t: this.elapsed, roster, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
+        me: me?.id ?? null, t: this.elapsed, roster, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) } })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({
