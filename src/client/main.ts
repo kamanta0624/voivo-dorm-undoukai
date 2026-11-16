@@ -9,6 +9,7 @@ import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
 import CHARS_JSON from '../shared/chars.json';
+import { Commentary } from './commentary';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
@@ -202,6 +203,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 @keyframes slidein{0%{transform:translateX(-40%);opacity:0}100%{transform:none;opacity:1}}
 @keyframes logoin{0%{transform:translateX(30%) skewX(-8deg);opacity:0}100%{transform:skewX(-8deg);opacity:1}}
 @keyframes pop{0%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:1}}
+#fx .cmsub{position:absolute;left:50%;bottom:calc(var(--z) * 6px);transform:translateX(-50%);max-width:56%;display:none;z-index:4;pointer-events:none;background:#000b;color:#fff;font:bold max(11px,calc(var(--z) * 8px))/1.35 sans-serif;padding:.25em .7em;border-radius:4px;text-align:center}
+#lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 7px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#lobby #cmbtn.off{color:#fff8}
 `;
 document.head.appendChild(css);
 const down = document.createElement('div');
@@ -217,6 +221,9 @@ const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
+// 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
+const commentary = new Commentary(fx);
+commentary.load();
 // スマホ（指で操作する端末）: タッチUIを出し、ブラウザのスクロール・拡大・長押しメニュー・選択を止める
 const TOUCH = matchMedia('(pointer: coarse)').matches;
 const AIM_SHORT: Record<string, string> = { nearest: '近い', lowhp: 'HP', boss: '大将', courier: 'コバコ' };
@@ -337,8 +344,12 @@ class GameScene extends Phaser.Scene {
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
     lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div></div><div id="roster"></div>`
-      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div>';
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button>';
     fx.appendChild(lobby);
+    // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
+    const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
+    cmBtn.onclick = () => { commentary.setOn(!commentary.on); cmShow(); };
+    cmShow();
     lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
     // 選択バー: カーソルを乗せる（PC）か1回タップで表示を切り替え、表示中のキャラをもう一度クリック／タップで OK?
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => {
@@ -402,6 +413,7 @@ class GameScene extends Phaser.Scene {
         (window as any).snap = s;
       });
       room.onMessage('notice', (m: any) => this.notify(m.text));
+      room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
       room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
       room.onMessage('slot', (m: any) => this.slotCutin(m.team, m.chain, m.kind, m.tier));

@@ -230,6 +230,31 @@ export const CONFIG = {
   LOITER_TIME: 10,
   BOT_SKILL_SENSE: 300, // Botが技を使う判定に使う敵との距離（加速・ずんだアローなど）
 
+  // 実況（docs/commentary_spec.md）。すべて仮
+  CM: {
+    every: 1, // 時間で動く判定（注目度の減衰・戦闘の終了・平時の話題・追跡・視界）の間隔(秒)
+    attn: { max: 100, assistIn: 60, bossNear: 40, dodge: 40, courier: 50, box: 50, spot: 15, dmg: 10, decay: 15 }, // 注目度: 上限・各トリガーの加算・毎秒の減衰
+    killR: 150, // 撃破: 倒した側・倒された側からこの半径内の対象も注目度を上限に
+    focusOn: 50, focusOff: 25, focusGap: 20, // フォーカスの開始・解除の注目度、移る差
+    battleR: 300, // 戦闘の半径（VISION_RADIUS）
+    battleEnd: 3, // 参加者間のダメージがこの秒数途切れたら戦闘の終了
+    comboWin: 5, comboRatio: 0.3, // 連携: 倒されたキャラへ直近 comboWin 秒で与えたダメージが最大HPの comboRatio 以上
+    lowHp: 0.2, // 瀕死（HP割合）
+    killHold: 1, // 撃破の保留(秒)。この間に同じ戦闘で次の撃破があれば連続
+    chaseSec: 2, chaseGap: 150, // 追跡: 逃げる相手に chaseSec 秒以上、chaseGap px 以内でついていく
+    bossNearR: 300, bossNearCd: 30, // 大将に接近: 敵大将からこの半径内で大将側の視界に入った。同じキャラは bossNearCd 秒に1回
+    spotCd: 30, // 敵を視界に捉える: 同じキャラは spotCd 秒に1回
+    prefixWait: 1.2, // 前置きの後に続くセリフをこの秒数まで待つ（来なければ前置きだけ）
+    idleDelay: 5, idleEvery: 10, trivia: 0.25, // 平時: フォーカスが外れてからの待ち、話題の間隔、小ネタの割合
+    bossHpAfter: 60, // 平時の話題「大将の残りHP」: 試合開始からこの秒数以降
+    slotDry: 60, slotHot: 60, // 平時の話題「スロット」: 当たりなしがこの秒数以上／この秒数内に2回以上当たり
+    wallRatio: 0.1, // 平時の話題「壁の壊れ方」: 壊せる壁のうち壊れた割合
+    lootMin: 5, // 平時の話題「リソースの散らばり」: 未取得の徳アイテムがこの数以上ある部屋
+    boardCd: 15, reachCd: 20, rampageCd: 10, reverseCd: 20, // 盤面・リーチ（組ごと）・助っ人の活躍・優劣逆転のクールタイム(秒)
+    bossHpAt: [0.75, 0.5, 0.25, 0.1], // 大将HPの割り込み
+    maxWait: 2, // 発生からこの秒数以上待たされたセリフは捨てる（クライアント）
+  },
+
 
   // 見た目
   VIEW_W: 640, // 論理解像度。ウィンドウには整数倍で表示

@@ -8,6 +8,7 @@ import { SKILLS, STATUS_ORDER, ENTS } from './skills';
 import { findPath } from './pathfind';
 import { stepPlayer } from '../shared/netcode';
 import MAP from '../shared/map.json';
+import { Director } from './commentary';
 
 const T = C.TILE;
 // マップ外周の壁（外 ' ' か地図の端に接する壁）は壊せない
@@ -124,6 +125,7 @@ export class GameRoom extends Room {
   introMess: Pt = { x: 0, y: 0 }; // 新開幕でカメラが映す「散らかったマップの一角」
   startedAt = 0; // GAME START の時刻（試合ログ用、ミリ秒）
   bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }]; // 陣営ごとの、敵大将に与えたダメージ（試合ログ用）
+  cm!: Director; // 実況ディレクター（試合ごとに作り直す）
 
   messages = {
     input: (client: Client, m: { seq: number; dx: number; dy: number }) => {
@@ -289,6 +291,7 @@ export class GameRoom extends Room {
   setup() {
     Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0 });
     this.backVotes.clear();
+    this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
     this.setBossRooms(pick(ROOM_COMBOS.filter((c) => c.sum <= C.BOSS_ROOM_DIST_SUM_MAX)).names);
     for (let t = 0; t < 2; t++) {
@@ -424,6 +427,7 @@ export class GameRoom extends Room {
     const dense = (m: Pt) => this.materials.filter((q) => Math.hypot(q.x - m.x, q.y - m.y) <= C.INTRO2.messR).length;
     const best = [...this.materials].sort((u, v) => dense(v) - dense(u))[0];
     this.introMess = best ? { x: best.x, y: best.y } : { x: C.MAP_W / 2, y: C.MAP_H / 2 };
+    this.cm.intro();
   }
 
   // カウント0（GAME START）: 部屋から出られるようになり、試合時間を数え始める
@@ -432,6 +436,7 @@ export class GameRoom extends Room {
     this.startedAt = Date.now();
     this.phaseLeft = 0;
     this.teams.forEach((_, i) => this.startSpin(i)); // スロットは GAME START から回す
+    this.cm.play();
   }
 
   // 出られない部屋: 開始前のカウント中は開始した部屋、終了後は自陣の大将が最後にいた部屋
@@ -496,6 +501,7 @@ export class GameRoom extends Room {
       this.updateWanted();
       this.updateReflect(dt);
       this.updateSlots();
+      this.cm.tick(dt);
       if (this.timeLeft <= 0) {
         const r = this.bosses.map((b) => b.hp / C.BOSS_HP);
         this.endMatch(r[0] > r[1] ? 0 : r[1] > r[0] ? 1 : 2, 'timeout');
@@ -556,6 +562,7 @@ export class GameRoom extends Room {
     this.phase = 'ended';
     this.winner = winner;
     this.writeLog(kind);
+    this.cm.end(winner, kind);
     // 各陣営の全員を、自陣の大将が最後にいた部屋に集める（倒れていた人も戻す）
     for (const t of [0, 1]) {
       const r = this.cageOf({ team: t } as Player)!, list = [...this.players.values()].filter((p) => p.team === t);
@@ -685,6 +692,7 @@ export class GameRoom extends Room {
     const d = key === 'slot' ? C.SLOT.winToku : C.TOKU[key];
     this.teams[team].toku = this.clampToku(this.teams[team].toku + d);
     if (!p) return;
+    this.cm.tokuBy(p, d);
     if (d < 0) p.bad -= d;
     this.addFx(p, 'toku', { text, d, hi: key === 'materialBack' || key === 'materialBig' });
   }
@@ -708,12 +716,13 @@ export class GameRoom extends Room {
       if (p.hp < this.maxHp(p)) p.hp = Math.min(this.maxHp(p), p.hp + C.HEAL_ITEM_AMOUNT);
       this.addFx(p, 'aura', { r: 24, color: 'heal' });
       this.addToku(p.team, p, 'eat'); // 盗み食い
-    } else if (it.kind === 'box_ult') this.giveUlt(p, lottery(C.POWER_WEIGHTS)); // 拾った本人が変身
-    else if (it.kind === 'box_assist') this.summonAssist(p.team, lottery(C.POWER_WEIGHTS)); // 拾った陣営にアシスト
+    } else if (it.kind === 'box_ult') { this.giveUlt(p, lottery(C.POWER_WEIGHTS)); this.cm.pickup(p, it.kind); } // 拾った本人が変身
+    else if (it.kind === 'box_assist') { this.summonAssist(p.team, lottery(C.POWER_WEIGHTS), undefined, true); this.cm.pickup(p, it.kind); } // 拾った陣営にアシスト
   }
 
   // アシストを召喚: 3人からランダム。召喚した陣営の大将の所に現れ、敵大将へ向かう。両陣営に通知
-  summonAssist(team: number, tier: number, char = pick(Object.keys(C.ASSIST.units))) {
+  // quiet: 実況の「助っ人の登場」を出さない（荷物から呼んだときは荷物のセリフで兼ねる）
+  summonAssist(team: number, tier: number, char = pick(Object.keys(C.ASSIST.units)), quiet = false) {
     // 同時に出せる数を超える召喚は、今のアシストの強化: 強さを1段階上げ（上限あり）、HPを新しい最大値まで回復
     const cur = [...this.players.values()].filter((q) => q.assist && q.team === team && q.alive);
     if (cur.length >= C.ASSIST.max) {
@@ -722,6 +731,7 @@ export class GameRoom extends Room {
       a.hp = this.maxHp(a);
       for (const c of this.clients) c.send('assistUp', { char: a.char, tier: a.tier, team }); // 両陣営に通知
       this.addFx(a, 'aura', { r: 40, color: 'assist' });
+      this.cm.assistUp(a);
       return a;
     }
     const boss = this.bosses[team];
@@ -731,6 +741,7 @@ export class GameRoom extends Room {
     a.hp = this.maxHp(a);
     for (const c of this.clients) c.send('assist', { char, tier, team }); // 両陣営に通知
     this.addFx(a, 'aura', { r: 40, color: 'assist' });
+    this.cm.assistIn(a, quiet);
     return a;
   }
 
@@ -899,14 +910,14 @@ export class GameRoom extends Room {
   hitThing(p: Player, t: Thing, base: number, aa = false) {
     if (this.phase !== 'playing') return; // 結果画面の技は見た目だけ
     if (this.now < p.weakUntil) base *= C.SLOT.penalty.weak; // スロットの罰の攻撃力低下
-    if (t.k === 'c') { this.addToku(p.team, p, 'courier'); return this.koCourier(t.o); } // コバコは1発でKO
+    if (t.k === 'c') { this.addToku(p.team, p, 'courier'); this.cm.courier(p); return this.koCourier(t.o); } // コバコは1発でKO
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
     if (t.k === 'boss' && roleOf(p.char)?.name === 'attacker') dmg *= C.ATTACKER_BOSS_MULT;
     if (aa) this.addFx({ x: t.x, y: t.y, team: t.o.team }, 'sweat', {});
     if (t.k === 'p') this.damagePlayer(t.o, dmg, p.id, false, aa ? '通常攻撃' : p.assist ? '技' : CHARS[p.char]?.skill.name ?? '技');
     else if (t.k === 'boss') this.damageBoss(t.o, dmg, p);
-    else if (t.k === 'e') { t.o.hp! -= dmg; if (t.o.hp! <= 0) this.removeEnt(t.o); }
+    else if (t.k === 'e') { t.o.hp! -= dmg; if (t.o.hp! <= 0) { this.removeEnt(t.o); this.cm.entDown(p, t.o, aa); } }
   }
 
   // how: 手段（KOの表示用。attacker なしは 大将の攻撃／スロットの罰）
@@ -921,6 +932,7 @@ export class GameRoom extends Room {
     v.hp -= Math.round(dmg);
     if (v.recallAt !== null) v.recallAt = this.now; // 被弾でリコールの溜め直し
     if (attacker) v.lastHitBy.set(attacker, this.now);
+    this.cm.damage(v, attacker ? this.players.get(attacker) ?? null : null, dmg, how);
     if (v.hp > 0) return;
     if (v.ult && !v.ult.pending) return this.endUlt(v); // ウルト中に撃破されたら、元のキャラがその場にHP100%で戻る
     v.alive = false;
@@ -932,6 +944,7 @@ export class GameRoom extends Room {
     // 倒された本人へ: 誰に（kc: キャラ。大将は大将のキャラ、罰は null）何で倒されたか
     for (const c of this.clients) if (this.owners.get(c.sessionId) === v.id) c.send('koed', { kc: killer?.char ?? (raw ? null : BOSS_CHAR[1 - v.team]), kt: killer?.team ?? 1 - v.team, how });
     for (const c of this.clients) c.send('kill', { kc: killer?.char ?? null, kt: killer?.team ?? 1 - v.team, vc: v.char, vt: v.team }); // キルログ用（kc なし＝大将の反撃）
+    this.cm.kill(v, killer, how, raw);
     if (killer) killer.rage += C.RAGE_KILL;
     // 徳: 相手をKOすると下がる。指名手配中の相手なら上がる（アシストを倒したときは数えない）
     if (killer && !v.assist) this.addToku(killer.team, killer, this.teams[v.team].wanted === v.id ? 'wantedKo' : 'ko');
@@ -954,7 +967,9 @@ export class GameRoom extends Room {
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
     if (boss.hp <= 0) return this.endMatch(1 - boss.team, 'boss');
+    this.cm.bossHit(boss);
     if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD) {
+      this.cm.bossWarn(boss);
       // 無敵になり、予告のあと広範囲攻撃、それから移動（updateWarns）
       boss.moving = true;
       this.warns.push({ id: this.nextId++, team: boss.team, owner: '', x: boss.x, y: boss.y, r: C.BOSS_BLAST.r, at: this.now + C.BOSS_BLAST.warn, dmg: C.BOSS_BLAST.dmg, follow: null, boss: true });
@@ -965,8 +980,9 @@ export class GameRoom extends Room {
   moveBoss(boss: Boss) {
     const others = this.bases[boss.team].map((_, i) => i).filter((i) => i !== boss.base);
     boss.base = others[Math.floor(Math.random() * others.length)];
-    const b = this.bases[boss.team][boss.base];
+    const b = this.bases[boss.team][boss.base], first = !boss.moved;
     Object.assign(boss, { x: b.x, y: b.y, dmgAtBase: 0, moving: false, moved: true });
+    this.cm.bossMoved(boss, first);
   }
 
   // 大将の爆発: 陣営 team の敵プレイヤー（アシスト含む）のうち半径 r に触れるものにダメージ
@@ -1048,6 +1064,7 @@ export class GameRoom extends Room {
       this.addFx(q, 'aura', { r: 26, color: `pen_${kind}` });
     }
     for (const c of this.clients) c.send('penalty', { team, kind });
+    this.cm.penalty(team, kind);
   }
 
   // 反省中（KOされて復活待ち）の人数 n に応じて、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
@@ -1088,6 +1105,7 @@ export class GameRoom extends Room {
     if (kind === 'ult') for (const q of this.players.values()) { if (q.team === team && q.alive && !q.assist) this.giveUlt(q, tier); }
     else this.summonAssist(team, tier);
     for (const c of this.clients) c.send('slot', { team, chain, kind, tier });
+    this.cm.slot(team, chain, kind);
   }
 
   // 位置を持つもの（キャラ・大将・ユニット扱いの場の物）
@@ -1169,6 +1187,7 @@ export class GameRoom extends Room {
     if (!p || !sk || !h || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.effect(p, 'noSkill')) return; // 技不可の状態（ずんだ餅など）
     if (p.ult && !p.ult.pending) return; // ウルト中はキャラ技を使えない
     if (h.use(this, p, this.aimOf(p)) !== false) p.skillReadyAt = this.now + sk.ct; // false: CT は技処理が始める
+    if (this.phase === 'playing') this.cm.skill(p); // 実況: 回避の判定
   }
 
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
