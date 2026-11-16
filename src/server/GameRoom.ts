@@ -39,6 +39,7 @@ export const lottery = (weights: number[], rnd = Math.random) => {
   return weights.length - 1;
 };
 const pick = <X>(a: X[]) => a[Math.floor(Math.random() * a.length)];
+const CENTER_ROOMS = MAP.rooms.filter((r) => r.type === 'center').map((r) => r.id); // 中央の部屋（自然湧きの徳を出さない。徳はコバコが置く）
 
 type Ult = { form: string; tier: number; until: number; pending: boolean }; // pending: 撤退中に選ばれ、復活後に始まる
 export type Player = {
@@ -59,8 +60,9 @@ export type Player = {
   eating: boolean; // Bot: リコールして給湯室でご飯を食べている（HPが満タンになるまで）
   ok: boolean; // 待機画面で出撃済み
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
+  koAt: number; // 撃破された時刻（撃破の演出 KO_FX）
 };
-type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、box: 持っている荷物（ult / assist）
+type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻
 type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number }; // start: 回転の開始時刻、reels: この回転の結果（陣営のキャラの添字。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）
 type Team = { toku: number; wanted: string | null; slot: Slot }; // toku: 徳、wanted: 指名手配中のプレイヤーid
@@ -112,6 +114,7 @@ export class GameRoom extends Room {
   broken: number[][] = []; // 壊れた壁のタイル [x, y]
   nextId = 1;
   materialTimer = 0;
+  healAt: (number | null)[] = []; // 回復アイテムの置き場所（HEAL_SPOTS）ごとの再出現の時刻（置いてあれば null）
   bossRooms: string[] = []; // この試合の大将の部屋（左右で同じ名前）。大将の出現・逃亡先
   bases: Pt[][] = [];
   homes: Rect[][] = [];
@@ -289,7 +292,7 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0 });
+    Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.backVotes.clear();
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
@@ -344,7 +347,7 @@ export class GameRoom extends Room {
       skillReadyAt: 0, st: {}, sk: {},
       assist: false, tier: 1, ult: null,
       goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
-      boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false,
+      boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false, koAt: 0,
     };
     this.players.set(id, p);
     return p;
@@ -495,6 +498,7 @@ export class GameRoom extends Room {
       this.unstick();
       this.updateBosses();
       this.updateMaterials(dt);
+      this.updateHeals();
       this.updateCouriers(dt);
       this.updateAssists();
       this.updateWarns();
@@ -637,7 +641,7 @@ export class GameRoom extends Room {
       if (!p.assist) {
         // 資材は触れると拾う（持ち運ばない。徳が上がる）
         for (const m of [...this.materials]) {
-          if (!this.touches(p, m)) continue;
+          if (!this.touches(p, m, C.MATERIAL_PICKUP_BOX)) continue;
           this.materials = this.materials.filter((x) => x !== m);
           this.addToku(p.team, p, m.big ? 'materialBig' : m.hi ? 'materialBack' : 'material', ''); // 表示は「徳+XX」だけ
         }
@@ -648,6 +652,7 @@ export class GameRoom extends Room {
       if (p.recallAt !== null && this.now - p.recallAt >= C.RECALL_HOLD) {
         const r = C.RECALL_ROOMS[p.team];
         p.recallAt = null;
+        this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
         Object.assign(p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
         this.addFx(p, 'aura', { r: 30, color: 'assist' });
         if (p.bot) p.eating = true;
@@ -663,9 +668,8 @@ export class GameRoom extends Room {
     }
   }
 
-  // アイテムの取得判定: 全キャラ共通の縦長長方形（足元から上へ。キャラの大きさによらない）
-  touches(p: Pt, o: Pt) {
-    const B = C.PICKUP_BOX;
+  // アイテムの取得判定: 全キャラ共通の縦長長方形（足元から上へ。キャラの大きさによらない）。徳は MATERIAL_PICKUP_BOX
+  touches(p: Pt, o: Pt, B = C.PICKUP_BOX) {
     return Math.abs(o.x - p.x) <= B.w / 2 && o.y >= p.y - B.up && o.y <= p.y + B.down;
   }
 
@@ -697,12 +701,13 @@ export class GameRoom extends Room {
     this.addFx(p, 'toku', { text, d, hi: key === 'materialBack' || key === 'materialBig' });
   }
 
-  // 資材を1個、マップのどこか（全部屋・廊下の床）に置く。MATERIAL_BACK の比率で裏側に出す（高ポイント）。ほかの資材とは重ねない
+  // 資材を1個、マップのどこか（中央の部屋を除く全部屋・廊下の床）に置く。MATERIAL_BACK の比率で裏側に出す（高ポイント）。ほかの資材とは重ねない
   spawnMaterial() {
     const back = Math.random() < C.MATERIAL_BACK;
     for (let i = 0; i < 200; i++) {
       const tx = Math.floor(Math.random() * MAP.width), ty = Math.floor(Math.random() * MAP.height);
-      if (this.tiles[ty]?.[tx] !== '.' || roomKindAt(tx, ty) === null || isBackAt(tx, ty) !== back) continue;
+      const kind = roomKindAt(tx, ty);
+      if (this.tiles[ty]?.[tx] !== '.' || kind === null || CENTER_ROOMS.includes(kind) || isBackAt(tx, ty) !== back) continue;
       const x = tx * T + T / 2, y = ty * T + T / 2;
       if (this.materials.some((m) => Math.hypot(m.x - x, m.y - y) < C.MATERIAL_GAP)) continue;
       this.materials.push({ id: this.nextId++, x, y, hi: back });
@@ -752,50 +757,51 @@ export class GameRoom extends Room {
     if (q.alive) { q.hp = this.maxHp(q); this.addFx(q, 'aura', { r: 50, color: 'ult' }); }
   }
 
-  // ブイブイ・コバコ: マップ中央下部に出て、荷物を1つ持って巡回を始める
+  // ブイブイ・コバコ: entrance（中央下部）に出て、荷物を1つ持って中央3部屋の往復を始める
   spawnCourier() {
     const s = C.COURIER_START, box = Object.keys(C.COURIER.box)[lottery(Object.values(C.COURIER.box))];
-    this.couriers = [{ id: this.nextId++, team: -1, x: s.x, y: s.y, hp: 1, path: [], pathAt: -Infinity, wp: 0, box }];
-    const near = C.COURIER_ROUTE.map((q, i) => ({ i, d: Math.hypot(q.x - s.x, q.y - s.y) })).sort((u, v) => u.d - v.d)[0];
-    this.couriers[0].wp = near.i;
+    this.couriers = [{ id: this.nextId++, team: -1, x: s.x, y: s.y, hp: 1, path: [], pathAt: -Infinity, wp: 1, dir: 1, box }];
   }
 
-  // コバコ: 巡回経路（全部屋）を順に回る。KO中は復活を待つ
+  // 往復の次の地点（両端で折り返す）
+  nextWp(c: Courier) {
+    if (c.wp + c.dir < 0 || c.wp + c.dir >= C.COURIER_ROUTE.length) c.dir = -c.dir;
+    c.wp += c.dir;
+  }
+
+  // コバコ: 巡回経路（中央3部屋）を往復する。KO中は復活を待つ
   updateCouriers(dt: number) {
     if (!this.couriers.length) { if (this.now >= this.courierAt) this.spawnCourier(); return; }
     const c = this.couriers[0], obs = this.obstacles(), to = C.COURIER_ROUTE[c.wp];
-    if (Math.hypot(to.x - c.x, to.y - c.y) < C.COURIER.reach) { this.courierArrive(to); c.wp = (c.wp + 1) % C.COURIER_ROUTE.length; c.path = []; return; }
+    if (Math.hypot(to.x - c.x, to.y - c.y) < C.COURIER.reach) { this.courierArrive(to); this.nextWp(c); c.path = []; return; }
     if (this.now - c.pathAt >= C.BOT_REPATH || !c.path.length) { c.path = findPath(c, to, obs, this.walls); c.pathAt = this.now; }
     while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 6) c.path.shift();
-    if (!c.path.length && Math.hypot(to.x - c.x, to.y - c.y) > C.COURIER.reach && findPath(c, to, obs, this.walls).length === 0) { c.wp = (c.wp + 1) % C.COURIER_ROUTE.length; return; } // 行けない地点は飛ばす
+    if (!c.path.length && Math.hypot(to.x - c.x, to.y - c.y) > C.COURIER.reach && findPath(c, to, obs, this.walls).length === 0) { this.nextWp(c); return; } // 行けない地点は飛ばす
     const n = c.path[0] ?? to, d = Math.hypot(n.x - c.x, n.y - c.y) || 1, m = Math.min(C.PLAYER_SPEED * C.COURIER.speed * dt, d);
     Object.assign(c, moveBody(c.x, c.y, ((n.x - c.x) / d) * m, ((n.y - c.y) / d) * m, C.PLAYER_RADIUS, obs));
   }
 
-  // コバコが巡回の地点に着いた: 部屋（廊下以外）なら COURIER_BIG_RATE の確率で高性能の徳を1つ置く。給湯室なら回復アイテムを上限まで補充
+  // コバコが巡回の部屋に着いた: その部屋の未取得のコバコの徳が cap 個未満なら、高性能の徳を COURIER_DROP.n 個置く
   courierArrive(to: (typeof C.COURIER_ROUTE)[number]) {
-    if (to.path) return;
-    if (Math.random() < C.COURIER_BIG_RATE) {
-      const A = to.area;
-      for (let i = 0; i < 200; i++) {
-        const tx = Math.floor((A.x + Math.random() * A.w) / T), ty = Math.floor((A.y + Math.random() * A.h) / T);
-        if (this.tiles[ty]?.[tx] !== '.') continue;
-        const x = tx * T + T / 2, y = ty * T + T / 2;
-        if ([...this.materials, ...this.items].some((m) => Math.hypot(m.x - x, m.y - y) < C.MATERIAL_GAP)) continue; // 既存のアイテムと重ねない
-        this.materials.push({ id: this.nextId++, x, y, hi: false, big: true });
-        break;
-      }
+    const A = to.area, D = C.COURIER_DROP;
+    let n = this.materials.filter((m) => m.big && inRect(m.x, m.y, A)).length < D.cap ? D.n : 0;
+    for (let i = 0; i < 200 && n > 0; i++) {
+      const tx = Math.floor((A.x + Math.random() * A.w) / T), ty = Math.floor((A.y + Math.random() * A.h) / T);
+      if (this.tiles[ty]?.[tx] !== '.') continue;
+      const x = tx * T + T / 2, y = ty * T + T / 2;
+      if ([...this.materials, ...this.items].some((m) => Math.hypot(m.x - x, m.y - y) < C.MATERIAL_GAP)) continue; // 既存のアイテムと重ねない
+      this.materials.push({ id: this.nextId++, x, y, hi: false, big: true });
+      n--;
     }
-    const kitchen = ['kitchen_L', 'kitchen_R'].indexOf(to.room);
-    if (kitchen >= 0) this.refillHeal(kitchen);
   }
 
-  // 陣営 team の給湯室の回復アイテムを、置き場所（HEAL_SPOTS の陣営の分）すべてに補充する
-  refillHeal(team: number) {
-    const n = C.HEAL_SPOTS.length / 2;
-    for (const [x, y] of C.HEAL_SPOTS.slice(team * n, (team + 1) * n)) {
-      if (!this.items.some((it) => it.kind === 'heal' && Math.hypot(it.x - x, it.y - y) < 8)) this.items.push({ id: this.nextId++, kind: 'heal', team: -1, x, y });
-    }
+  // 回復アイテム: 欠けた置き場所（HEAL_SPOTS）ごとに、HEAL_RESPAWN 秒後に再出現する
+  updateHeals() {
+    C.HEAL_SPOTS.forEach(([x, y], i) => {
+      if (this.items.some((it) => it.kind === 'heal' && Math.hypot(it.x - x, it.y - y) < 8)) { this.healAt[i] = null; return; }
+      if (this.healAt[i] == null) this.healAt[i] = this.now + C.HEAL_RESPAWN;
+      else if (this.now >= this.healAt[i]!) { this.items.push({ id: this.nextId++, kind: 'heal', team: -1, x, y }); this.healAt[i] = null; }
+    });
   }
 
   // コバコが攻撃を受けた: 1発でKO。荷物をその場に落とし、COURIER.respawn 秒後に復活
@@ -937,6 +943,7 @@ export class GameRoom extends Room {
     if (v.ult && !v.ult.pending) return this.endUlt(v); // ウルト中に撃破されたら、元のキャラがその場にHP100%で戻る
     v.alive = false;
     v.hp = 0;
+    v.koAt = this.now;
     v.recallAt = null;
     this.cancelStatuses(v); // KOで消える状態（タメ中に倒されたら突撃は不発。CTは消費済み）
     const killer = attacker ? this.players.get(attacker) : undefined;
@@ -1356,9 +1363,14 @@ export class GameRoom extends Room {
     else this.setInput(p.id, 0, 0);
   }
 
-  // 陣営 team から見えるか（自陣営のプレイヤー・大将の視界、壁で遮断）
+  // 撃破の演出中で、まだ消えていない（爆発まで。視界を残し、敵にも送る）
+  dying(p: Player) {
+    return !p.alive && !p.assist && this.now < p.koAt + C.KO_FX.shake + C.KO_FX.boom;
+  }
+
+  // 陣営 team から見えるか（自陣営のプレイヤー（撃破の演出中で消えるまでを含む）・大将の視界、壁で遮断）
   visibleTo(team: number, x: number, y: number, obs: Rect[]): boolean {
-    const eyes = [...this.players.values()].filter((p) => p.team === team && p.alive) as { x: number; y: number; char?: string }[];
+    const eyes = [...this.players.values()].filter((p) => p.team === team && (p.alive || this.dying(p))) as { x: number; y: number; char?: string }[];
     eyes.push(this.bosses[team]);
     return eyes.some((e) => Math.hypot(e.x - x, e.y - y) <= visionRadius(e.char) && lineOfSight(e.x, e.y, x, y, obs));
   }
@@ -1379,7 +1391,7 @@ export class GameRoom extends Room {
   sendSnapshots() {
     const obs = this.obstacles();
     const vis = [0, 1].map((team) => ({
-      players: [...this.players.values()].filter((p) => p.team === team || (p.alive && this.visibleTo(team, p.x, p.y, obs))),
+      players: [...this.players.values()].filter((p) => p.team === team || ((p.alive || this.dying(p)) && this.visibleTo(team, p.x, p.y, obs))), // 撃破の演出中の敵も視界内なら送る
       bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.visibleTo(team, b.x, b.y, obs)), // 開幕中は敵大将も映す
       ents: this.ents.filter((e) => e.team === team || !ENTS[e.kind].fog || this.visibleTo(team, e.x, e.y, obs)),
       shots: this.shots.filter((s) => s.team === team || this.visibleTo(team, s.x, s.y, obs)),
@@ -1400,7 +1412,7 @@ export class GameRoom extends Room {
         players: v.players.map((p) => ({
           id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,
           face: p.face, stunned: this.now < p.stunUntil, cd: Math.max(0, p.cooldownUntil - this.now),
-          respawnIn: p.alive ? 0 : p.respawnAt - this.now,
+          respawnIn: p.alive ? 0 : p.respawnAt - this.now, ko: p.alive ? null : this.now - p.koAt, // ko: 撃破からの秒数（演出用）
           ack: p.ack, cage: this.cageOf(p), maxHp: this.maxHp(p), spd: this.speedOf(p), aim: p.aim, tgt: p.tgt ? thingId(p.tgt) : null, skillCd: Math.max(0, p.skillReadyAt - this.now),
           st: this.statusView(p), lock: this.effect(p, 'lock'),
           recall: p.recallAt === null ? null : (this.now - p.recallAt) / C.RECALL_HOLD,

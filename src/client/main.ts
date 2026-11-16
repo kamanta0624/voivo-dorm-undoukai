@@ -32,8 +32,8 @@ const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty:
 const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサーバーへ送る間隔の下限（カーソルを動かすたびに送らない）
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
 const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, box_assist: 0x66ccff, assist: 0x66ccff };
-const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'ウルト箱', box_assist: 'アシスト箱' };
-const PAYOUT_LABEL: Record<string, string> = { ult: 'ウルト', assist: 'アシスト召喚' };
+const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'パワーアップ箱', box_assist: 'アシスト箱' };
+const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト召喚' };
 const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
@@ -44,7 +44,7 @@ const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040,
 const views = (p: any) => Object.keys(STATUS_VIEW).filter((k) => p?.st?.[k]).map((k) => STATUS_VIEW[k]); // 有効な状態の描画（client/skills）
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
 
-type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; flashUntil: number };
+type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; flashUntil: number; aura?: Phaser.GameObjects.Sprite }; // aura: パワーアップ中の背後の拡大したドット
 type SkillFx = { kind: string; t0: number; [k: string]: any };
 
 // 立ち絵の層（DOM）。ドットとは別に高解像度で表示する
@@ -64,11 +64,11 @@ const css = document.createElement('style');
 css.textContent = `
 #fx .cut{position:absolute;left:0;right:0;bottom:0;height:62%;background:linear-gradient(transparent,#000a 30%,#000a 85%,transparent);animation:cutfade var(--d) linear forwards}
 #fx .cut img{position:absolute;bottom:0;height:100%}
-#fx .cut .me{left:8%;animation:hop var(--d) linear forwards}
-#fx .cut .foe{left:52%;animation:push var(--d) ease-out forwards}
+#fx .cut .me{left:${50 - C.KO_CUTIN_GAP / 2}%;animation:hop var(--d) linear forwards}
+#fx .cut .foe{left:${50 + C.KO_CUTIN_GAP / 2}%;animation:push var(--d) ease-out forwards}
 @keyframes cutfade{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
-@keyframes hop{0%{transform:translateX(-40%)}10%{transform:translateX(0)}18%{transform:translateX(10%)}26%{transform:translateX(0)}34%{transform:translateX(10%)}42%{transform:translateX(0)}50%{transform:translateX(10%)}58%,100%{transform:translateX(0)}}
-@keyframes push{0%,45%{transform:translateX(0);filter:none}65%,100%{transform:translateX(30%);filter:grayscale(1) brightness(.8)}}
+@keyframes hop{0%{transform:translateX(-50%) translateX(-40%)}10%{transform:translateX(-50%)}18%{transform:translateX(-50%) translateX(10%)}26%{transform:translateX(-50%)}34%{transform:translateX(-50%) translateX(10%)}42%{transform:translateX(-50%)}50%{transform:translateX(-50%) translateX(10%)}58%,100%{transform:translateX(-50%)}}
+@keyframes push{0%,45%{transform:translateX(-50%);filter:none}65%,100%{transform:translateX(-50%) translateX(30%);filter:grayscale(1) brightness(.8)}}
 #fx .down{position:absolute;left:2%;bottom:22%;height:62%;display:none;overflow:hidden}
 #fx .down img{height:100%;transform-origin:50% 100%}
 #fx .down img.fall{animation:fall var(--d) ease-in forwards}
@@ -142,7 +142,11 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .killer{position:absolute;right:2%;bottom:22%;height:62%;display:none}
 #fx .killer img{height:100%}
 #fx .killer div,#fx .cut .how{position:absolute;right:0;top:4%;white-space:nowrap;color:#fff;font:900 calc(var(--z) * 14px) sans-serif;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 4px #000,0 0 4px #000}
-#fx .cut .how{right:auto;left:8%;top:auto;bottom:4%;color:#ffe066}
+#fx .cut .how{right:auto;left:50%;top:auto;bottom:16%;transform:translateX(-50%);text-align:center;color:#ffe066}
+#fx .cut .how b{display:block;font-size:calc(var(--z) * 22px);color:#ff5040}
+#fx .cut .how span{display:block}
+#fx .killer div{white-space:pre;text-align:right}
+#fx .iris{position:absolute;inset:0;display:none}
 #fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
@@ -151,16 +155,16 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .skill b,#fx .skill span{position:relative}
 #fx .skill b{font-size:calc(var(--z) * 11px)}
 html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
-#fx .roster{position:absolute;top:5.8%;display:flex;flex-direction:column;gap:calc(var(--z) * 1px)}
+#fx .roster{position:absolute;top:5.8%;display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--z) * 2px)}
 #fx .roster.r0{left:1.2%}
-#fx .roster.r1{right:1.2%;flex-direction:row;gap:calc(var(--z) * 2px)}
+#fx .roster.r1{right:1.2%}
+#fx .roster .rw{display:flex;gap:calc(var(--z) * 2px)}
+#fx .mem{position:relative;display:flex}
+#fx .mem .hp{position:absolute;left:2px;right:2px;bottom:2px;height:calc(var(--z) * 2.5px);background:#000b}
+#fx .mem .hp i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
+#fx .mem .rs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:900 calc(var(--z) * 9px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .ic{width:calc(var(--z) * 18px);height:calc(var(--z) * 18px);background:#000a no-repeat calc(var(--z) * -7px) calc(var(--z) * -3px)/calc(var(--z) * 32px) calc(var(--z) * 42px);image-rendering:pixelated;border:1px solid var(--c);border-radius:2px;flex:none}
 #fx .ic.dead{filter:grayscale(1) brightness(.35)}
-#fx .ally{display:flex;align-items:center;gap:calc(var(--z) * 3px);background:#0007;padding:1px 3px;color:#fff;font:bold calc(var(--z) * 5.5px) sans-serif}
-#fx .ally .nm{width:calc(var(--z) * 42px);overflow:hidden;white-space:nowrap}
-#fx .ally .hp{width:calc(var(--z) * 40px);height:calc(var(--z) * 3px);background:#000b;position:relative}
-#fx .ally .hp i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
-#fx .ally .rs{width:calc(var(--z) * 40px);color:#ffe066}
 #fx .kills{position:absolute;top:22%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
 #fx .kills div{display:flex;align-items:center;gap:calc(var(--z) * 3px);background:#0008;padding:1px 4px;color:#fff;font:bold calc(var(--z) * 7px) sans-serif}
 #fx .kills .ic{width:calc(var(--z) * 14px);height:calc(var(--z) * 14px);background-position:calc(var(--z) * -9px) calc(var(--z) * -4px)}
@@ -177,7 +181,6 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .banner small{display:block;font:bold calc(var(--z) * 10px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .back{position:absolute;left:50%;top:58%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 9px) sans-serif;padding:.3em 1.4em;border-radius:4px;border:2px solid #fff;background:#335;color:#fff;cursor:pointer;pointer-events:auto}
 #fx .back:disabled{background:#555;cursor:default}
-#fx .ally .tag{color:#66ccff;font-size:calc(var(--z) * 4.5px);margin-left:2px}
 #fx .tk{position:absolute;top:6.4%;left:50%;transform:translateX(-50%);display:flex;gap:calc(var(--z) * 8px)}
 #fx .tk .side{display:flex;flex-direction:column;align-items:center;gap:calc(var(--z) * 1.5px)}
 #fx .tk .tg{position:relative;width:calc(var(--z) * 54px);height:calc(var(--z) * 5px);background:#000b;outline:1px solid var(--c)}
@@ -208,6 +211,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #lobby #cmbtn.off{color:#fff8}
 `;
 document.head.appendChild(css);
+const iris = document.createElement('div'); // 撃破された本人の画面: 消えた後に視界を同心円状に絞って暗転（立ち絵の奥）
+iris.className = 'iris';
+fx.appendChild(iris);
 const down = document.createElement('div');
 down.className = 'down';
 down.innerHTML = '<img><div></div>';
@@ -417,7 +423,7 @@ class GameScene extends Phaser.Scene {
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
       room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
       room.onMessage('slot', (m: any) => this.slotCutin(m.team, m.chain, m.kind, m.tier));
-      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
+      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト レベルアップ: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
       room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
       room.onMessage('ko', (k: any) => {
         const mine = this.snap?.players.find((p: any) => p.id === this.snap.me);
@@ -570,9 +576,9 @@ class GameScene extends Phaser.Scene {
     setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
   }
 
-  // 徳のゲージとスロット（左＝自陣、右＝敵陣）。リールは回転中は自陣のキャラのアイコンが回り、決まった時刻に左から止まる
-  tokuHud(s: any, myTeam: number, sinceSnap: number) {
-    [myTeam, 1 - myTeam].forEach((t, k) => {
+  // 徳のゲージとスロット（左＝陣営0、右＝陣営1）。リールは回転中は自陣のキャラのアイコンが回り、決まった時刻に左から止まる
+  tokuHud(s: any, sinceSnap: number) {
+    [0, 1].forEach((t, k) => {
       const tm = s.teams[t], sl = tm.slot, chars = s.roster.filter((r: any) => r.team === t).map((r: any) => r.char);
       const idle = s.phase !== 'playing'; // GAME START までは止めたまま
       const p = sl.payout || idle ? 1 : Math.min(1, (C.SLOT.spin - Math.max(0, sl.left - sinceSnap)) / C.SLOT.spin);
@@ -675,16 +681,17 @@ class GameScene extends Phaser.Scene {
     this.introBanner = cut === 'mess' ? ['mess', '徳を積め！'] : cut === 'allies' ? ['allies', 'なかよくしろ！'] : cut === 'ready' ? ['ready', '準備してね'] : null;
   }
 
-  // 画面上部の一覧: 左に味方（アイコン・名前・HP、撤退中は復活までの秒数）、右に敵（アイコンだけ、撤退中は暗く）
+  // 画面上部の一覧（左＝陣営0、右＝陣営1）。どちらもアイコン4つを横並び、反省中はグレー
+  // 味方: アイコンの下部に体力バー、反省中は復活までの残り秒数を重ねる。アシストは一番左のアイコンの下に（アイコン＋体力バー）。敵: アイコンだけ
   rosterHud(s: any, myTeam: number, sinceSnap: number) {
-    const allies = s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
+    const c = css16(TEAM_COLOR[myTeam]), bar = (p: any) => `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>`;
+    const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
       const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
-      const st = alive ? `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>` : `<span class="rs">反省中 あと${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}秒</span>`;
-      return `<div class="ally" style="--c:${css16(TEAM_COLOR[myTeam])}">${this.icon(r.char, myTeam, !alive)}<span class="nm">${CHARS[r.char].name}</span>${st}</div>`;
-    }).join('') + s.players.filter((p: any) => p.assist && p.team === myTeam).map((p: any) => // アシスト（撃破されたら消える）
-      `<div class="ally as" style="--c:${css16(TEAM_COLOR[myTeam])}">${this.icon(p.char, myTeam)}<span class="nm">${charName(p.char)}<b class="tag">ASSIST</b></span><span class="hp"><i style="width:${Math.min(100, (p.hp / p.maxHp) * 100)}%"></i></span></div>`).join('');
-    const foes = s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => this.icon(r.char, 1 - myTeam, !r.alive)).join('');
-    [allies, foes].forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
+      return `<div class="mem" style="--c:${c}">${this.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}</div>`;
+    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}</div>`).join(''); // アシスト（撃破されたら消える）
+    const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => this.icon(r.char, 1 - myTeam, !r.alive)).join('') + '</div>';
+    const html = myTeam === 0 ? [allies, foes] : [foes, allies];
+    html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
@@ -721,7 +728,7 @@ class GameScene extends Phaser.Scene {
     const el = document.createElement('div');
     el.className = 'cut';
     el.style.setProperty('--d', `${C.CUTIN_MS}ms`);
-    el.innerHTML = `<img class="me" src="${TACHIE(me, 'ko')}"><img class="foe" src="${TACHIE(foe, 'select')}"><div class="how">${CHARS[foe].name}を${how}で撃破！</div>`;
+    el.innerHTML = `<img class="me" src="${TACHIE(me, 'ko')}"><img class="foe" src="${TACHIE(foe, 'select')}"><div class="how"><b>撃破</b><span>${CHARS[foe].name}</span><span>${how}</span></div>`;
     fx.appendChild(el);
     setTimeout(() => el.remove(), C.CUTIN_MS);
   }
@@ -915,7 +922,7 @@ class GameScene extends Phaser.Scene {
       seen.add(id);
       let e = this.units.get(id);
       if (!e || e.char !== char) {
-        e?.s.destroy();
+        e?.s.destroy(); e?.aura?.destroy();
         e = { s: this.add.sprite(x, y, `${char}_idle`).setOrigin(0.5, 0.85).setScale(scale), char, tx: x, ty: y, blinkAt: time + 1000 + Math.random() * 4000, flashUntil: 0 };
         this.units.set(id, e);
       }
@@ -933,8 +940,14 @@ class GameScene extends Phaser.Scene {
       else if (time >= e.blinkAt) { sp.play(`${char}_blink`); e.blinkAt = time + 2000 + Math.random() * 4000; } // ときどき瞬き
       const f = isMe ? this.face : face;
       sp.setPosition(Math.round(cx), Math.round(cy)).setFlipX(Math.cos(f) > 0.01).setAlpha(alpha).setDepth(10 + cy / 10000);
-      // 足元の陣営色と頭上のHP
+      // パワーアップ中: 背後に自身のドットを拡大して半透明で重ねる（大きさはレベルごと）
+      if (p?.alive && p.ult && p.ult.left !== null) {
+        e.aura ??= this.add.sprite(cx, cy, sp.texture.key).setOrigin(0.5, 0.85);
+        e.aura.setTexture(sp.texture.key).setPosition(sp.x, sp.y).setFlipX(sp.flipX).setScale(C.DOT_SCALE * C.POWERUP_AURA.scale[p.ult.tier]).setAlpha(C.POWERUP_AURA.alpha).setDepth(sp.depth - 0.001).setVisible(true);
+      } else e.aura?.setVisible(false);
+      // 足元の陣営色と頭上のHP（撃破の演出中は出さない）
       const h = sp.displayHeight * 0.85;
+      if (p && !p.alive) return;
       if (!bare) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
       if (alpha === 1 && !bare) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
       // 被弾: 白く点滅してダメージ数値
@@ -958,7 +971,7 @@ class GameScene extends Phaser.Scene {
       if (p.ult && p.ult.left !== null) {
         const pulse = 0.5 + 0.3 * Math.sin(time / 120);
         feet.lineStyle(3, ULT_COLOR[p.ult.form], pulse).strokeCircle(cx, cy - h / 2, 20).lineStyle(1, 0xffffff, pulse).strokeCircle(cx, cy - h / 2, 23);
-        this.label(`ult${id}`, `ULT ${C.POWER_TIERS[p.ult.tier]}`, cx, cy - h - 22, '', labelSeen);
+        this.label(`ult${id}`, `Lv.${p.ult.tier + 1}`, cx, cy - h - 22, '', labelSeen);
       }
       // アシスト: 半透明の縁取りと頭上の「ASSIST」
       if (p.assist) {
@@ -967,9 +980,15 @@ class GameScene extends Phaser.Scene {
         this.label(`assist${id}`, `ASSIST ${C.POWER_TIERS[p.tier]}`, cx, cy - h - 14, '', labelSeen);
       }
     };
+    const K = C.KO_FX, dying: { p: any; x: number; y: number; ko: number }[] = []; // 撃破の演出中（揺れ・大爆発）
     for (const p of s.players) {
       const pos = p.id === s.me ? this.me : (this.interp.at(p.id, now) ?? p);
-      draw(p.id, p.char, p.team, pos.x, pos.y, p.face, p.hp, p.maxHp, p.alive ? 1 : 0.3, p.assist ? C.DOT_SCALE * C.ASSIST.scale : C.DOT_SCALE, p); // アシストは大将と同じ大きさ
+      const ko = p.alive ? 0 : p.ko + sinceSnap;
+      if (!p.alive && (p.ko === null || ko >= K.shake + K.boom)) continue; // 爆発の後は復活まで描かない
+      if (!p.alive) dying.push({ p, x: pos.x, y: pos.y, ko });
+      if (!p.alive && ko >= K.shake) continue; // 大爆発でキャラが消える
+      const sx = p.alive ? 0 : K.amp * (1 - ko / K.shake) * Math.sin(ko * K.hz * Math.PI * 2); // 左右に揺れて収まる
+      draw(p.id, p.char, p.team, pos.x + sx, pos.y, p.face, p.hp, p.maxHp, 1, p.assist ? C.DOT_SCALE * C.ASSIST.scale : C.DOT_SCALE, p); // アシストは大将と同じ大きさ
     }
     for (const b of s.bosses) { const q = this.interp.at('boss' + b.team, now) ?? b; draw('boss' + b.team, BOSS_CHAR[b.team], b.team, q.x, q.y, b.team === 0 ? 0 : Math.PI, b.hp, C.BOSS_HP, 1, C.DOT_SCALE * 2); }
     // ブイブイ・コバコ（中立）: 進む向きを見て、頭上に荷物の中身のアイコン
@@ -980,11 +999,11 @@ class GameScene extends Phaser.Scene {
       this.drawItem(feet, { kind: `box_${c.box}`, x: q.x, y: q.y - 54 });
     }
     for (const [id, e] of this.units) {
-      if (!seen.has(id)) { e.s.destroy(); this.units.delete(id); }
+      if (!seen.has(id)) { e.s.destroy(); e.aura?.destroy(); this.units.delete(id); }
     }
     // カメラ: 開始演出は味方の横並びに寄せる。ミニマップを押している間はその位置（離したら即座に自キャラへ）。撤退中は WASD で視点だけ動かす（壁に関係なく）。それ以外は自キャラに追従
     const camera = this.cameras.main, meUnit = this.units.get(s.me);
-    const freeCam = !!mine && !mine.alive && s.phase === 'playing';
+    const freeCam = !!mine && !mine.alive && s.phase === 'playing' && (mine.ko === null || mine.ko + sinceSnap >= C.RESPAWN_BASE); // 撃破の演出（絞り切るまで）はカメラを自キャラの位置のまま
     if (C.INTRO_MODE === 'old') this.introCamOld(s, myTeam, camera);
     else this.introCamNew(s, myTeam, sinceSnap, camera, labelSeen);
     const mmOn = !!this.mmCam && !this.introCam && s.phase !== 'waiting';
@@ -1026,11 +1045,17 @@ class GameScene extends Phaser.Scene {
       else this.skillFx.push({ ...f, t0: time });
     }
     this.fxQueue = [];
-    const fxMs = (f: SkillFx) => (f.color && FX_VIEW[f.color]?.ms) || C.SKILL_FX_MS;
+    const fxMs = (f: SkillFx) => (f.kind === 'recall' ? C.RECALL_FX_MS : (f.color && FX_VIEW[f.color]?.ms) || C.SKILL_FX_MS);
     this.skillFx = this.skillFx.filter((f) => time - f.t0 < fxMs(f));
     for (const f of this.skillFx) {
       const v = f.color && FX_VIEW[f.color];
       if (v) { v.draw(fxG, f, time, (time - f.t0) / fxMs(f), s); continue; } // 技ごとの描画（client/skills）
+      if (f.kind === 'recall') { // リコールの跡: 光の柱が細くなって消え、足元の輪が広がる
+        const k = (time - f.t0) / C.RECALL_FX_MS, w = 22 * (1 - k);
+        fxG.fillStyle(0x66ccff, 0.5 * (1 - k)).fillRect(f.x - w / 2, f.y - 60 * (1 - k * 0.5), w, 60 * (1 - k * 0.5) + 4).fillStyle(0xffffff, 0.8 * (1 - k)).fillRect(f.x - w / 6, f.y - 56 * (1 - k * 0.5), w / 3, 56 * (1 - k * 0.5));
+        fxG.lineStyle(2, 0x66ccff, 1 - k).strokeEllipse(f.x, f.y, 16 + 40 * k, 6 + 14 * k);
+        continue;
+      }
       const al = 0.5 * (1 - (time - f.t0) / C.SKILL_FX_MS), col = SKILL_FX_COLOR[f.color ?? f.kind];
       if (f.kind === 'ring') fxG.lineStyle(3, col, al * 1.6).strokeCircle(f.x, f.y, f.r);
       if (f.kind === 'aura') fxG.fillStyle(col, al * 0.6).fillCircle(f.x, f.y, f.r).lineStyle(2, col, al * 1.6).strokeCircle(f.x, f.y, f.r);
@@ -1044,6 +1069,25 @@ class GameScene extends Phaser.Scene {
       }
       if (f.kind === 'beam') fxG.lineStyle(2, col, Math.min(1, al * 2)).lineBetween(f.x, f.y, f.x2, f.y2); // ファンネルの射撃
       if (f.kind === 'arc') fxG.fillStyle(col, al * 1.4).slice(f.x, f.y, f.r, f.a - f.arc / 2, f.a + f.arc / 2).fillPath();
+    }
+    // 撃破の演出: 揺れている間はあちこちで小爆発、揺れが収まると大爆発（横2キャラ・縦1.5キャラ分）
+    for (const d of dying) {
+      const cy = d.y - 18; // 体の中心のあたり
+      if (d.ko < K.shake) {
+        const i0 = Math.floor(d.ko / K.pop);
+        for (let j = Math.max(0, i0 - Math.ceil(K.popLife / K.pop)); j <= i0; j++) {
+          const t = d.ko - j * K.pop;
+          if (t < 0 || t >= K.popLife || j * K.pop >= K.shake) continue;
+          const h = Math.sin((j + 1) * 12.9898 + d.p.id.length * 78.233) * 43758.5453, u = h - Math.floor(h), v = (h * 7.13) - Math.floor(h * 7.13); // 小爆発ごとの位置（決まった擬似乱数）
+          const x = d.x + (u - 0.5) * 24, y = d.y - 4 - v * 32, k = t / K.popLife, r = 3 + 6 * k;
+          fxG.fillStyle(0xff6020, 0.9 * (1 - k)).fillCircle(x, y, r).fillStyle(0xffe066, 1 - k).fillCircle(x, y, r * 0.55);
+        }
+      } else {
+        const k = (d.ko - K.shake) / K.boom, e = 1 - (1 - k) ** 3, W = 32 * 2, H = 42 * 1.5; // 横2キャラ・縦1.5キャラ
+        fxG.fillStyle(0xff3010, 0.85 * (1 - k)).fillEllipse(d.x, cy, W * (0.5 + 0.5 * e), H * (0.5 + 0.5 * e));
+        fxG.fillStyle(0xffa020, 0.9 * (1 - k)).fillEllipse(d.x, cy, W * 0.75 * (0.4 + 0.6 * e), H * 0.75 * (0.4 + 0.6 * e));
+        fxG.fillStyle(0xffffff, 1 - k).fillEllipse(d.x, cy, W * 0.4 * (1 - k), H * 0.4 * (1 - k));
+      }
     }
     // アシストの範囲攻撃・大将の広範囲攻撃の予告: 赤い円が満ちていく
     for (const w of s.warns) {
@@ -1078,7 +1122,7 @@ class GameScene extends Phaser.Scene {
     const vg = this.visG.clear().fillStyle(0xffffff);
     this.fog.setVisible(!!mine && !this.introCam);
     if (mine) {
-      const eyes = s.players.filter((p: any) => p.team === myTeam && p.alive).map((p: any) => (p.id === s.me ? { ...this.me, char: p.char } : p));
+      const eyes = s.players.filter((p: any) => p.team === myTeam && (p.alive || (p.ko !== null && p.ko + sinceSnap < K.shake + K.boom))).map((p: any) => (p.id === s.me ? { ...this.me, char: p.char } : p)); // 撃破の演出中も消えるまでは見える
       const boss = s.bosses.find((b: any) => b.team === myTeam);
       if (boss) eyes.push(boss);
       const t0 = performance.now();
@@ -1089,13 +1133,13 @@ class GameScene extends Phaser.Scene {
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
     $('.timer').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-    [myTeam, 1 - myTeam].forEach((t, i) => { const el = $(`.b${i} i`); el.style.width = `${s.teams[t].bossHpRatio * 100}%`; el.style.background = css16(TEAM_COLOR[t]); }); // 左＝自陣、右＝敵陣
+    [0, 1].forEach((t) => { const el = $(`.b${t} i`); el.style.width = `${s.teams[t].bossHpRatio * 100}%`; el.style.background = css16(TEAM_COLOR[t]); }); // 左＝陣営0、右＝陣営1
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;
     back.style.display = s.phase === 'ended' && mine ? 'block' : 'none';
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
-    if (s.phase !== 'waiting') this.tokuHud(s, myTeam, sinceSnap);
+    if (s.phase !== 'waiting') this.tokuHud(s, sinceSnap);
     $('.tk').style.display = s.phase === 'waiting' ? 'none' : 'flex';
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);
     this.staging(s, mine, myTeam, sinceSnap);
@@ -1126,7 +1170,7 @@ class GameScene extends Phaser.Scene {
     // 指名手配中のキャラ: 敵の視界外でも位置を出す（赤い枠）
     for (const w of s.wanted) ui.lineStyle(1.5, 0xff3030).strokeRect(mx + w.x * ms - 3, my + w.y * ms - 3, 7, 7);
     // 資材: 味方の視界内にあるもの（観戦者はすべて）
-    const eyes = [...s.players.filter((p: any) => p.team === myTeam && p.alive), ...s.bosses.filter((b: any) => b.team === myTeam)];
+    const eyes = [...s.players.filter((p: any) => p.team === myTeam && (p.alive || (p.ko !== null && p.ko + sinceSnap < K.shake + K.boom))), ...s.bosses.filter((b: any) => b.team === myTeam)];
     const seeObs = this.walls;
     for (const m of s.materials) {
       if (mine && !eyes.some((e: any) => Math.hypot(e.x - m.x, e.y - m.y) <= visionRadius(e.char) && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
@@ -1140,6 +1184,13 @@ class GameScene extends Phaser.Scene {
     this.pops = this.pops.filter((p) => (now < p.until ? (Object.assign(p.el.style, this.toScreen(p.x, p.y)), true) : (p.el.remove(), false)));
     for (const [key, el] of this.labels) if (!labelSeen.has(key)) { el.remove(); this.labels.delete(key); }
 
+    // 撃破された本人: 消えた直後から、視界を自キャラの位置へ同心円状に絞って暗転。絞り切ったら反省中の表示へ
+    const irisT = mine && !mine.alive && s.phase === 'playing' && mine.ko !== null ? (mine.ko + sinceSnap - K.shake - K.boom) / (C.RESPAWN_BASE - K.shake - K.boom) : -1;
+    if (irisT >= 0 && irisT < 1) {
+      const p = this.toScreen(this.me.x, this.me.y - 18), b = fx.getBoundingClientRect(), R = Math.hypot(b.width, b.height) * (1 - irisT) ** 2;
+      iris.style.background = `radial-gradient(circle at ${p.left} ${p.top}, transparent ${R}px, #000 ${R + 1}px)`;
+      iris.style.display = 'block';
+    } else iris.style.display = 'none';
     // KOされた時: やられ顔と復活までの残り時間
     if (mine && !mine.alive && s.phase === 'playing') {
       const img = down.querySelector('img')!, koed = CHARS[mine.char].koed;
@@ -1154,7 +1205,7 @@ class GameScene extends Phaser.Scene {
       const by = this.koedBy, kimg = killer.querySelector('img')!, ksrc = by?.kc && CHARS[by.kc] ? TACHIE(by.kc, 'ko') : '';
       if (ksrc && !kimg.src.endsWith(ksrc)) kimg.src = ksrc;
       kimg.style.display = ksrc ? '' : 'none';
-      const kt = by ? `${by.kc ? `${charName(by.kc)}の` : ''}${by.how}で撃破された` : '';
+      const kt = by ? [by.kc ? charName(by.kc) : '', by.how].filter((x) => x).join('\n') : ''; // 1行目: 倒したキャラ名、2行目: 倒した手段
       if (killer.querySelector('div')!.textContent !== kt) killer.querySelector('div')!.textContent = kt;
       killer.style.display = by ? 'block' : 'none';
     } else { down.style.display = 'none'; killer.style.display = 'none'; }
@@ -1164,7 +1215,7 @@ class GameScene extends Phaser.Scene {
       `あなた: ${mine ? TEAM_NAME[myTeam] : '観戦中'}  状態: ${s.phase}  残り ${Math.ceil(s.timeLeft)}秒 ${result}`,
       `自キャラ座標: ${mine ? `${Math.round(mine.x)}, ${Math.round(mine.y)}` : '-'}`,
       ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
-      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  ウルト: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier]}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
+      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier]}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
       `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
       ...(TOUCH ? [] : ['WASD移動 / 通常攻撃は自動 / Q長押しで帰還 / R技 / Tab照準 / ミニマップ右クリック長押しで視点']), // タッチ端末にはPCのキー操作を出さない

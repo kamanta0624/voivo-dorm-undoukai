@@ -1,5 +1,5 @@
 // 調整用の数値はすべてここ（すべて仮置き）
-export type Rect = { x: number; y: number; w: number; h: number };
+export type Rect = { x: number; y: number; w: number; h: number; m?: Rect & { k: number } }; // m: 移動の当たり判定の形（wallRects が付ける。終端を短くした長方形と、丸める凸角 k: 1=左上 2=右上 4=右下 8=左下）
 export type Pt = { x: number; y: number };
 
 import MAP from './map.json';
@@ -17,7 +17,10 @@ const TEAM_KEYS = ['kiritan', 'zundamon']; // 陣営0, 1
 const INTRO_SPEED = 2; // 試合開始前の演出（横並び・ズーム・カットイン・カウント・GAME START）の速さの倍率。各時間をこの値で割る
 const BOSS_ROOM_CANDIDATES = ['bath', 'library', 'kitchen', 'svcA', 'svcB', 'svcC']; // 自陣側の study・dining（開始部屋）と廊下を除く6部屋
 
+const WALL_EDGE = { trim: 4, round: 8 }; // 移動の当たり判定: 壁の終端（厚み1タイルの壁の端の面）を見た目より短くする量(px)、凸角の丸みの半径(px)
+
 // '#' タイルを貪欲に矩形へまとめる（tiles は壁破壊で変わる試合中のタイル）
+// 移動の当たり判定の形 m も付ける: 凸角（角の点を囲む4タイルのうち壁がその1つだけ）を丸め、両端が凸角の1タイル幅の面（壁の終端）を短くする。長方形どうしの継ぎ目は凸角にならない
 export function wallRects(tiles: string[] = MAP.tiles): Rect[] {
   const used = tiles.map((row) => [...row].map((c) => c !== '#'));
   const out: Rect[] = [];
@@ -31,6 +34,14 @@ export function wallRects(tiles: string[] = MAP.tiles): Rect[] {
       for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) used[yy][xx] = true;
       out.push({ x: x * T, y: y * T, w: w * T, h: h * T });
     }
+  }
+  const wall = (x: number, y: number) => tiles[y]?.[x] === '#';
+  const convex = (x: number, y: number, ix: number, iy: number) => { const ox = 2 * x - 1 - ix, oy = 2 * y - 1 - iy; return !wall(ox, iy) && !wall(ix, oy) && !wall(ox, oy); }; // 角の点 (x, y) と、その角にある長方形の内側のタイル (ix, iy)
+  for (const r of out) {
+    const x0 = r.x / T, y0 = r.y / T, x1 = x0 + r.w / T, y1 = y0 + r.h / T;
+    const tl = convex(x0, y0, x0, y0), tr = convex(x1, y0, x1 - 1, y0), br = convex(x1, y1, x1 - 1, y1 - 1), bl = convex(x0, y1, x0, y1 - 1);
+    const s = WALL_EDGE.trim, L = tl && bl && r.h === T ? s : 0, R = tr && br && r.h === T ? s : 0, U = tl && tr && r.w === T ? s : 0, D = bl && br && r.w === T ? s : 0;
+    r.m = { x: r.x + L, y: r.y + U, w: r.w - L - R, h: r.h - U - D, k: (tl ? 1 : 0) | (tr ? 2 : 0) | (br ? 4 : 0) | (bl ? 8 : 0) };
   }
   return out;
 }
@@ -98,7 +109,9 @@ export const CONFIG = {
   START_ROOMS: TEAM_KEYS.map((t) => inner(room(t, 'dining'))), // 開始した部屋（食堂。カウント中はここから出られない）
   RECALL_ROOMS: TEAM_KEYS.map((t) => inner(room(t, 'kitchen'))), // リコールの行き先（給湯室）
   COURIER_START: center(ROOMS.find((r) => r.id === 'entrance')!), // ブイブイ・コバコの出現・復活場所（マップ中央下部）
-  COURIER_ROUTE: [...ROOMS].map((r) => ({ ...center(r), room: r.id, path: r.type === 'path', area: inner(r) })).sort((a, b) => Math.atan2(a.y - H / 2, a.x - W / 2) - Math.atan2(b.y - H / 2, b.x - W / 2)), // コバコの巡回経路: 全部屋・廊下の中心を、マップ中心から見た角度の順に回る（room: 部屋の id、path: 廊下、area: 部屋の内側）
+  COURIER_ROUTE: ['entrance', 'hall', 'smoking'].map((id) => { const r = ROOMS.find((q) => q.id === id)!; return { ...center(r), room: id, area: inner(r) }; }), // コバコの巡回経路: 中央3部屋の中心を往復する（entrance から出発、両端で折り返し。room: 部屋の id、area: 部屋の内側）
+  COURIER_DROP: { n: 3, cap: 9 }, // コバコが巡回の部屋に着くたび、その部屋に高性能の徳（TOKU.materialBig）を n 個置く。部屋の未取得のコバコの徳が cap 個以上なら置かない
+  WALL_EDGE, // 移動の当たり判定の壁の終端・凸角（wallRects）
 
   PLAYER_HP: 100,
   PLAYER_RADIUS: 10,
@@ -145,7 +158,8 @@ export const CONFIG = {
   MATERIAL_SPAWN_INTERVAL: 1.5, // 資材の再出現の間隔(秒)。MATERIAL_MAX に足りない分を1個ずつ
   MATERIAL_MAX: 14, // マップに落ちている資材の数の基準（×MATERIAL_MAX_MULT。試合開始時にこの数だけ置く）
   MATERIAL_MAX_MULT: 3,
-  PICKUP_BOX: { w: 24, up: 36, down: 8 }, // アイテム（資材・回復・荷物）の取得判定: 全キャラ共通の縦長長方形。足元（キャラの位置）から左右 w/2、上へ up、下へ down(px)。触れると拾う（持ち運ばない）
+  PICKUP_BOX: { w: 24, up: 36, down: 8 }, // アイテム（回復・荷物）の取得判定: 全キャラ共通の縦長長方形。足元（キャラの位置）から左右 w/2、上へ up、下へ down(px)。触れると拾う（持ち運ばない）
+  MATERIAL_PICKUP_BOX: { w: 48, up: 56, down: 20 }, // 徳（資材）の取得判定: PICKUP_BOX と同じ形で広い（隣を通れば拾える）
   MATERIAL_GAP: 32, // 資材どうしを離す距離(px)
   MATERIAL_BACK: 0.7, // 資材が裏側（FRONT_ROOMS 以外の部屋・廊下）に出る比率。裏側の資材は高ポイント（TOKU.materialBack）
   FRONT_ROOMS: ['dining', 'smoking', 'hall', 'entrance'], // 表側: 食堂（11/12）と中央（25/26/27）
@@ -156,7 +170,6 @@ export const CONFIG = {
   TOKU_INIT: 5,
   TOKU: { material: 0.2, materialBack: 0.4, materialBig: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
-  COURIER_BIG_RATE: 0.3, // コバコが部屋（廊下以外）に着くたび、その部屋に高性能の徳（TOKU.materialBig）を1つ置く確率
   WANTED_MIN: 3, // 悪行ポイント（徳を下げた量の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
 
   // スロット（陣営ごと）。徳で当たる確率が決まる
@@ -183,7 +196,7 @@ export const CONFIG = {
     },
   },
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
-  POWER_TIERS: ['ハズレ', '普通', '強い', 'バランスブレーカー'], // ウルト・アシストの強さ
+  POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ
   POWER_MULT: [0.7, 1, 1.4, 2],
   POWER_WEIGHTS: [30, 40, 22, 0], // コバコの荷物の強さの抽選（バランスブレーカーはスロットの連チャン限定）
   ULT_DURATION: 20, // ウルトの効果時間(秒)
@@ -206,7 +219,8 @@ export const CONFIG = {
   RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）
   BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する
-  HEAL_ITEM_AMOUNT: 60, // 回復アイテムの回復量。自動では補充せず、コバコが給湯室に着いたとき HEAL_SPOTS まで補充する
+  HEAL_ITEM_AMOUNT: 60, // 回復アイテムの回復量
+  HEAL_RESPAWN: 20, // 回復アイテムが欠けた置き場所（HEAL_SPOTS）に再出現するまでの秒数
   DAMAGE_MULT: 1.3, // 全キャラの通常攻撃と技のダメージに掛ける倍率
 
   RAGE_KILL: 10,
@@ -214,6 +228,7 @@ export const CONFIG = {
   RAGE_BOSS_DMG_COEF: 0.1,
   ASSIST_WINDOW: 5,
   RESPAWN_BASE: 3,
+  KO_FX: { shake: 1.6, boom: 0.6, amp: 4, hz: 6, pop: 0.12, popLife: 0.3 }, // 撃破の演出(秒): その場で揺れる（左右の振れ幅 amp px・hz 回/秒、pop 秒ごとに popLife 秒の小爆発）→大爆発（ここでキャラが消える。ここまで本人の視界を残す）→残り（RESPAWN_BASE − shake − boom）で本人の画面の視界を絞って暗転
   RESPAWN_COEF: 0.1,
   RESPAWN_MAX: 15,
 
@@ -264,6 +279,7 @@ export const CONFIG = {
   FREE_CAM_SPEED: 400, // 撤退中に WASD で視点を動かす速さ(px/秒)
   WALK_FRAME_MS: 200, // 歩きの1コマの長さ（walk1 ⇔ walk2 の交互）
   CUTIN_MS: 1000, // KOカットインの長さ
+  KO_CUTIN_GAP: 25, // 撃破した側のカットイン: 2人の立ち絵の中心どうしの間隔（画面幅の%）。画面中央を挟んで並べる
   RANGE_ALPHA: 0.25, // 自キャラの射程円の不透明度
   SLASH_MS: 200, // 斬撃エフェクトの長さ
   SWEAT_MS: 500, // 通常攻撃が当たった側の汗のエフェクトの長さ
@@ -271,6 +287,8 @@ export const CONFIG = {
   POPUP_MS: 900, // ダメージ数値・+1・注意表示の長さ
   NOTIFY_MS: 3000, // 画面中央の通知の長さ
   SKILL_FX_MS: 450, // 技の範囲エフェクトの長さ
+  RECALL_FX_MS: 600, // リコールで元いた場所に残るエフェクトの長さ
+  POWERUP_AURA: { scale: [1.2, 1.2 + 0.8 / 3, 1.2 + 1.6 / 3, 2], alpha: 0.4 }, // パワーアップ中の背後のドット: レベルごとの拡大率（DOT_SCALE に掛ける。レベル4は大将と同じ）と不透明度
   TARGET_RING_ALPHA: 0.9, // 狙っている対象の足元の輪
 };
 

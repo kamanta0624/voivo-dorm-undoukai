@@ -6,17 +6,49 @@ export function circleRect(x: number, y: number, r: number, b: Rect): boolean {
   return (x - cx) ** 2 + (y - cy) ** 2 < r * r;
 }
 
+// 丸めた凸角の中心と半径（点がその角の範囲にあるとき。m は移動の当たり判定の形）
+function roundCorner(x: number, y: number, m: NonNullable<Rect['m']>) {
+  const k = Math.min(CONFIG.WALL_EDGE.round, m.w / 2, m.h / 2);
+  const left = x < m.x + k, right = x > m.x + m.w - k, top = y < m.y + k, bottom = y > m.y + m.h - k;
+  const bit = top && left ? 1 : top && right ? 2 : bottom && right ? 4 : bottom && left ? 8 : 0;
+  if (!(m.k & bit)) return null;
+  return { cx: left ? m.x + k : m.x + m.w - k, cy: top ? m.y + k : m.y + m.h - k, k };
+}
+
+// 移動の当たり判定（キャラ・大将・コバコ・場の物の移動と押し出し）: 壁は終端を短く、凸角を丸めた形（m）。m のない障害物は長方形のまま
+export function circleBody(x: number, y: number, r: number, b: Rect): boolean {
+  const m = b.m;
+  if (!m) return circleRect(x, y, r, b);
+  const c = roundCorner(x, y, m);
+  return c ? Math.hypot(x - c.cx, y - c.cy) - c.k < r : circleRect(x, y, r, m);
+}
+
 function blocked(ox: number, oy: number, nx: number, ny: number, r: number, obstacles: Rect[]): boolean {
   if (nx < r || ny < r || nx > CONFIG.MAP_W - r || ny > CONFIG.MAP_H - r) return true;
   // 元から重なっている障害物は無視
-  return obstacles.some((b) => circleRect(nx, ny, r, b) && !circleRect(ox, oy, r, b));
+  return obstacles.some((b) => circleBody(nx, ny, r, b) && !circleBody(ox, oy, r, b));
 }
 
-// 軸ごとに移動して壁で止める
+// 軸ごとに移動して壁で止める。丸めた凸角に当たったら、止まらず接線の向きへ同じ速さで滑る
 export function moveCircle(x: number, y: number, dx: number, dy: number, r: number, obstacles: Rect[]) {
-  if (!blocked(x, y, x + dx, y, r, obstacles)) x += dx;
-  if (!blocked(x, y, x, y + dy, r, obstacles)) y += dy;
-  return { x, y };
+  let nx = x, ny = y;
+  if (!blocked(x, y, x + dx, y, r, obstacles)) nx += dx;
+  if (!blocked(nx, y, nx, y + dy, r, obstacles)) ny += dy;
+  if (nx === x + dx && ny === y + dy) return { x: nx, y: ny };
+  for (const b of obstacles) {
+    const c = b.m && circleBody(x + dx, y + dy, r, b) ? roundCorner(x + dx, y + dy, b.m) : null;
+    if (!c) continue;
+    const l = Math.hypot(dx, dy), d = Math.hypot(x - c.cx, y - c.cy) || 1, ux = (x - c.cx) / d, uy = (y - c.cy) / d, dot = dx * ux + dy * uy;
+    if (dot >= 0) continue;
+    const tx = dx - dot * ux, ty = dy - dot * uy, tl = Math.hypot(tx, ty);
+    if (tl < 1e-9) continue;
+    // 接線の向きへ同じ距離だけ進め、角の丸みの外側へ戻す（直線で進むと丸みに少し食い込むため）
+    let sx = x + (tx / tl) * l, sy = y + (ty / tl) * l;
+    const e = Math.hypot(sx - c.cx, sy - c.cy) || 1, out = c.k + r + 1e-6;
+    if (e < out) { sx = c.cx + ((sx - c.cx) / e) * out; sy = c.cy + ((sy - c.cy) / e) * out; }
+    if (!blocked(x, y, sx, sy, r, obstacles)) return { x: sx, y: sy };
+  }
+  return { x: nx, y: ny };
 }
 
 function segSeg(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number) {
@@ -46,7 +78,7 @@ export function inRect(x: number, y: number, r: Rect): boolean {
 }
 
 export function overlaps(x: number, y: number, r: number, obstacles: Rect[]): boolean {
-  return obstacles.some((b) => circleRect(x, y, r, b));
+  return obstacles.some((b) => circleBody(x, y, r, b));
 }
 
 // キャラ・大将・ファンネルの位置を変える唯一の関数。細かく刻んで動かし、壁を通り抜けない

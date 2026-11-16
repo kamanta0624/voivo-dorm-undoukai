@@ -4,7 +4,7 @@ import { PERIMETER, thingId } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C, Pt, Rect } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
-import { circleRect } from '../../shared/geom';
+import { circleRect, circleBody } from '../../shared/geom';
 import { findPath } from '../pathfind';
 
 const H = CHARS.hanamaru.skill, T = C.TILE;
@@ -60,7 +60,7 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
 }
 
 // パッシブ: 壁へ押し込み続ける（移動入力の向きに壁があって進めない）と、push 秒でその壁を壊す。触れた瞬間では壊れない
-// 対象は移動を実際に止めている壁タイル（進む向きに少しずらした体と新たに重なる壁のうち、体の中心に一番近いもの）。壁の端・角に一部だけ触れていても壊せる
+// 対象は移動を実際に止めている壁タイル（進む向きに少しずらした体が触れる壁タイルのうち、移動の当たり判定の形（終端を短く・凸角を丸めた形）で新たに重なる壁の長方形に属するもので、体の中心に一番近いもの）
 function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   const [ix, iy] = room.moveIntent(p);
   if (!ix && !iy) { p.sk.pushTile = null; return; }
@@ -70,7 +70,8 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   for (let ty = Math.floor((ny - R) / T); ty <= Math.floor((ny + R) / T); ty++) {
     for (let tx = Math.floor((nx - R) / T); tx <= Math.floor((nx + R) / T); tx++) {
       const b = { x: tx * T, y: ty * T, w: T, h: T };
-      if (room.tiles[ty]?.[tx] === '#' && !PERIMETER[ty][tx] && circleRect(nx, ny, R, b) && !circleRect(p.x, p.y, R, b)) blockers.push([tx, ty]);
+      const w = room.tiles[ty]?.[tx] === '#' && !PERIMETER[ty][tx] && circleRect(nx, ny, R, b) ? room.walls.find((o) => b.x >= o.x && b.x < o.x + o.w && b.y >= o.y && b.y < o.y + o.h) : undefined;
+      if (w && circleBody(nx, ny, R, w) && !circleBody(p.x, p.y, R, w)) blockers.push([tx, ty]);
     }
   }
   const hit = blockers.sort((u, v) => Math.hypot((u[0] + 0.5) * T - p.x, (u[1] + 0.5) * T - p.y) - Math.hypot((v[0] + 0.5) * T - p.x, (v[1] + 0.5) * T - p.y))[0];

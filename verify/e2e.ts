@@ -217,13 +217,13 @@ async function hudCheck(A: Tab, mm: any) {
   for (let i = 0; i < 40; i++) {
     const r = await A.page.evaluate(() => {
       const w = window as any, s = w.snap, sc = w.game.scene.scenes[0];
-      const allies = [...document.querySelectorAll('#fx .r0 .ally:not(.as)')].map((e) => ({ name: e.querySelector('.nm')!.textContent, hp: !!e.querySelector('.hp'), rs: e.querySelector('.rs')?.textContent ?? null, dead: e.querySelector('.ic')!.classList.contains('dead') }));
+      const allies = [...document.querySelectorAll('#fx .r0 .mem:not(.as)')].map((e) => ({ hp: !!e.querySelector('.hp'), rs: e.querySelector('.rs')?.textContent ?? null, dead: e.querySelector('.ic')!.classList.contains('dead') }));
       const foes = [...document.querySelectorAll('#fx .r1 .ic')].map((e) => e.classList.contains('dead'));
       const kills = document.querySelectorAll('#fx .kills > div').length;
       return { allies, foes, kills, snap: { roster: s.roster } };
     });
     const s = r.snap;
-    const allyOk = r.allies.length === 4 && r.allies.every((a: any, k: number) => { const ro = s.roster.filter((x: any) => x.team === 0)[k]; return a.name === (CHARS as any)[ro.char].name && a.dead === !ro.alive && (ro.alive ? a.hp : a.rs?.startsWith('反省中 あと')); });
+    const allyOk = r.allies.length === 4 && r.allies.every((a: any, k: number) => { const ro = s.roster.filter((x: any) => x.team === 0)[k]; return a.dead === !ro.alive && (ro.alive ? a.hp : /^\d+$/.test(a.rs ?? '')); });
     const foeOk = r.foes.length === 4 && r.foes.every((d: boolean, k: number) => d === !s.roster.filter((x: any) => x.team === 1)[k].alive);
     const deadAlly = r.allies.some((a: any) => a.rs), deadFoe = r.foes.some((d: boolean) => d);
     if (allyOk && foeOk && r.kills > 0 && !hud) { hud = { allies: r.allies, foes: r.foes, kills: r.kills }; await A.shot('s5_hud'); }
@@ -231,7 +231,7 @@ async function hudCheck(A: Tab, mm: any) {
     if (allyOk && foeOk && r.kills > 0 && (deadAlly && deadFoe || i >= 30)) { hud = { allies: r.allies, foes: r.foes, kills: r.kills }; await A.shot('s5_hud'); break; }
     await sleep(500);
   }
-  check('HUD: 味方4人（アイコン・名前・HP、反省中は「反省中 あと◯秒」）、敵4人（反省中は暗く）', !!hud, hud);
+  check('HUD: 味方4人（アイコン横並び・下部に体力、反省中はグレーに残り秒数）、敵4人（反省中はグレー）', !!hud, hud);
   check(`反省中: 徳のゲージの横に人数と徳の上昇（「${reflect}」）`, !!reflect && /^反省中×\d \+\d\.\d\d\/秒$/.test(reflect), reflect);
   check(`HUD: キルログ（${C.KILL_LOG_MAX}件まで）`, !!hud && hud.kills > 0 && hud.kills <= C.KILL_LOG_MAX, hud?.kills);
   mm.stop = true;
@@ -320,18 +320,27 @@ async function recallCheck(A: Tab) {
 async function freeCamCheck(A: Tab) {
   const cam = () => scene(A, '({ x: sc.cameras.main.scrollX, y: sc.cameras.main.scrollY, w: sc.cameras.main.width, h: sc.cameras.main.height })');
   let c0: any, m0: any, c1: any, m1: any;
-  for (let tries = 0; tries < 3; tries++) { // 復活までの残りが確認の時間（WASD 1.4秒＋余裕）に足りなければやり直す（Bot に先に倒されていた場合など）
+  // 撃破の演出中（揺れ・大爆発・絞り。RESPAWN_BASE 秒）はカメラが自キャラの位置のまま。絞り切った後の反省中は WASD で視点だけ動く
+  // 反省時間が RESPAWN_BASE ちょうど（激昂0）だと演出の直後に復活するので、視点移動は反省時間が足りるときだけ確かめる
+  let still: any = null, free: any = null;
+  for (let tries = 0; tries < 3 && !still; tries++) { // Bot に先に倒されていた場合などはやり直す
     await aliveOf(A);
     await A.page.evaluate(() => (window as any).room.send('e2eKill'));
-    await A.until((x) => !x.players.find((p: any) => p.id === x.me).alive, 2000); await sleep(300);
+    await A.until((x) => !x.players.find((p: any) => p.id === x.me).alive, 2000); await sleep(200);
     c0 = await cam(); m0 = await A.me();
-    if (m0.alive || m0.respawnIn < 2.2) { log('  撤退中の視点: 復活までの残りが足りない（再試行）', { alive: m0.alive, respawnIn: m0.respawnIn }); continue; }
+    if (m0.alive || m0.ko > 0.5) { log('  撤退中の視点: 撃破の直後を測れない（再試行）', { alive: m0.alive, ko: m0.ko }); continue; }
     await A.hold('d', 800); await A.hold('s', 600);
     c1 = await cam(); m1 = await A.me();
-    break;
+    still = { from: c0, to: c1, ko: m1.ko };
+    if (!m1.alive && m1.respawnIn > 1.8) {
+      await A.until((x) => { const p = x.players.find((q: any) => q.id === x.me); return p.alive || p.ko >= C.RESPAWN_BASE; }, 3000);
+      const c2 = await cam(); await A.hold('d', 800); await A.hold('s', 600); const c3 = await cam(); free = { from: c2, to: c3 };
+    }
   }
   await A.shot('d1_free_camera');
-  check('撤退中は WASD で視点だけ動く（壁に関係なく）', c1.x - c0.x > 200 && c1.y - c0.y > 150 && !m1.alive && m1.x === m0.x && m1.y === m0.y, { from: c0, to: c1 });
+  check('撃破の演出中（RESPAWN_BASE 秒）は WASD を押してもカメラが自キャラの位置のまま', !!still && Math.hypot(c1.x - c0.x, c1.y - c0.y) < 40 && m1.x === m0.x && m1.y === m0.y, still);
+  if (free) check('演出の後の反省中は WASD で視点だけ動く（壁に関係なく）', free.to.x - free.from.x > 150 && free.to.y - free.from.y > 100, free);
+  else log('  演出の後の視点移動: 反省時間が RESPAWN_BASE ちょうどで、演出の直後に復活したので確かめていない');
   await A.until((x) => x.players.find((p: any) => p.id === x.me).alive, 16000); await sleep(1500);
   const c2 = await cam(), m2 = await A.me();
   await A.shot('d2_respawn_camera');
@@ -431,7 +440,7 @@ async function assistCheck(A: Tab, B: Tab) {
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 });
   const tier1 = had ? Math.min(3, had.tier + 1) : 1;
   await A.until((x) => x.players.some((p: any) => p.assist && p.team === 0), 2000); await sleep(150);
-  const up = waitText(A, '#fx .notes div', 'アシスト強化', 3000);
+  const up = waitText(A, '#fx .notes div', 'レベルアップ', 3000);
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 }); // 2回目は強化
   const [n, u] = await Promise.all([note, up]); await sleep(200);
   const lbl = await A.page.evaluate(() => [...document.querySelectorAll('#fx .lbl')].map((e) => e.textContent).filter((t) => t?.startsWith('ASSIST')));
@@ -543,11 +552,11 @@ async function aruCheck(A: Tab) {
   check(`アルの突撃: 壁を壊して抜ける（壊れた壁 ${b0} → ${b1} マス、マップに反映）`, b1 > b0, { b0, b1 });
 }
 
-// HUD: ずんだもん軍のプレイヤーでも自陣が左（大将HPバー・味方の一覧）、敵が右
+// HUD: ずんだもん軍のプレイヤーでも左＝陣営0、右＝陣営1（大将HPバー・一覧）。一覧の自軍側は右
 async function hudSide(B: Tab) {
-  const r = await scene(B, `(() => { const q = (c) => document.querySelector(c); return { l: q('#fx .b0 i').style.background, lw: q('#fx .b0 i').style.width, rw: q('#fx .b1 i').style.width, ally: q('#fx .r0 .ally .ic').style.getPropertyValue('--c'), foe: q('#fx .r1 .ic').style.getPropertyValue('--c'), teams: s.teams.map((t) => t.bossHpRatio) }; })()`);
+  const r = await scene(B, `(() => { const q = (c) => document.querySelector(c); return { l: q('#fx .b0 i').style.background, lw: q('#fx .b0 i').style.width, rw: q('#fx .b1 i').style.width, ally: q('#fx .r1 .mem .ic').style.getPropertyValue('--c'), foe: q('#fx .r0 .ic').style.getPropertyValue('--c'), teams: s.teams.map((t) => t.bossHpRatio) }; })()`);
   await B.shot('h1_hud_zundamon_side');
-  check('HUD: ずんだもん軍のプレイヤーでも左＝自陣（大将HPバー・味方一覧）、右＝敵陣', /60, 200, 80|#3cc850/.test(r.l) && Math.abs(parseFloat(r.lw) - r.teams[1] * 100) < 0.5 && Math.abs(parseFloat(r.rw) - r.teams[0] * 100) < 0.5 && r.ally === '#3cc850' && r.foe === '#ff8c28', r);
+  check('HUD: ずんだもん軍のプレイヤーでも左＝陣営0（大将HPバー・一覧）、右＝陣営1（自軍の一覧は右）', /255, 140, 40|#ff8c28/.test(r.l) && Math.abs(parseFloat(r.lw) - r.teams[0] * 100) < 0.5 && Math.abs(parseFloat(r.rw) - r.teams[1] * 100) < 0.5 && r.ally === '#3cc850' && r.foe === '#ff8c28', r);
 }
 
 // リザルトの「戻る」: 押した人数／全人数。人間全員が押したら待機画面へ。同じ部屋で次の試合を始められる

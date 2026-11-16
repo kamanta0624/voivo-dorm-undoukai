@@ -4,7 +4,8 @@ import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
 import { CHARS, visionRadius } from '../src/shared/chars';
 import { SKILLS, ENTS } from '../src/server/skills';
-import { circleRect, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
+import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
+import { stepPlayer } from '../src/shared/netcode';
 import { findPath } from '../src/server/pathfind';
 
 let fails = 0;
@@ -38,18 +39,20 @@ function NOAUTO() { return { until: Infinity, noAuto: true }; }
 const ents = (r: any, kind: string) => r.ents.filter((e: any) => e.kind === kind); // 場の物（種類別）
 const upd = (r: any, kind: string, dt: number) => { for (const e of ents(r, kind)) ENTS[kind].update(r, e, dt); }; // 場の物の種類ごとの更新
 const fly = (r: any) => { for (let i = 0; i < 200 && ents(r, 'fist').length; i++) upd(r, 'fist', 0.05); };
-// 壁・バリケードと重なっていないか
-const clear = (r: any, o: { x: number; y: number }, rad = C.PLAYER_RADIUS) => !r.obstacles().some((w: any) => circleRect(o.x, o.y, rad, w));
+// 壁・バリケードと重なっていないか（移動の当たり判定の形。壁の終端・凸角は見た目より短く丸い）
+const clear = (r: any, o: { x: number; y: number }, rad = C.PLAYER_RADIUS) => !r.obstacles().some((w: any) => circleBody(o.x, o.y, rad, w));
 const inRoom = (p: any, h: any) => p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h;
 const tileAt = (r: any, x: number, y: number) => r.tiles[Math.floor(y / T)][Math.floor(x / T)];
 // 大将の拠点移動の予告を進めて、広範囲攻撃と移動まで終わらせる
 const finishMove = (r: any) => { r.now += C.BOSS_BLAST.warn; r.updateWarns(); };
+// ご飯を置き場所（HEAL_SPOTS）すべてに置く
+const putHeals = (r: any) => { for (const [x, y] of C.HEAL_SPOTS) r.items.push({ id: r.nextId++, kind: 'heal', team: -1, x, y }); };
 
 console.log('--- 壁へのめり込み');
 {
   // 吹雪: study の東壁（x=27タイル、x=432〜448px）の手前にいる敵を、壁へ向けてはじく
   const { r, A, B } = mk('whitecul', 'metan');
-  Object.assign(A, { x: 360, y: 300 }); Object.assign(B, { x: 420, y: 300 });
+  Object.assign(A, { x: 360, y: 150 }); Object.assign(B, { x: 420, y: 150 }); // y=150: 扉（y=288〜368）のない所
   r.skill('a');
   ok('吹雪で壁際の敵を壁へはじいてもめり込まない', clear(r, B) && B.x < 27 * T, { x: B.x });
 }
@@ -64,7 +67,7 @@ console.log('--- 壁へのめり込み');
 {
   // 大きな距離のはじきでも、1タイル厚の壁を通り抜けない
   const { r, B } = mk('metan', 'sayo');
-  Object.assign(B, { x: 420, y: 300 });
+  Object.assign(B, { x: 420, y: 150 });
   r.push({ k: 'p', o: B, x: B.x, y: B.y, r: C.PLAYER_RADIUS }, 1, 0, 500);
   ok('500pxのはじきでも壁を通り抜けない', clear(r, B) && B.x < 27 * T, { x: B.x });
 }
@@ -236,7 +239,7 @@ console.log('--- ウルト・アシスト・回復アイテム');
   // 回復アイテム: 触れると回復（最大HPまで）。部屋の中に出る
   const h = mk('sayo'); h.A.hp = 20; h.r.items.push({ id: 1, kind: 'heal', team: -1, x: h.A.x + 3, y: h.A.y }); h.r.updatePlayers(0.05);
   ok(`回復アイテム: 触れると${C.HEAL_ITEM_AMOUNT}回復`, h.A.hp === 20 + C.HEAL_ITEM_AMOUNT && h.r.items.length === 0);
-  const g = mk('sayo'); g.r.refillHeal(0); g.r.refillHeal(1);
+  const g = mk('sayo'); putHeals(g.r);
   const pts = g.r.items.map((i: any) => [i.x, i.y]);
   ok(`ご飯は給湯室（kitchen）だけに左右${C.HEAL_SPOTS.length / 2}個ずつ（上限2）、左右対称`, pts.length === C.HEAL_SPOTS.length && pts.length === 4 && pts.every(([x, y]: number[]) => pts.some(([x2, y2]: number[]) => Math.abs(x2 - (C.MAP_W - x)) < 1 && y2 === y) && roomKindAt(Math.floor(x / T), Math.floor(y / T)) === 'kitchen'));
 }
@@ -256,7 +259,7 @@ console.log('--- 技の変更（ierutan の加速）・きりたん');
 console.log('--- ファンネル（経路で届く敵だけ、囲んで止まって撃つ）');
 {
   // 壁の向こう（study の中の敵に、廊下から）: 直線は近いが回り道が長い → 対象にしない
-  const w = mk('mochiko', 'metan'); Object.assign(w.A, { x: 400, y: 568 }); Object.assign(w.B, { x: 400, y: 380 }); w.r.skill('a'); upd(w.r, 'funnel', 0.05); // 廊下と study（直線188px、回り道は bath 経由で約550px）
+  const w = mk('mochiko', 'metan'); Object.assign(w.A, { x: 150, y: 568 }); Object.assign(w.B, { x: 150, y: 380 }); w.r.skill('a'); upd(w.r, 'funnel', 0.05); // 廊下と study（直線188px、回り道は bath 経由で約600px）
   ok(`壁の向こうで回り道が${CHARS.mochiko.skill.pathMax}pxを超える敵は狙わない`, ents(w.r, 'funnel').every((f: any) => f.tgt === null));
   const f = mk('mochiko', 'metan'); Object.assign(f.B, { x: 1552 + 150, y: 900 }); f.B.hp = 9999; f.r.skill('a');
   for (let i = 0; i < 60; i++) { f.r.now += 0.05; upd(f.r, 'funnel', 0.05); }
@@ -287,12 +290,13 @@ console.log('--- Bot の詰まり');
 
 console.log('--- バランス調整（回復アイテム間隔・近接補正・ウルト）');
 {
-  const h = mk('sayo'); h.r.refillHeal(0); h.r.refillHeal(1);
+  const h = mk('sayo'); putHeals(h.r);
   const [hx, hy] = C.HEAL_SPOTS[0]; Object.assign(h.A, { x: hx, y: hy, hp: 10 }); h.r.updatePlayers(0.05); const n0 = h.r.items.length;
-  Object.assign(h.A, { x: 1552, y: 900 }); for (let i = 0; i < 200; i++) { h.r.now += 0.05; h.r.updatePlayers(0.05); h.r.updateCouriers(0.05); } const n1 = h.r.items.length;
-  const kL = C.COURIER_ROUTE.find((q: any) => q.room === 'kitchen_L')!, kR = C.COURIER_ROUTE.find((q: any) => q.room === 'kitchen_R')!;
-  h.r.courierArrive(kR); const n2 = h.r.items.length; h.r.courierArrive(kL); const n3 = h.r.items.length; h.r.courierArrive(kL);
-  ok(`ご飯は自動では補充しない。コバコが給湯室に着いたとき、その陣営の分を上限${C.HEAL_SPOTS.length / 2}個まで補充（1個ごとに徳${C.TOKU.eat}）`, n0 === C.HEAL_SPOTS.length - 1 && n1 === n0 && n2 === n0 && n3 === C.HEAL_SPOTS.length && h.r.items.length === n3 && Math.abs(h.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.eat)) < 1e-9, { n0, n1, n2, n3 });
+  Object.assign(h.A, { x: 1552, y: 900 });
+  const run = (sec: number) => { for (let i = 0; i < sec * 20; i++) { h.r.now += 0.05; h.r.updatePlayers(0.05); h.r.updateHeals(); } };
+  run(C.HEAL_RESPAWN - 0.5); const n1 = h.r.items.length; run(1); const n2 = h.r.items.length; run(C.HEAL_RESPAWN * 2); const n3 = h.r.items.length;
+  const back = h.r.items.some((i: any) => i.kind === 'heal' && i.x === hx && i.y === hy);
+  ok(`ご飯はコバコなしで、欠けた置き場所ごとに${C.HEAL_RESPAWN}秒で再出現（上限は置き場所の数${C.HEAL_SPOTS.length}。1個ごとに徳${C.TOKU.eat}）`, h.r.couriers.length === 0 && n0 === C.HEAL_SPOTS.length - 1 && n1 === n0 && n2 === C.HEAL_SPOTS.length && n3 === n2 && back && Math.abs(h.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.eat)) < 1e-9, { n0, n1, n2, n3 });
   ok('回復量は旧の2倍（30→60）', C.HEAL_ITEM_AMOUNT === 60);
   const z = mk('zunko'), k = mk('kiritan'), s = mk('sayo');
   ok('近接補正は zunko・kiritan 以外（HP×1.2・移動×1.1・攻撃×1.2）', z.r.maxHp(z.A) === 70 && k.r.maxHp(k.A) === 100 && Math.abs(s.r.maxHp(s.A) - 84) < 1e-9 && MB.hp === 1.2 && MB.speed === 1.1 && MB.atk === 1.2);
@@ -393,7 +397,7 @@ console.log('--- リコール・回復・技のCT');
   const hs = rooms0.map((q: number[]) => { Object.assign(h.A, { x: (q[0] + 2) * T, y: (q[1] + 2) * T, hp: 20 }); h.r.updatePlayers(1); return h.A.hp; });
   ok('自陣回復は廃止（study・給湯室・食堂にいても回復しない）', hs.every((v: number) => v === 20), hs);
   // Bot: HPが低いとリコール → 給湯室でご飯を食べてHPが満タンになるまで回復
-  const be = mk('metan'); be.A.bot = true; be.A.aim = C.BOT_AIM; be.A.hp = be.r.maxHp(be.A) * C.BOT_RECALL_HP - 1; be.r.refillHeal(0);
+  const be = mk('metan'); be.A.bot = true; be.A.aim = C.BOT_AIM; be.A.hp = be.r.maxHp(be.A) * C.BOT_RECALL_HP - 1; putHeals(be.r);
   let ate = 0;
   for (let i = 0; i < 600 && be.A.hp < be.r.maxHp(be.A); i++) { const n = be.r.items.length; be.r.now += 0.05; be.r.botThink(be.A, be.r.obstacles()); be.r.updatePlayers(0.05); if (be.r.items.length < n) ate++; }
   be.r.botThink(be.A, be.r.obstacles());
@@ -468,8 +472,8 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
     const obs = r.obstacles();
     for (const id of ['c0', 'c1']) {
       const team = r.players.get(r.owners.get(id)).team, s = last[id];
-      const eyes = [...[...r.players.values()].filter((p: any) => p.team === team && p.alive), r.bosses[team]];
-      for (const u of [...r.players.values()].filter((p: any) => p.team !== team && p.alive)) {
+      const eyes = [...[...r.players.values()].filter((p: any) => p.team === team && (p.alive || r.dying(p))), r.bosses[team]]; // 撃破の演出中（消えるまで）も視界を持つ
+      for (const u of [...r.players.values()].filter((p: any) => p.team !== team && (p.alive || r.dying(p)))) {
         const ds = eyes.map((e: any) => ({ d: Math.hypot(e.x - u.x, e.y - u.y), r: visionRadius(e.char) }));
         if (ds.some((x) => Math.abs(x.d - x.r) < 1)) continue; // 視界の境目ちょうどは除く
         const vis = eyes.some((e: any, k: number) => ds[k].d <= ds[k].r && lineOfSight(e.x, e.y, u.x, u.y, obs));
@@ -523,7 +527,7 @@ console.log('--- 資材（マップのあちこち・再出現・部屋ごとの
 {
   const { r } = mk('sayo'); const kinds = new Set<string>();
   for (let i = 0; i < 300; i++) { r.materials = []; r.spawnMaterial(); const m = r.materials[0]; kinds.add(roomKindAt(Math.floor(m.x / T), Math.floor(m.y / T)) ?? 'none'); if (tileAt(r, m.x, m.y) !== '.') kinds.add('wall!'); }
-  ok(`全部屋・廊下に出る（${kinds.size}種類の場所）`, kinds.size >= 12 && kinds.has('path') && !kinds.has('none') && !kinds.has('wall!'), [...kinds]);
+  ok(`中央3部屋を除く全部屋・廊下に出る（${kinds.size}種類の場所）`, kinds.size >= 9 && kinds.has('path') && !kinds.has('none') && !kinds.has('wall!') && !['smoking', 'hall', 'entrance'].some((k) => kinds.has(k)), [...kinds]);
   r.materials = []; r.materialTimer = 0; r.updateMaterials(C.MATERIAL_SPAWN_INTERVAL - 0.01); const n0 = r.materials.length; r.updateMaterials(0.02);
   ok(`拾われて減ったら${C.MATERIAL_SPAWN_INTERVAL}秒ごとに1個ずつ再出現（上限${C.MATERIAL_MAX * C.MATERIAL_MAX_MULT}）`, n0 === 0 && r.materials.length === 1);
   const s2 = mk('sayo'); s2.r.startMatch(); ok(`試合開始時に${C.MATERIAL_MAX * C.MATERIAL_MAX_MULT}個置く（基準${C.MATERIAL_MAX}の${C.MATERIAL_MAX_MULT}倍）`, s2.r.materials.length === C.MATERIAL_MAX * C.MATERIAL_MAX_MULT && C.MATERIAL_MAX_MULT === 3);
@@ -569,8 +573,11 @@ console.log('--- ブイブイ・コバコ（巡回・1発でKO・荷物・復活
 {
   const { r, A } = mk('sayo'); r.spawnCourier(); const c0 = r.couriers[0];
   ok('マップ中央下部（entrance）に出て、荷物を1つ持つ（中立）', c0.x === C.COURIER_START.x && c0.y === C.COURIER_START.y && ['ult', 'assist'].includes(c0.box) && c0.team === -1);
-  const wps = new Set<number>(); for (let i = 0; i < 1200; i++) { r.now += 0.05; r.updateCouriers(0.05); wps.add(r.couriers[0].wp); }
-  ok(`寮の中を巡回する（60秒で${wps.size}地点、経路は全${C.COURIER_ROUTE.length}地点）`, wps.size >= 5 && C.COURIER_ROUTE.length === MAP.rooms.length);
+  const arrive = r.courierArrive.bind(r), seq: string[] = []; r.courierArrive = (to: any) => { seq.push(to.room); arrive(to); };
+  const outer = ['entrance', 'hall', 'smoking'].map((id) => { const q = MAP.rooms.find((x: any) => x.id === id)!.rect; return { x: q[0] * T, y: q[1] * T, w: (q[2] - q[0] + 1) * T, h: (q[3] - q[1] + 1) * T }; });
+  let outside = 0; for (let i = 0; i < 1200; i++) { r.now += 0.05; r.updateCouriers(0.05); if (!outer.some((o) => inRoom(r.couriers[0], o))) outside++; }
+  const want = ['hall', 'smoking', 'hall', 'entrance'], pattern = seq.every((x, i) => x === want[i % 4]);
+  ok(`中央3部屋だけを往復する（entrance から出発、smoking・entrance で折り返し。60秒で${seq.length}回到着: ${seq.slice(0, 5).join('→')}…）`, seq.length >= 8 && pattern && outside === 0, { outside });
   const c = r.couriers[0]; Object.assign(c, { x: A.x + 30, y: A.y, box: 'ult' }); A.face = 0; A.aim = 'courier'; r.attack('a');
   const drop = r.items.find((i: any) => i.kind === 'box_ult');
   ok('攻撃を受けると1発でKOし、荷物をその場に落とす', !r.couriers.length && drop && Math.abs(drop.x - A.x - 30) < 1);
@@ -1002,7 +1009,7 @@ console.log('--- 花丸（パッシブの押し込み・巨大拳飛ばし）');
   const ys = new Set(w.r.broken.map(([, y]: number[]) => y));
   ok('巨大拳: 壁に当たると壊して貫通し、その先の壁も壊す（study の南壁 → bath の南壁）', ys.has(26) && ys.has(33) && w.r.tiles[26][12] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
   ok('巨大拳: 命中・破壊はサーバーで判定し、拳の位置をスナップショットで送る', (() => { const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; let got: any = null; Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 's') got = m; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay(); const P = q.players.get('x'); P.char = 'hanamaru'; q.skill('x'); q.sendSnapshots(); const fs = got.ents.filter((e: any) => e.kind === 'fist'); return fs.length === 1 && fs[0].team === P.team; })());
-  // 壁の中央・終端・角を上下左右から押し込む。終端・角は体が壁タイルに一部（3px）だけ触れる位置から
+  // 壁の中央・終端・角を上下左右から押し込む。終端・角は壁タイルの正面から（一部だけ触れる位置からは、移動の当たり判定で丸めた角に沿って滑るので押し込めない）
   {
     const R = C.PLAYER_RADIUS, tl = MAP.tiles as string[], seen: Record<string, number> = {}, res: string[] = [];
     const per = (x: number, y: number) => [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (tl[y + dy]?.[x + dx] ?? ' ') === ' '));
@@ -1017,22 +1024,23 @@ console.log('--- 花丸（パッシブの押し込み・巨大拳飛ばし）');
         const kind = l1 && l2 ? '中央' : l1 !== l2 && behind ? '角' : '終端';
         const k = `${kind}${dn}`;
         if ((seen[k] ?? 0) >= 2) continue;
-        const off = kind === '中央' ? 0 : (l1 ? -1 : 1) * (T / 2 + R - 3); // 開いている側へずらす
+        const off = 0; // 正面から
         const x = dx ? (dx > 0 ? tx * T - R - 1 : (tx + 1) * T + R + 1) : (tx + 0.5) * T + off;
         const y = dy ? (dy > 0 ? ty * T - R - 1 : (ty + 1) * T + R + 1) : (ty + 0.5) * T + off;
         const z = mk('hanamaru'); if (!clear(z.r, { x, y })) continue;
         z.A.bot = true; Object.assign(z.A, { x, y, dx, dy });
         for (let i = 0; i < Math.round((H.push + 0.2) / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
         seen[k] = (seen[k] ?? 0) + 1;
-        const okk = z.r.tiles[ty][tx] === '.';
+        const slide = kind === '終端' && !behind; // 終端を横から押すと、丸めた角に沿って滑るので壊れない（移動の当たり判定）
+        const okk = slide ? z.r.tiles[ty][tx] === '#' && Math.hypot(z.A.x - x, z.A.y - y) > 4 : z.r.tiles[ty][tx] === '.';
         if (!okk) bad++;
-        res.push(`${k}(${tx},${ty})${okk ? '' : '×'}`);
+        res.push(`${k}(${tx},${ty})${slide ? '滑る' : ''}${okk ? '' : '×'}`);
       }
     }
     // 上向きの角は地図にないので、終端 (27,9)（上が壁、下が扉）の右に壁を足して角を作り、左にずらして下から押し込む
     {
       const z = mk('hanamaru'); z.r.tiles[9] = z.r.tiles[9].slice(0, 28) + '#' + z.r.tiles[9].slice(29); z.r.walls = wallRects(z.r.tiles);
-      const x = 27.5 * T - (T / 2 + R - 3), y = 10 * T + R + 1;
+      const x = 27.5 * T, y = 10 * T + R + 1;
       z.A.bot = true; Object.assign(z.A, { x, y, dx: 0, dy: -1 });
       if (clear(z.r, { x, y }) && wall(27, 8) && tl[10][27] === '.' && tl[9][26] === '.') {
         for (let i = 0; i < Math.round((H.push + 0.2) / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
@@ -1041,7 +1049,7 @@ console.log('--- 花丸（パッシブの押し込み・巨大拳飛ばし）');
       }
     }
     const kinds = ['中央', '終端', '角'].flatMap((k) => dirs.map(([, , dn]) => k + dn)).filter((k) => !seen[k]);
-    ok(`パッシブ: 壁の中央・終端・角を上下左右から押し込んで壊せる（${H.push}秒）`, bad === 0 && kinds.length === 0, { missing: kinds, res });
+    ok(`パッシブ: 壁の中央・終端・角を上下左右から押し込んで壊せる（${H.push}秒）。終端は正面からなら壊せ、横から押すと滑って壊れない`, bad === 0 && kinds.length === 0, { missing: kinds, res });
   }
   const bt = mk('hanamaru', 'metan'); Object.assign(bt.A, { face: 0 }); bt.A.bot = true; Object.assign(bt.B, { x: 1552 + 300, y: 900 });
   const yes = bt.r.botSkillUseful(bt.A); bt.B.y = 900 + 200; const no = bt.r.botSkillUseful(bt.A);
@@ -1070,7 +1078,7 @@ console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');
   ok(`鎌: 当たった通常キャラは倒れ、ひまりは${H.jump}px（5キャラ分）跳ぶ。透明化は解ける`, !s.B.alive && Math.abs(s.A.x - x0 - H.jump) < 1 && !cloak && !s.A.st.leap, { moved: s.A.x - x0 });
   const j = mk('himari', 'metan'); j.A.face = 0; j.A.tgt = null; j.r.skill('a'); j.r.attack('a'); const sp = j.r.speedOf(j.A); const jx = j.A.x; tick(j, 0.05);
   ok(`跳ぶ速さは通常移動の${H.jumpSpeed}倍、跳ぶ間は動けない`, Math.abs(j.A.x - jx - sp * H.jumpSpeed * 0.05) < 1e-6 && j.r.effect(j.A, 'lock'));
-  const w = mk('himari', 'metan'); Object.assign(w.A, { x: 400, y: 300, face: 0 }); Object.assign(w.B, { x: 420, y: 300 }); w.A.tgt = null; w.r.skill('a'); w.r.attack('a'); tick(w, 1);
+  const w = mk('himari', 'metan'); Object.assign(w.A, { x: 400, y: 150, face: 0 }); Object.assign(w.B, { x: 420, y: 150 }); w.A.tgt = null; w.r.skill('a'); w.r.attack('a'); tick(w, 1);
   ok('跳ぶのは壁で止まる（study の東壁）', w.A.x < 27 * T && clear(w.r, w.A), { x: w.A.x });
   // 大将には旧めたんのドリル相当（同じ基本値30。全体の倍率・ロール倍率は他の攻撃と同じく掛かる）。めたんの技はドリル出しっぱなしに変わったが、ひまりの値は変えない
   const b = mk('himari'); Object.assign(b.r.bosses[1], { x: 1592, y: 900 }); b.A.face = 0; b.A.tgt = null; b.r.skill('a'); b.r.attack('a');
@@ -1236,23 +1244,97 @@ console.log('--- 友人テストの反映（通常攻撃の見た目・撃破の
   // ひまり: 透明化中は範囲に入った対象へ自動で鎌（人間も）
   const hm = mk('himari', 'metan'); delete hm.A.st.test; hm.A.aim = 'nearest'; hm.r.skill('a'); hm.r.updatePlayers(0.05); hm.r.updatePlayers(0.05);
   ok('ひまり（人間）: 透明化中、対象が鎌の範囲に入ったら自動で鎌', !hm.B.alive && !hm.r.stat(hm.A, 'cloak'));
-  // アイテムの取得判定: 全キャラ共通の縦長長方形（頭・上半身まで）
-  const B = C.PICKUP_BOX, res: Record<string, boolean[]> = {};
+  // アイテムの取得判定: 全キャラ共通の縦長長方形（頭・上半身まで）。徳は広い判定、回復・荷物は従来の判定
+  const MB2 = C.MATERIAL_PICKUP_BOX, B = C.PICKUP_BOX, res: Record<string, boolean[]> = {};
   for (const ch of ['mochiko', 'hanamaru', 'kiritan']) {
-    const t = mk(ch); res[ch] = [[0, -B.up + 2], [B.w / 2 - 1, 0], [0, B.down + 3], [B.w / 2 + 2, -10]].map(([dx, dy]) => { t.r.materials = [{ id: 1, x: t.A.x + dx, y: t.A.y + dy, hi: false }]; t.r.updatePlayers(0.05); return t.r.materials.length === 0; });
+    const t = mk(ch); res[ch] = [[0, -MB2.up + 2], [MB2.w / 2 - 1, 0], [0, MB2.down + 3], [MB2.w / 2 + 2, -10]].map(([dx, dy]) => { t.r.materials = [{ id: 1, x: t.A.x + dx, y: t.A.y + dy, hi: false }]; t.r.updatePlayers(0.05); return t.r.materials.length === 0; });
   }
-  ok(`取得判定: 頭の上（足元から${B.up}px）まで拾い、範囲外は拾わない。キャラによらず同じ`, Object.values(res).every((v) => JSON.stringify(v) === '[true,true,false,false]'), res);
-  // コバコの巡回: 部屋（廊下以外）に着くたび確率で高性能の徳。重ならない。廊下では置かない
-  const R0 = C.COURIER_BIG_RATE, cb = mk('sayo'), hall = C.COURIER_ROUTE.find((q: any) => q.room === 'hall')!, path = C.COURIER_ROUTE.find((q: any) => q.path)!;
-  (C as any).COURIER_BIG_RATE = 1; cb.r.items.push({ id: 900, kind: 'heal', team: -1, x: hall.x, y: hall.y }); for (let i = 0; i < 8; i++) cb.r.courierArrive(hall); cb.r.courierArrive(path);
-  const bigs = cb.r.materials.filter((m: any) => m.big), all = [...cb.r.materials, ...cb.r.items];
+  ok(`取得判定（徳）: 左右${MB2.w / 2}px・頭の上（足元から${MB2.up}px）・足元の下${MB2.down}pxまで拾い、範囲外は拾わない。キャラによらず同じ`, Object.values(res).every((v) => JSON.stringify(v) === '[true,true,false,false]') && MB2.w >= 2 * B.w && MB2.up > B.up, res);
+  const far = [[B.w / 2 + 4, 0], [0, B.down + 4], [-B.w / 2 - 8, -20]], got: Record<string, boolean[]> = {};
+  for (const kind of ['material', 'heal', 'box_ult', 'box_assist']) {
+    const t = mk('sayo'); t.A.hp = 10;
+    got[kind] = far.map(([dx, dy]) => { t.r.materials = []; t.r.items = []; const o = { id: 1, x: t.A.x + dx, y: t.A.y + dy }; if (kind === 'material') t.r.materials.push({ ...o, hi: false }); else t.r.items.push({ ...o, kind, team: -1 }); t.r.updatePlayers(0.05); return kind === 'material' ? !t.r.materials.length : !t.r.items.length; });
+  }
+  ok('取得判定: 同じ距離（隣を通る位置）で、徳は拾い、回復・荷物は拾わない', JSON.stringify(got.material) === '[true,true,true]' && ['heal', 'box_ult', 'box_assist'].every((k) => JSON.stringify(got[k]) === '[false,false,false]'), got);
+  // コバコ: 中央の部屋に着くたび、その部屋に高性能の徳を決めた個数置く。部屋の未取得の数が上限に達したら止める。重ならない
+  const D = C.COURIER_DROP, cb = mk('sayo'), hall = C.COURIER_ROUTE.find((q: any) => q.room === 'hall')!, ent = C.COURIER_ROUTE.find((q: any) => q.room === 'entrance')!;
+  cb.r.items.push({ id: 900, kind: 'heal', team: -1, x: hall.x, y: hall.y });
+  const counts = [0, 1, 2, 3, 4].map(() => { cb.r.courierArrive(hall); return cb.r.materials.filter((m: any) => m.big).length; });
+  const hb = cb.r.materials.find((m: any) => m.big && inRoom(m, hall.area)); cb.r.materials = cb.r.materials.filter((m: any) => m !== hb); cb.r.courierArrive(hall); const after8 = cb.r.materials.filter((m: any) => m.big && inRoom(m, hall.area)).length;
+  cb.r.courierArrive(ent); const inEnt = cb.r.materials.filter((m: any) => m.big && inRoom(m, ent.area)).length;
+  const all = [...cb.r.materials, ...cb.r.items];
   const apart = all.every((m: any, i: number) => all.every((n: any, j: number) => i === j || Math.hypot(m.x - n.x, m.y - n.y) >= C.MATERIAL_GAP));
-  (C as any).COURIER_BIG_RATE = 0; cb.r.courierArrive(hall); const n0 = cb.r.materials.length; (C as any).COURIER_BIG_RATE = R0;
-  ok(`コバコが部屋に着くと確率（${R0 * 100}%）で高性能の徳を置く。上限なし・重ならない・廊下では置かない`, bigs.length === 8 && apart && bigs.every((m: any) => inRoom(m, hall.area)) && n0 === 8, bigs.length);
-  let hits = 0; const rr = mk('sayo'); for (let i = 0; i < 2000; i++) { rr.r.materials = []; rr.r.courierArrive(hall); hits += rr.r.materials.length; }
-  ok(`確率は約${R0 * 100}%（2000回中 ${(hits / 20).toFixed(1)}%）`, Math.abs(hits / 2000 - R0) < 0.04);
+  ok(`コバコが着くたびに高性能の徳を${D.n}個置き、部屋の未取得が${D.cap}個以上なら置かない（hall: ${counts.join('→')}、1個拾って${D.cap - 1}個なら${D.n}個置いて${after8}個。別の部屋は別に数える）。重ならない`, JSON.stringify(counts) === JSON.stringify([3, 6, 9, 9, 9]) && after8 === D.cap - 1 + D.n && inEnt === D.n && apart, { counts, after8 });
+  // 自然湧きの徳は中央3部屋に出ない
+  const sp = mk('sayo'); for (let i = 0; i < 3000; i++) sp.r.spawnMaterial();
+  const inCenter = sp.r.materials.filter((m: any) => ['smoking', 'hall', 'entrance'].includes(roomKindAt(Math.floor(m.x / T), Math.floor(m.y / T)) ?? '')).length, front = sp.r.materials.filter((m: any) => !m.hi).length;
+  ok(`自然湧きの徳は中央3部屋（smoking・hall・entrance）に出ない（${sp.r.materials.length}個中 ${inCenter}個。表側 ${front}個はすべて dining）`, inCenter === 0 && sp.r.materials.length > 100 && sp.r.materials.filter((m: any) => !m.hi).every((m: any) => roomKindAt(Math.floor(m.x / T), Math.floor(m.y / T)) === 'dining'));
   const pk = mk('sayo'); pk.r.materials.push({ id: 1, x: pk.A.x, y: pk.A.y, hi: false, big: true }); pk.r.updatePlayers(0.05);
   ok(`高性能の徳: 徳+${C.TOKU.materialBig}（通常の資材の2倍）`, Math.abs(pk.r.teams[0].toku - C.TOKU_INIT - 2 * C.TOKU.material) < 1e-9 && C.TOKU.materialBig === 2 * C.TOKU.material);
+}
+
+console.log('--- 扉の縁・壁の終端（移動の当たり判定）');
+{
+  const W0 = C.WALLS, isWallAt = (x: number, y: number) => MAP.tiles[Math.floor(y / T)]?.[Math.floor(x / T)] === '#';
+  // 斜め・まっすぐに扉の縁へ当てて歩かせる。止まらず抜けるか、壁の中（壁タイルに中心が入る・移動の形と重なる）に入らないか
+  const walk = (x: number, y: number, dx: number, dy: number, n: number) => {
+    let p = { x, y }, stuck = 0, inside = 0;
+    for (let i = 0; i < n; i++) {
+      const q = stepPlayer(p.x, p.y, dx, dy, C.PLAYER_SPEED, W0);
+      if (Math.hypot(q.x - p.x, q.y - p.y) < 1) stuck++;
+      if (isWallAt(q.x, q.y) || W0.some((w) => circleBody(q.x, q.y, C.PLAYER_RADIUS, w))) inside++;
+      p = q;
+    }
+    return { ...p, stuck, inside };
+  };
+  // study↔bath の扉（y=26、x=20〜24）。左の縁は x=320px、右の縁は x=400px
+  const y0 = 26 * T, cases: [string, number, number, number, number][] = [
+    ['真下へ・左の縁に掛かる', 318, y0 - 30, 0, 1], ['真下へ・右の縁に掛かる', 402, y0 - 30, 0, 1],
+    ['右下へ斜め・左の縁', 290, y0 - 40, 1, 1], ['左下へ斜め・右の縁', 430, y0 - 40, -1, 1],
+    ['真上へ・左の縁に掛かる（bath から）', 318, y0 + 16 + 30, 0, -1],
+  ];
+  const res = cases.map(([name, x, y, dx, dy]) => { const r = walk(x, y, dx, dy, 12); return { name, through: dy > 0 ? r.y > y0 + T + C.PLAYER_RADIUS : r.y < y0 - C.PLAYER_RADIUS, stuck: r.stuck, inside: r.inside }; });
+  ok('扉の縁に斜め・まっすぐ当たっても止まらず抜ける。壁の中には入らない', res.every((q) => q.through && q.stuck === 0 && q.inside === 0), res);
+  // 壁の終端（扉の縁）は見た目より短い。平らな壁の面は今までどおり止める
+  const flat = walk(250, y0 - 30, 0, 1, 12);
+  ok(`平らな壁の面ではまっすぐ当たると止まる（y=${flat.y.toFixed(1)}、壁の上端 ${y0}）`, Math.abs(flat.y - (y0 - C.PLAYER_RADIUS)) < 0.6 && flat.inside === 0, flat);
+  const end = W0.find((w) => w.y === y0 && w.x + w.w === 20 * T)!;
+  ok(`扉の縁の当たり判定は見た目より${C.WALL_EDGE.trim}px短く、角は半径${C.WALL_EDGE.round}pxで丸い`, end?.m?.w === end.w - C.WALL_EDGE.trim && (end.m!.k & 6) === 6, end);
+  // 丸めるのは外に出た角だけ。長方形どうしの継ぎ目（隣の長方形と接する角）は丸めない
+  let rounded = 0, seam = 0, seamRounded = 0;
+  const bits: [number, number, number][] = [[1, 0, 0], [2, 1, 0], [4, 1, 1], [8, 0, 1]];
+  for (const w of W0) for (const [bit, fx, fy] of bits) {
+    const px = w.x + fx * w.w, py = w.y + fy * w.h, sx = fx ? 1 : -1, sy = fy ? 1 : -1;
+    const touch = [[sx, -sy], [-sx, sy], [sx, sy]].some(([ax, ay]) => W0.some((o) => o !== w && px + ax * 4 > o.x && px + ax * 4 < o.x + o.w && py + ay * 4 > o.y && py + ay * 4 < o.y + o.h));
+    if (w.m!.k & bit) rounded++;
+    if (touch) { seam++; if (w.m!.k & bit) seamRounded++; }
+  }
+  ok(`継ぎ目の角は丸めない（丸めた角 ${rounded}、継ぎ目の角 ${seam} のうち丸めたもの ${seamRounded}）`, rounded > 50 && seam > 50 && seamRounded === 0);
+  // 経路探索・弾・視界は長方形のまま
+  const tip = { x: 20 * T - 2, y: y0 + 8 };
+  ok('弾・視界は見た目の壁（長方形）で止まる', W0.some((w) => tip.x >= w.x && tip.x <= w.x + w.w && tip.y >= w.y && tip.y <= w.y + w.h) && !lineOfSight(20 * T - 2, y0 - 20, 20 * T - 2, y0 + 40, W0));
+}
+
+console.log('--- 撃破の演出（視界の維持・敵への送信）');
+{
+  const v: any = new (GameRoom as any)(); v.setSimulationInterval = () => {}; v.lock = () => {}; const last: any = {};
+  Object.defineProperty(v, 'clients', { value: ['c0', 'c1'].map((id) => ({ sessionId: id, send: (t: string, m: any) => { if (t === 's') last[id] = m; } })) });
+  v.onCreate(); v.onJoin({ sessionId: 'c0' }); v.onJoin({ sessionId: 'c1' }); v.startMatch(); v.beginPlay();
+  for (const p of v.players.values()) if (p.bot) { p.alive = false; p.respawnAt = 1e9; p.koAt = -99; p.x = p.y = -999; }
+  v.bosses.forEach((b: any) => { b.x = -500; b.y = -500; });
+  const me = v.players.get('c0'), foe = v.players.get('c1');
+  Object.assign(me, { x: 1552, y: 900, rage: 0 }); Object.assign(foe, { x: 1552 + 150, y: 900 });
+  v.damagePlayer(me, 1e9, 'c1'); v.sendSnapshots();
+  const seen0 = last.c0.players.some((p: any) => p.id === 'c1'), mine0 = last.c0.players.find((p: any) => p.id === 'c0'), foeSees = last.c1.players.find((p: any) => p.id === 'c0');
+  v.now += C.KO_FX.shake + C.KO_FX.boom - 0.05; v.sendSnapshots(); const seen1 = last.c0.players.some((p: any) => p.id === 'c1'), foeSees1 = !!last.c1.players.find((p: any) => p.id === 'c0');
+  v.now += 0.1; v.sendSnapshots(); const seen2 = last.c0.players.some((p: any) => p.id === 'c1'), foeSees2 = !!last.c1.players.find((p: any) => p.id === 'c0');
+  v.now = me.koAt + C.RESPAWN_BASE + 0.05; v.sendSnapshots(); const seen3 = last.c0.players.some((p: any) => p.id === 'c1');
+  ok(`撃破の演出中（揺れ${C.KO_FX.shake}秒＋大爆発${C.KO_FX.boom}秒で消えるまで）は、倒された側の視界で敵が見える。消えた後・演出後（RESPAWN_BASE ${C.RESPAWN_BASE}秒）は見えない`, seen0 && seen1 && !seen2 && !seen3, { seen0, seen1, seen2, seen3 });
+  ok('倒された本人へ撃破からの秒数を送り、敵にも消えるまで（視界内なら）送る。復活の時刻は変えない', mine0?.ko === 0 && !mine0.alive && foeSees?.ko === 0 && foeSees1 && !foeSees2 && Math.abs(me.respawnAt - me.koAt - C.RESPAWN_BASE) < 1e-9);
+  ok(`演出の内訳（揺れ＋大爆発＋絞り）は RESPAWN_BASE（${C.RESPAWN_BASE}秒）に収まる`, C.KO_FX.shake + C.KO_FX.boom < C.RESPAWN_BASE);
+  // リコール: 元いた場所に瞬間移動の跡
+  const rc = mk('sayo'); const from = { x: rc.A.x, y: rc.A.y }; rc.A.recallAt = rc.r.now - C.RECALL_HOLD; rc.r.updatePlayers(0.05);
+  ok('リコール: 元いた場所に瞬間移動の跡のエフェクト', rc.r.fx.some((f: any) => f.kind === 'recall' && f.x === from.x && f.y === from.y) && inRoom(rc.A, C.RECALL_ROOMS[0]));
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

@@ -92,7 +92,7 @@ koed「なし」は選択画面の絵をグレー化してずり落とす。
 
 ## 選べないキャラ（chars.ts の対象外）
 - 大将：ankomon（あんこもん軍）、zundamon（ずんだもん軍）。chars.json に `boss` つきで登録。挙動は GameRoom.ts の大将処理、数値は config.ts の `BOSS_*`
-- ブイブイ・コバコ：kobako。ドットだけ（make_dot.py）。数値は config.ts の `COURIER`
+- ブイブイ・コバコ：kobako。ドットだけ（make_dot.py）。数値は config.ts の `COURIER`。巡回は中央3部屋（smoking ⇔ hall ⇔ entrance）の往復（`COURIER_ROUTE`）、着くたびに高性能の徳を置く（`COURIER_DROP`）
 - アシスト：kurono（玄野武宏）、shirakami（白上虎太郎）、aoyama（青山龍星）。ドットだけ。数値と挙動は config.ts の `ASSIST` と GameRoom.ts
 
 ## 更新履歴
