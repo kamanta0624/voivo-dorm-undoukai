@@ -488,6 +488,7 @@ export class GameRoom extends Room {
     if (this.phase === 'intro' || this.phase === 'countdown' || this.phase === 'ended') this.moveHumans();
     if (this.phase === 'countdown' && C.INTRO_MODE !== 'old') this.moveBotsCaged(dt);
     if (this.phase === 'ended') this.updateEnded(dt);
+    if (this.phase !== 'waiting') this.cm.flow(dt); // 実況のタイムライン（試合前後も進める）
     if (this.phase === 'playing') {
       this.now += dt;
       this.timeLeft = Math.max(0, C.MATCH_TIME - this.now);
@@ -973,6 +974,7 @@ export class GameRoom extends Room {
     boss.target = p.id;
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
+    this.cm.bossDmgBy(p, dmg);
     if (boss.hp <= 0) return this.endMatch(1 - boss.team, 'boss');
     this.cm.bossHit(boss);
     if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD) {

@@ -1,10 +1,10 @@
-// 実況の再生と字幕（クライアント）。サーバーの 'cm'（発話）を受け取り、音声スプライトの部品を連結再生して字幕を出すだけ
-// キュー・割り込み・破棄はここ。同時1本。オン・オフは端末に保存（localStorage cmOff）
+// 実況の再生と字幕（クライアント）。サーバーの 'cm'（言い始めた発話）を受け取り、音声スプライトの部品を連結再生して字幕を出すだけ
+// 何をいつ言うかはサーバーのタイムラインが決める。ここは届いた順に再生する（重ねない・割り込まない）。遅れが CM.lagSkip 秒を超えたら、待っているつなぎを飛ばす。同時1本。オン・オフは端末に保存（localStorage cmOff）
 import { CONFIG as C } from '../shared/config';
 import { Utter, clips } from '../shared/commentary';
 
 const URL_AUDIO = 'commentary/cm.mp3', URL_TABLE = 'commentary/cm.json'; // npm run cm:audio が作る
-const GAP = 0.04; // 部品のつなぎの間(秒)
+const XFADE = 0.005; // 部品の継ぎ目のクロスフェード(秒)。間は空けない
 
 export class Commentary {
   on = true;
@@ -12,8 +12,8 @@ export class Commentary {
   private buf: AudioBuffer | null = null;
   private table: Record<string, [number, number]> = {}; // 文言 → [開始秒, 長さ秒]
   private shift = 0; // デコードでずれた秒数（スプライト先頭の目印で測る）
-  private queue: { u: Utter; at: number }[] = [];
-  private cur: { pr: number; srcs: AudioBufferSourceNode[]; timer: number } | null = null;
+  private queue: Utter[] = [];
+  private cur: { end: number; srcs: AudioBufferSourceNode[]; timer: number } | null = null;
   private sub: HTMLElement;
 
   constructor(parent: HTMLElement) {
@@ -46,17 +46,21 @@ export class Commentary {
   setOn(on: boolean) {
     this.on = on;
     try { localStorage.setItem('cmOff', on ? '0' : '1'); } catch {}
-    if (!on) { this.stop(); this.queue = []; }
+    if (!on) this.clear();
   }
 
-  // 発話を受け取る: 再生中より優先度が高ければ打ち切って割り込む。そうでなければ待ち行列（優先度順）
+  // 止めて待ち行列を空にする（オフ・連戦で待機画面に戻ったとき）
+  clear() { this.stop(); this.queue = []; }
+
+  // 発話を受け取る: 再生中なら言い切ってから順に。遅れ（再生中の残り＋待っている分）が lagSkip 秒を超えたら、待っているつなぎを飛ばす
   receive(u: Utter) {
-    if (!this.on || !this.buf) return;
-    const item = { u, at: performance.now() };
-    if (this.cur && u.pr > this.cur.pr) { this.stop(); this.queue.unshift(item); }
-    else { this.queue.push(item); this.queue.sort((a, b) => b.u.pr - a.u.pr || a.at - b.at); }
+    if (!this.on || !this.buf || !this.ctx) return;
+    this.queue.push(u);
+    const lag = () => (this.cur ? Math.max(0, this.cur.end - this.ctx!.currentTime) : 0) + this.queue.reduce((a, x) => a + this.length(x), 0);
+    while (lag() > C.CM.lagSkip) { const i = this.queue.findIndex((x) => x.fill); if (i < 0) break; this.queue.splice(i, 1); }
     if (!this.cur) this.next();
   }
+  private length(u: Utter) { return u.s.flatMap((s) => clips(s)).reduce((a, c) => a + (this.table[c.text]?.[1] ?? 0), 0); }
 
   private stop() {
     if (!this.cur) return;
@@ -66,28 +70,28 @@ export class Commentary {
     this.sub.style.display = 'none';
   }
 
-  // 次の発話: 発生から CM.maxWait 秒以上待たされたものは捨てる
+  // 次の発話: 部品を間を空けずに並べ、継ぎ目だけ XFADE 秒重ねてフェードする
   private next() {
-    const now = performance.now();
-    this.queue = this.queue.filter((q) => now - q.at < C.CM.maxWait * 1000);
-    const item = this.queue.shift();
-    if (!item || !this.ctx || !this.buf) return;
-    const list = item.u.s.flatMap((s) => clips(s));
+    const u = this.queue.shift();
+    if (!u || !this.ctx || !this.buf) return;
+    const list = u.s.flatMap((s) => clips(s));
     let t = this.ctx.currentTime + 0.02;
     const srcs: AudioBufferSourceNode[] = [];
     for (const c of list) {
       const e = this.table[c.text];
       if (!e) continue; // 音声化されていない部品は飛ばす（字幕は出す）
-      const src = this.ctx.createBufferSource();
+      const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
       src.buffer = this.buf;
-      src.connect(this.ctx.destination);
+      src.connect(g).connect(this.ctx.destination);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + XFADE);
+      g.gain.setValueAtTime(1, t + e[1] - XFADE); g.gain.linearRampToValueAtTime(0, t + e[1]);
       src.start(t, Math.max(0, e[0] + this.shift), e[1]);
       srcs.push(src);
-      t += e[1] + GAP;
+      t += e[1] - XFADE;
     }
-    this.sub.textContent = item.u.s.map((s) => clips(s).map((c) => c.sub).join('')).join('');
+    this.sub.textContent = u.s.map((s) => clips(s).map((c) => c.sub).join('')).join('');
     this.sub.style.display = 'block';
     const ms = Math.max(800, (t - this.ctx.currentTime) * 1000);
-    this.cur = { pr: item.u.pr, srcs, timer: window.setTimeout(() => { this.cur = null; this.sub.style.display = 'none'; this.next(); }, ms) };
+    this.cur = { end: t, srcs, timer: window.setTimeout(() => { this.cur = null; this.sub.style.display = 'none'; this.next(); }, ms) };
   }
 }

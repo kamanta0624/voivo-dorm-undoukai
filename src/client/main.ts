@@ -876,7 +876,7 @@ class GameScene extends Phaser.Scene {
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
       this.room.send('input', this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move));
     }
-    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; } // 連戦は選択バーから
+    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; commentary.clear(); } // 連戦は選択バーから。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 

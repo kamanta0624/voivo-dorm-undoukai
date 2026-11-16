@@ -2,8 +2,8 @@
 import { GameRoom } from '../src/server/GameRoom';
 import { CONFIG as C } from '../src/shared/config';
 import { CHARS } from '../src/shared/chars';
-import { bump, decay, nextFocus, engageKind, situation, killAddon, KillCtx, summary, board, pickTopic, TOPICS, evaded, pickPattern, roomAt } from '../src/server/commentary';
-import { clips, allTexts, nameDrift, priority, tokens, SCRIPT } from '../src/shared/commentary';
+import { bump, decay, nextFocus, engageKind, situation, killAddon, KillCtx, summary, board, pickBoard, flow, review, leaders, evaded, pickPattern, roomAt } from '../src/server/commentary';
+import { clips, allTexts, nameDrift, priority, keep, tokens, SCRIPT, CHATTER, patterns } from '../src/shared/commentary';
 import MAP from '../src/shared/map.json';
 
 let fails = 0;
@@ -31,6 +31,7 @@ function mk(a: string, b?: string) {
   if (B) { Object.assign(B, { x: 1592, y: 900 }); B.st.test = { until: Infinity, noAuto: true }; }
   got.length = 0; // 試合前・試合開始のセリフは捨てる
   r.cm.log = [];
+  r.cm.durOf = () => 0; r.cm.busyUntil = 0; r.cm.q = []; // 判定のテストは喋る長さ0（出来事のたびにすぐ送る）。タイムラインは別に確かめる
   return { r, A, B, got, keys: () => got.flatMap((u) => u.s.map((s: any) => s.k)) };
 }
 const run = (r: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) r.cm.tick(0.05), (r.now += 0.05); };
@@ -103,16 +104,16 @@ console.log('--- 1-7. 盤面');
   ok('人数差2以上から0に戻った → 少なかった組が立て直した', JSON.stringify(board([3, 3], 1).say) === JSON.stringify({ k: 'board_back', a: { 組: [1] } }));
   ok('差1 → なし', board([3, 2], null).say === null);
 }
-console.log('--- 4. 平時の話題');
+console.log('--- 4. つなぎの話題選び');
 {
-  const all = new Set(TOPICS);
-  const a = pickTopic(-1, null, all, false, 0.9);
-  const b = pickTopic(a.rot, a.topic, all, false, 0.9);
-  ok('順番を回す', a.topic === TOPICS[0] && b.topic === TOPICS[1], [a.topic, b.topic]);
-  ok('言うことがない話題は飛ばす', pickTopic(0, 'toku', new Set(['killer']), false, 0.9).topic === 'killer');
-  ok('直前と同じ話題は避ける', pickTopic(-1, 'toku', new Set(['toku']), false, 0.9).topic === null);
-  ok('小ネタは1/4程度（r<0.25）、空のキャラだけなら選ばない', pickTopic(0, null, all, true, 0.2).topic === 'trivia' && pickTopic(0, null, all, true, 0.3).topic !== 'trivia' && pickTopic(0, null, all, false, 0.1).topic !== 'trivia');
-  ok('小ネタは続けない', pickTopic(0, 'trivia', all, true, 0.1).topic !== 'trivia');
+  const T = (topic: string, sig = '') => ({ topic, sig, says: [{ k: 'idle_' + topic, p: 0, a: {} }] });
+  ok('直前と同じ話題は避ける（ほかがあれば）', pickBoard([T('toku'), T('slot')], 'toku', new Map(), 0)?.topic === 'slot' && pickBoard([T('toku')], 'toku', new Map(), 0)?.topic === 'toku');
+  ok('前回言ってから値が変わった話題を優先', pickBoard([T('toku', '1'), T('slot', '2')], null, new Map([['toku', '0'], ['slot', '2']]), 0.9)?.topic === 'toku');
+  ok('言うことがない話題は飛ばす', pickBoard([{ topic: 'toku', sig: '', says: [] }, T('slot')], null, new Map(), 0)?.topic === 'slot' && pickBoard([{ topic: 'toku', sig: '', says: [] }], null, new Map(), 0) === null);
+  const F = M.flow, up = (n: number, v: number) => Array(n).fill(v);
+  ok('試合の流れ: 差が小さい→どちらに転ぶか', flow([0.3, 0.01])?.p === 1);
+  ok(`試合の流れ: 直近${F.pace}秒ずっと同じ組が上→ペース`, flow(up(F.pace, 0.1))?.p === 0 && flow(up(F.pace, 0.1))?.team === 0 && flow(up(F.pace, -0.1))?.team === 1 && flow([...up(F.pace - 1, 0.1)]) === null);
+  ok(`試合の流れ: 直近${F.widenWin}秒で差が${F.widen}以上広がった→じわじわ`, flow([...up(F.widenWin, 0.1), 0.2])?.p === 2 && flow([...up(F.widenWin, -0.1), -0.2])?.team === 1);
 }
 console.log('--- 2. 回避');
 ok('範囲に入って被弾せず生存 → 回避', JSON.stringify(evaded(new Set(['x', 'y', 'z']), new Set(['y']), (id) => id !== 'z')) === '["x"]');
@@ -278,29 +279,52 @@ console.log('--- 1-4. 追跡');
   run(r2, 1.05);
   ok('追いついて撃破 → 撃破の本文＋追いついた', got.flatMap((u) => u.s.map((s: any) => s.k)).includes('add_chase'));
 }
-console.log('--- 4. 平時の各話題');
+console.log('--- 4-1. 盤面コメントの各行');
 {
-  const { r, A, B, got } = mk('sayo', 'metan');
-  r.now = 100;
-  r.cm.kills.set('a', 2); r.cm.toku.set('a', 1); r.cm.bad.set('b', 3);
-  r.teams[1].wanted = 'b'; r.teams[0].toku = 7; r.teams[1].toku = 3;
+  const { r, A, B } = mk('sayo', 'metan');
+  const say = () => new Map<string, string[]>(r.cm.topics().map((t: any) => [t.topic, t.says.map((x: any) => `${x.k}:${x.p}`)]));
+  const has = (m: Map<string, string[]>, k: string, p: number) => [...m.values()].some((v) => v.includes(`${k}:${p}`));
+  r.now = 10; r.timeLeft = C.MATCH_TIME - 10; r.couriers = [];
+  let m = say();
+  ok('開始直後: 徳は互角（差1未満）・大将HPなし・序盤・スロットは静か・コバコ不在は飛ばす', has(m, 'idle_toku', 0) && has(m, 'idle_toku', 2) && !has(m, 'idle_toku', 1) && !m.has('bosshp') && has(m, 'idle_time', 0) && has(m, 'idle_time', 2) && has(m, 'idle_slot', 2) && !m.has('courier'), [...m]);
+  r.now = 120; r.timeLeft = C.MATCH_TIME - 120; r.teams[0].toku = 7; r.teams[1].toku = 3;
   r.bosses[1].hp = C.BOSS_HP * 0.6;
-  r.broken = Array.from({ length: Math.ceil(r.cm.walls[0] * 0.2) }, () => [5, 5]);
-  r.spawnCourier();
+  m = say();
+  ok(`徳: リード（差1以上）。大将HP: ${M.bossHpAfter}秒以降、残り割合と優勢、両方9割以上でなければ「元気」なし。中盤`, has(m, 'idle_toku', 1) && !has(m, 'idle_toku', 2) && has(m, 'idle_bosshp', 0) && has(m, 'idle_bosshp', 1) && !has(m, 'idle_bosshp', 2) && has(m, 'idle_time', 1), [...m]);
+  r.bosses[1].hp = C.BOSS_HP; r.bosses[0].hp = C.BOSS_HP * 0.95; m = say();
+  ok('両大将とも9割以上 → まだまだ元気', has(m, 'idle_bosshp', 2));
+  r.timeLeft = M.timeMin - 1; m = say();
+  ok(`残り${M.timeMin}秒未満は残り時間の話題なし`, !m.has('time'));
+  A.alive = false; m = say();
+  ok('反省中: [n]人が反省中／[n]人で戦っています', has(m, 'idle_reflect', 0) && has(m, 'idle_reflect', 1));
+  A.alive = true;
+  r.cm.wins[0] = [90, 95]; m = say();
+  ok(`スロット: ${M.slotHot}秒に2回 → 勢い、当たりなし${M.slotDry}秒 → まだ当たりなし`, has(m, 'idle_slot', 1) && has(m, 'idle_slot', 0) && !has(m, 'idle_slot', 2));
+  A.ult = { form: 'melee', tier: 0, until: 999, pending: false }; m = say();
+  ok('パワーアップ中1人 → [A]の文', has(m, 'idle_power', 1) && !has(m, 'idle_power', 0));
+  r.addPlayer('c', 0, false); const Cc = r.players.get('c'); Object.assign(Cc, { alive: true, ult: { form: 'melee', tier: 0, until: 999, pending: false } }); m = say();
+  ok('同じ組で2人以上 → [組]の文', has(m, 'idle_power', 0) && !has(m, 'idle_power', 1));
+  const as = r.summonAssist(1, 1, 'kurono'); m = say();
+  ok('アシスト: 出ていれば健在、ダメージがなければ「暴れています」なし', has(m, 'idle_assist', 0) && !has(m, 'idle_assist', 1));
+  r.damagePlayer(A, 1, as.id, false, '技'); m = say();
+  ok(`直近${M.rampWin}秒にダメージ → 暴れています`, has(m, 'idle_assist', 1));
+  r.bosses[0].moved = true; m = say();
+  ok('第2形態の大将がいる → 大将の形態', has(m, 'idle_form', 0));
+  r.teams[1].wanted = 'b'; m = say();
+  ok('指名手配: 3パターン', [0, 1, 2].every((p) => has(m, 'idle_wanted', p)));
+  r.broken = Array.from({ length: Math.ceil((r.cm.walls[0] + r.cm.walls[1]) * 0.2) }, () => [5, 5]); m = say();
+  ok('壁の壊れ方: 組側・寮全体・風通し', [0, 1, 2].every((p) => has(m, 'idle_wall', p)));
+  r.spawnCourier(); m = say();
+  ok('コバコ: 今いる部屋（中央）を巡回中＋常時の2つ', [0, 1, 2].every((p) => has(m, 'idle_courier', p)));
   const lib = MAPROOM('library_L');
-  r.materials = Array.from({ length: M.lootMin }, (_, i) => ({ id: i, x: (lib[0] + 3 + i) * C.TILE, y: (lib[1] + 3) * C.TILE, hi: false }));
-  r.cm.wins[0] = [90, 95];
-  A.alive = false; // 反省中
-  const seen = new Set<string>();
-  for (let i = 0; i < 40; i++) { r.cm.idleAt = -Infinity; r.cm.idle(); }
-  for (const u of got) for (const s of u.s) seen.add(s.k);
-  const want = ['idle_toku', 'idle_bosshp', 'idle_slot', 'idle_wanted', 'idle_wall', 'idle_courier', 'idle_loot', 'idle_reflect', 'idle_killer', 'idle_toku_top', 'idle_bad'];
-  ok('条件がそろえば全話題を回す', want.every((k) => seen.has(k)), want.filter((k) => !seen.has(k)));
-  const ks = got.map((u) => u.s[0].k);
-  ok('直前と同じ話題は続かない', ks.every((k, i) => i === 0 || k !== ks[i - 1]));
-  const { r: r2, got: g2 } = mk('sayo', 'metan');
-  r2.now = 10; r2.couriers = []; r2.cm.idle();
-  ok('言うことがない話題は飛ばす（大将HPは開始直後なし・コバコ不在）', g2.length === 1 && g2[0].s[0].k === 'idle_toku', g2.map((u) => u.s[0].k));
+  r.materials = Array.from({ length: M.lootMin }, (_, i) => ({ id: i, x: (lib[0] + 3 + i) * C.TILE, y: (lib[1] + 3) * C.TILE, hi: false })); m = say();
+  ok(`徳が${M.lootMin}個以上ある部屋 → 散らばり`, has(m, 'idle_loot', 0) && has(m, 'idle_loot', 1));
+  m = say();
+  ok('撃破・大将へのダメージ・徳・悪行が0なら、その話題なし', !m.has('killer') && !m.has('bossdmg') && !m.has('tokuTop') && !m.has('bad'));
+  r.cm.kills.set('a', 2); r.cm.toku.set('a', 1); r.cm.bad.set('b', 3); r.damageBoss(r.bosses[1], 50, A); m = say();
+  ok('キルリーダー・大将へのダメージ・徳を稼いだ人・悪行（試合累計）', has(m, 'idle_killer', 0) && has(m, 'idle_killer', 1) && has(m, 'idle_bossdmg', 0) && has(m, 'idle_toku_top', 1) && has(m, 'idle_bad', 1) && r.cm.bossDmg.get('a') === 50, [...m]);
+  B.bad = 5; r.damagePlayer(B, 1e9, 'a', false, '通常攻撃');
+  ok('悪行の試合累計は撃破で0に戻らない（既存の bad は0）', B.bad === 0 && r.cm.bad.get('b') === 3);
 }
 console.log('--- 2. 個別プレー');
 {
@@ -403,15 +427,104 @@ console.log('--- 3. 前置き');
   r.cm.prefix = null; r.cm.focus = 'a'; r.cm.focusRoom = roomAt(A.x, A.y); r.cm.attn.set('b', 100); r.cm.attn.set('a', 60); (r.cm as any).evalFocus();
   ok('同じ部屋で対象だけ変わる → 前置きなし', r.cm.focus === 'b' && r.cm.prefix === null);
 }
-console.log('--- 4. 平時（GameRoom）');
+console.log('--- 4. つなぎ（GameRoom）');
 {
-  const { r, keys } = mk('sayo', 'metan');
-  run(r, M.idleDelay - 0.5);
-  ok('フォーカスが外れて5秒までは喋らない', !keys().some((k) => k.startsWith('idle_')));
-  run(r, 1.6);
-  ok('5秒後から話題を1つ（徳）', keys().filter((k) => k.startsWith('idle_')).length === 1 && keys().includes('idle_toku'), keys());
-  run(r, M.idleEvery);
-  ok('10秒に1回、直前と違う話題', keys().filter((k) => k.startsWith('idle_')).length === 2 && keys().filter((k) => k === 'idle_toku').length === 1, keys());
+  const { r, keys, got } = mk('sayo', 'metan');
+  r.cm.durOf = () => 1;
+  r.cm.flow(M.fill.silence - 0.05);
+  ok(`${M.fill.silence}秒黙るまではつなぎなし`, !got.length);
+  r.cm.flow(0.1);
+  ok(`${M.fill.silence}秒黙ったらつなぎを1つ（fill）`, got.length === 1 && got[0].fill === true, keys());
+  for (let i = 0; i < 1500; i++) r.cm.flow(0.5);
+  const ks = got.map((u: any) => `${u.s[0].k}:${u.s[0].p}`), chats = ks.filter((k: string) => k.startsWith('chat:'));
+  ok('フォーカスなし: 盤面コメントと雑談の両方', chats.length > 0 && ks.some((k: string) => k.startsWith('idle_')), { chats: chats.length, all: ks.length });
+  ok('雑談は出場中のキャラだけ、同じ試合で繰り返さない', chats.every((k: string) => ['sayo', 'metan', ...[...r.players.values()].map((p: any) => p.char)].includes(k.split(':')[1])) && new Set(chats).size === chats.length);
+  const chars = new Set([...r.players.values()].filter((p: any) => !p.assist).map((p: any) => p.char)), total = [...chars].reduce((a, c) => a + patterns(`chat:${c}`).length, 0);
+  ok(`雑談を使い切ったら雑談は出ない（出場キャラの${total}本）`, chats.length === total, chats.length);
+  const u = mk('sayo', 'metan'), S2 = [0, 1].map((p) => ({ k: 'idle_toku', p, a: {} }));
+  u.r.cm.topics = () => [{ topic: 'toku', sig: '', says: S2 }];
+  const picks = [0, 1, 2].map(() => u.r.cm.boardFill(false).p);
+  ok('盤面コメントは話題ごとに使い切るまで同じパターンを繰り返さない（使い切ったらその話題だけ戻す）', picks[0] !== picks[1] && [0, 1].includes(picks[2]), picks);
+  // フォーカス中は短い盤面コメントだけ
+  const f = mk('sayo', 'metan'); f.r.cm.durOf = (s: any) => (s[0].k === 'idle_toku' && s[0].p === 1 ? 1 : 9);
+  f.r.teams[0].toku = 8; f.r.cm.focus = 'a'; f.r.cm.attn.set('a', 100); f.r.cm.flow(M.fill.silence + 0.01);
+  ok(`フォーカス中: ${M.fill.short}秒以下の盤面コメントだけ`, f.got.length === 1 && f.got[0].s[0].k === 'idle_toku' && f.got[0].s[0].p === 1, f.got.map((u: any) => u.s[0]));
+  const e = mk('sayo', 'metan'); e.r.cm.durOf = () => 1; e.r.phase = 'ended'; e.r.cm.flow(3);
+  ok('試合中（playing）以外はつなぎなし', !e.got.length);
+}
+console.log('--- A・B・C. タイムライン（言い切る・切れ目で選ぶ・捨てる・統合）');
+{
+  const { r, A, B, got } = mk('sayo', 'metan');
+  r.cm.durOf = () => 2;
+  r.cm.emit([{ k: 'start', p: 0, a: {} }]);
+  r.cm.emit([{ k: 'play_courier', p: 0, a: { A: 'sayo' } }]);
+  r.cm.emit([{ k: 'boss50', p: 0, a: { 大将: 0 } }]);
+  ok('喋っている間は次を言わない（割り込みなし）', got.length === 1 && got[0].s[0].k === 'start');
+  r.cm.flow(2);
+  ok('切れ目で、待っているうち優先度が一番高いもの', got.length === 2 && got[1].s[0].k === 'boss50');
+  r.cm.flow(2);
+  ok(`捨てない種類以外は発生から${M.drop}秒で捨てる`, got.length === 2, got.map((u: any) => u.s[0].k));
+  ok('捨てない: 決着・全員反省中・大将HP・撃破系・試合後', ['end_boss', 'alldown', 'boss50', 'kill_normal', 'add_first', 'multi', 'sum_double', 'rev_good', 'mvp_kill', 'close'].every(keep) && !['play_dodge', 'idle_toku', 'start', 'engage_1', 'chat:sayo'].some(keep));
+  r.cm.durOf = () => 6; r.cm.emit([{ k: 'start', p: 0, a: {} }]); r.cm.emit([{ k: 'kill_boss', p: 0, a: { 大将: 0, B: 'sayo' } }]); r.cm.flow(6);
+  ok(`撃破系は待たされても（${M.drop}秒超）捨てない`, got.at(-1).s[0].k === 'kill_boss');
+  // 同じ戦闘の古い単発撃破は連続・まとめに統合
+  const g = mk('sayo', 'metan'); g.r.cm.durOf = () => 5;
+  g.r.cm.emit([{ k: 'start', p: 0, a: {} }]);
+  const bt: any = {};
+  g.r.cm.emit([{ k: 'kill_normal', p: 0, a: { A: 'sayo', B: 'metan' } }], { bt });
+  g.r.cm.emit([{ k: 'multi', p: 0, a: {} }], { merge: bt });
+  g.r.cm.flow(5); g.r.cm.flow(5);
+  ok('同じ戦闘の待っている単発撃破は、連続・まとめに統合（単発は言わない）', g.got.map((u: any) => u.s[0].k).slice(0, 2).join() === 'start,multi' && !g.got.some((u: any) => u.s[0].k === 'kill_normal'));
+  // フォーカスの移動はセリフの切れ目だけ
+  const h = mk('sayo', 'metan'); h.r.cm.durOf = () => 3;
+  h.r.cm.emit([{ k: 'start', p: 0, a: {} }]);
+  h.r.cm.attn.set('a', 80); h.r.cm.evalFocus();
+  ok('喋っている間はフォーカスを始めない', h.r.cm.focus === null);
+  h.r.cm.flow(3);
+  ok('言い終えた時点で判定して始める', h.r.cm.focus === 'a');
+  h.r.cm.emit([{ k: 'start', p: 0, a: {} }]); h.r.cm.attn.set('b', 100); h.r.cm.attn.set('a', 70); h.r.cm.evalFocus();
+  ok('喋っている間は移らない', h.r.cm.focus === 'a');
+  h.r.cm.attn.set('b', 75); h.r.cm.flow(3);
+  ok('言い終えた時点で条件（差20以上）を満たさなくなっていれば移らない', h.r.cm.focus === 'a');
+  // 試合後: 決着 → 総評 → 活躍キャラ → 締め
+  const z = mk('sayo', 'metan'); z.r.cm.durOf = () => 2;
+  z.r.cm.kills.set('a', 2); z.r.cm.toku.set('b', 1.2); z.r.cm.bad.set('a', 0.5); z.r.cm.bossDmg.set('a', 300);
+  z.r.cm.emit([{ k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); z.r.cm.emit([{ k: 'play_courier', p: 0, a: { A: 'sayo' } }]);
+  z.r.bosses[1].hp = 0; z.r.endMatch(0, 'boss');
+  for (let i = 0; i < 40; i++) z.r.cm.flow(0.5);
+  const order = z.got.map((u: any) => u.s[0].k);
+  ok('試合後: 決着→総評→活躍キャラ（キル・大将ダメージ・徳・悪行）→締めの順で最後まで（待っていたものは捨てる）', JSON.stringify(order.slice(1)) === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']) || JSON.stringify(order.slice(1)).replace('rev_onesided', 'rev_good') === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']), order);
+}
+console.log('--- 7-1. 総評（優先順）');
+{
+  const R = M.review, H = (...ds: [number, number][]) => ds;
+  ok('1 勝った組が残り60秒以降に0.2以上負けていた → 大逆転', review(H([200, 0.1], [50, -0.25], [0, 0.05]), 0, 0.05).k === 'rev_late' && review(H([50, 0.25]), 1, -0.05).k === 'rev_late');
+  ok('2 試合中に0.2以上負けていた → 逆転勝利', review(H([200, -0.3], [100, 0.1]), 0, 0.1).k === 'rev_comeback');
+  ok(`3 リードが${R.swaps}回以上入れ替わった → シーソー`, review(H([250, 0.1], [200, -0.1], [150, 0.1], [100, -0.1], [50, 0.15]), 0, 0.15).k === 'rev_seesaw');
+  ok('4 引き分け、または最終の差0.03未満 → 大接戦', review(H([100, 0.1]), 2, 0).k === 'rev_close' && review(H([100, 0.1]), 0, 0.02).k === 'rev_close');
+  ok('5 最終の差0.1未満 → 接戦', review(H([100, 0.05]), 0, 0.09).k === 'rev_near');
+  ok('6 入れ替わりなし・最終の差0.5以上 → ワンサイド（勝った組）', JSON.stringify(review(H([100, 0.3], [0, 0.6]), 0, 0.6)) === JSON.stringify({ k: 'rev_onesided', a: { 組: [0] } }));
+  ok('7 どれでもない → 見ごたえ', review(H([100, -0.05], [0, 0.3]), 0, 0.3).k === 'rev_good');
+  ok('優先: 大逆転はシーソーより先', review(H([250, 0.1], [200, -0.1], [150, 0.1], [50, -0.3], [0, 0.1]), 0, 0.1).k === 'rev_late');
+  ok('引き分けは逆転の判定をしない', review(H([50, -0.3]), 2, 0).k === 'rev_close');
+}
+console.log('--- 7-2. 活躍したキャラ（同点）');
+{
+  ok('1人', JSON.stringify(leaders(new Map([['a', 3], ['b', 1]]))) === JSON.stringify({ ids: ['a'], v: 3 }));
+  ok('同点は全員（小数は0.01で丸めて比べる）', leaders(new Map([['a', 0.6000001], ['b', 0.6], ['c', 0.2]]))!.ids.join() === 'a,b');
+  ok('0以下は数えない（全員0なら飛ばす）', leaders(new Map([['a', 0]])) === null);
+  const say = (m: [string, number][]) => { const z = mk('sayo', 'metan'); z.r.addPlayer('c', 0, false); z.r.players.get('c').char = 'bii'; z.r.cm.kills = new Map(m); z.r.cm.end(0, 'boss'); return z.got.map((u: any) => u.s[0]).find((s: any) => s.k.startsWith('mvp_kill')); };
+  const one = say([['a', 2]]), two = say([['a', 2], ['b', 2]]), three = say([['a', 1], ['b', 1], ['c', 1]]);
+  ok('2人は名前を続けて（[A]と[B]）、3人以上は人数（[n]キルで[m]人が並びました）', one.k === 'mvp_kill' && one.a.n === 2 && two.k === 'mvp_kill2' && two.a.A === 'sayo' && two.a.B === 'metan' && three.k === 'mvp_kill_many' && three.a.m === 3 && three.a.n === 1, [one, two, three]);
+  ok('締めは3パターン', patterns('close').length === 3);
+}
+console.log('--- E. 読みの指定・雑談');
+{
+  const w = clips({ k: 'boss_warn', p: 0, a: { 大将: 0 } });
+  ok('{字幕|読み}: 音声は「いかり」、字幕は「怒り」', w.map((x) => x.text).join('') === 'あんこもん、いかりの大爆発が来るぞ！' && w.map((x) => x.sub).join('') === 'あんこもん、怒りの大爆発が来るぞ！', w);
+  ok('読みの指定は台本全体（音声の部品は読み）', allTexts().includes('、いかりの大爆発が来るぞ！') && !allTexts().some((t) => t.includes('{')));
+  const c = clips({ k: 'chat:hanamaru', p: 0, a: {} });
+  ok(`雑談は docs/commentary_chatter.md から（${Object.values(CHATTER).reduce((a, v) => a + (v as string[]).length, 0)}本）。1本で1つの部品`, c.length === 1 && c[0].sub === (CHATTER as any).hanamaru[0] && Object.values(CHATTER).every((v: any) => v.length >= 10));
 }
 console.log('--- 6. 全体・進行');
 {
@@ -456,7 +569,7 @@ console.log('--- 6. 全体・進行');
   r.cm.prevLeft = 11; r.timeLeft = 10; r.cm.tick(0.01);
   ok('残り30秒・10秒', keys().includes('left30') && keys().includes('left10'));
   r.endMatch(1, 'boss');
-  ok('決着（大将撃破）', keys().at(-1) === 'end_boss' && r.cm.lastPat.has('end_boss'));
+  ok('決着（大将撃破）', keys().includes('end_boss') && r.cm.lastPat.has('end_boss'));
 }
 {
   const { r, keys } = mk('sayo', 'metan');
@@ -472,13 +585,14 @@ console.log('--- 6. 全体・進行');
   Object.defineProperty(r, 'clients', { value: [{ send: (t: string, m: any) => t === 'cm' && got.push(m) }] });
   r.onCreate(); r.addPlayer('a', 0, false); r.startMatch();
   ok('試合前（ロード完了＝開幕演出の開始）: [組]は左側→右側', got[0]?.s[0].k === 'pre_match' && JSON.stringify(got[0].s[0].a.組) === '[0,1]');
-  r.beginPlay();
-  ok('試合開始', got[1]?.s[0].k === 'start' && got[1].pr > got[0].pr);
+  r.cm.flow(30); r.beginPlay(); // 試合前のあいさつを言い終えてから（開幕演出の間に言い終える）
+  ok('試合開始（あいさつを言い切ってから）', got[1]?.s[0].k === 'start' && got[1].pr > got[0].pr, got.map((u: any) => u.s[0].k));
 }
 console.log('--- 優先度');
 {
   const order = ['end_boss', 'alldown', 'boss50', 'kill_normal', 'pre_start', 'play_dodge', 'sit_lead', 'idle_toku'];
-  ok('決着 ＞ 全員反省中 ＞ 全体 ＞ 撃破 ＞ 前置き ＞ 個別 ＞ 進行 ＞ 平時', order.every((k, i) => i === 0 || priority(order[i - 1]) > priority(k)), order.map(priority));
+  ok('決着・試合後は同じ', ['rev_good', 'mvp_kill', 'close'].every((k) => priority(k) === priority('end_boss')));
+  ok('決着 ＞ 全員反省中 ＞ 全体 ＞ 撃破 ＞ 前置き ＞ 個別 ＞ 進行 ＞ つなぎ', order.every((k, i) => i === 0 || priority(order[i - 1]) > priority(k)), order.map(priority));
   ok('接敵・合流・連続・盤面は前置きと同じ', ['engage_1', 'join', 'multi', 'board_diff'].every((k) => priority(k) === priority('pre_start')));
   ok('まとめは撃破と同じ、追跡は個別と同じ', priority('sum_double') === priority('kill_normal') && priority('chase_start') === priority('play_dodge'));
 }
@@ -486,14 +600,15 @@ console.log('--- 台本・部品');
 {
   ok('パターンの分解', JSON.stringify(tokens('[A]と[B]、接敵！')) === JSON.stringify(['[A]', 'と', '[B]', '、接敵！']));
   const c = clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } });
-  ok('読みは台本、字幕は chars.json の名前・chars.ts の技名', c.map((x) => x.text).join('|') === '花丸|の|てんきょうけん|が|めたん|を捉えた！' && c.map((x) => x.sub).join('') === '満別花丸の巨大拳飛ばしが四国めたんを捉えた！', c);
+  ok('読みは台本、字幕は chars.json の名前・chars.ts の技名。名前類の直後の助詞は名前の部品にくっつける', c.map((x) => x.text).join('|') === '花丸の|てんきょうけんが|めたんを|捉えた！' && c.map((x) => x.sub).join('') === '満別花丸の巨大拳飛ばしが四国めたんを捉えた！', c);
   const old = CHARS.hanamaru.skill.name;
   CHARS.hanamaru.skill.name = 'テスト拳';
-  ok('chars.ts の技名を変えると字幕が追従し、生成スクリプトは食い違いを警告', clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } }).some((x) => x.sub === 'テスト拳') && nameDrift().some((w) => w.includes('テスト拳')));
+  ok('chars.ts の技名を変えると字幕が追従し、生成スクリプトは食い違いを警告', clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } }).some((x) => x.sub.startsWith('テスト拳')) && nameDrift().some((w) => w.includes('テスト拳')));
   CHARS.hanamaru.skill.name = old;
   ok('今の定義と台本の名前は一致', nameDrift().length === 0, nameDrift());
   const p = clips({ k: 'pre_start', p: 1, a: { 場所: 'library_R' } });
-  ok('陣営側の部屋は「[組]側の[部屋]」', p.map((x) => x.sub).join('') === 'みどり組側の図書室に注目です！', p.map((x) => x.sub).join(''));
+  ok('陣営側の部屋は「[組]側の[部屋]」（1つの部品。助詞もくっつける）', p.map((x) => x.sub).join('') === 'みどり組側の図書室に注目です！' && p[0].text === 'みどり組側の図書室に', p);
+  ok('名前＋助詞の部品は台本の組み合わせから全部作る', ['花丸が', 'めたんを', 'だいだい組の', 'ずんだもんは', '玄野武宏の'].every((t) => allTexts().includes(t)));
   ok('数は0〜20（徳は四捨五入）', clips({ k: 'idle_toku', p: 0, a: { 組: [0, 1], n: 5.5, m: 4.4 } }).map((x) => x.sub).join('') === '徳の状況です。だいだい組6、みどり組4！');
   ok('全パターンの部品が台本にある', Object.keys(SCRIPT.lines).every((k) => (SCRIPT.lines as any)[k].length > 0) && allTexts().length > 0);
   ok('助っ人の字幕は config の名前', clips({ k: 'play_rampage', p: 0, a: { 助っ人: 'kurono' } })[0].sub === C.ASSIST.units.kurono.name);
