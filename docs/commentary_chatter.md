@@ -168,8 +168,46 @@
 | 9 | ひまりはボイボ寮の3期生。玄野武宏さんや九州そらさんと同期です | ピ |
 | 10 | ひまりは、ホワイトカルのことを「ゆきちゃん」と呼んでいます | 公 |
 
+## itako（東北イタコ）
+| # | セリフ | 出典 |
+|---|---|---|
+| 1 | イタコは、東北三姉妹の長女です | 公 |
+| 2 | イタコは、イタコ専門学校を首席で卒業した才能の持ち主です | 公・ニ |
+| 3 | ただし、本来のイタコ能力はイマイチなんだとか | 公 |
+| 4 | イタコは「ですわ」口調。霊を呼ぶときは、語尾に「にゃあ」が付きます | 公・ニ |
+| 5 | その「にゃあ」、もとは{取り憑いている|とりついている}狐、NHKへの仕返しで始めたそうです | ニ |
+| 6 | イタコのキツネ耳は本物。NHKという狐に取り憑かれています | ニ |
+| 7 | イタコの夢は、体の中の九尾の狐の力を、完全に取り戻すことです | ニ |
+| 8 | イタコの趣味は、ずん子のプロデュースです | 公 |
+| 9 | ずん子の写真集ばかり作るので、イタコはいつも懐が寂しいそうです | ニ |
+| 10 | イタコの誕生日は6月24日、身長は160センチ、19歳です | 公 |
+| 11 | イタコは、ずん子を「ずんちゃん」、きりたんを「きりちゃん」と呼んでいます | 公 |
+| 12 | そのきりたんからは、「タコねえさま」と呼ばれることもあるとか | 公 |
+| 13 | イタコは年に一度、一日イタコ署長として、山の{神社|じんじゃ}で霊の相談を受けているそうです | ニ |
+| 14 | イタコの必殺技は、口寄せです | 公 |
+
+## yurei（ユーレイちゃん）
+| # | セリフ | 出典 |
+|---|---|---|
+| 1 | ユーレイちゃんの能力は、浮遊と壁抜け。この試合でも壁をすり抜けていきます | ニ |
+| 2 | ユーレイちゃんは、「ネットができるタイプの幽霊」を自称しています | ニ |
+| 3 | ユーレイちゃんは、ユーステラのオリジナルキャラ第一号。初代のTwitter広報でした | ニ |
+| 4 | 二代目の広報は、相棒のツクモちゃんです | ニ |
+| 5 | ツクモちゃんは、ユーレイちゃんを守ると自称する{付喪神|つくもがみ}なんだとか | ニ |
+| 6 | ユーレイちゃんの嫌いなものは、ツクモにお菓子を食べられること、いびき、それに強制です | ニ |
+| 7 | ユーレイちゃんの好きなものは、ゲーム、読書、添い寝、大福。クレープも好きだそうです | ニ・公 |
+| 8 | ユーレイちゃんの特技は、部屋の掃除に裁縫、それに料理。職歴はメイドです | ニ・公 |
+| 9 | ユーレイちゃんの出身地は、「ユーレイアパート……ユーレイ屋敷？どっちでも{良いか|いいか}」だそうです | ニ |
+| 10 | ユーレイちゃんの挨拶は、「おはユーレイ」です | ニ |
+| 11 | ユーレイちゃんの年齢は、いつしか考えるのをやめたとか。自分の年齢すら覚えていない地縛霊です | 公 |
+| 12 | ユーレイちゃんは、見ようと思わなければ見えず、声も聞こえないそうです | 公 |
+| 13 | ユーレイちゃんの英語の愛称は、{U-ray Chan|ユーレイちゃん}と書きます | ニ |
+| 14 | VRのブロック崩しでは、ブロックを全部消すと、ユーレイちゃんが現れるんですよ | ニ |
+| 15 | ユーレイちゃんの本名は、雛菊ルミといいます | 公 |
+| 16 | ユーレイちゃんは、めたんのことを「くめたん」、ずんだもんのことを「ずんずん」と呼んでいます | 公 |
+
 ## 出典URL
-- 公：https://voicevox.hiroshiba.jp/dormitory/manbetsu_hanamaru/ ・/calls/、https://voicevox.hiroshiba.jp/dormitory/white_cul/ 、https://www.whitecul.com/ 、https://voicevox.hiroshiba.jp/dormitory/sayo/ 、https://voicevox.hiroshiba.jp/product/sayo/ 、https://voicevox.hiroshiba.jp/dormitory/shikoku_metan/ ・/calls/、https://zunko.jp/ 、https://zunko.jp/news/upv4j0-p347.html 、https://voicevox.hiroshiba.jp/dormitory/mochikosan/calls/ 、https://voicevox.hiroshiba.jp/dormitory/tohoku_zunko/calls/ 、https://voicevox.hiroshiba.jp/dormitory/meimei_himari/ ・/calls/
+- 公：https://voicevox.hiroshiba.jp/dormitory/manbetsu_hanamaru/ ・/calls/、https://voicevox.hiroshiba.jp/dormitory/white_cul/ 、https://www.whitecul.com/ 、https://voicevox.hiroshiba.jp/dormitory/sayo/ 、https://voicevox.hiroshiba.jp/product/sayo/ 、https://voicevox.hiroshiba.jp/dormitory/shikoku_metan/ ・/calls/、https://zunko.jp/ 、https://zunko.jp/news/upv4j0-p347.html 、https://voicevox.hiroshiba.jp/dormitory/mochikosan/calls/ 、https://voicevox.hiroshiba.jp/dormitory/tohoku_zunko/calls/ 、https://voicevox.hiroshiba.jp/dormitory/meimei_himari/ ・/calls/、https://voicevox.hiroshiba.jp/dormitory/tohoku_itako/ ・/calls/、https://voicevox.hiroshiba.jp/product/tohoku_itako/ 、https://voicevox.hiroshiba.jp/dormitory/yureichan/ ・/calls/、https://voicevox.hiroshiba.jp/product/yureichan/ 、https://u-stella.co.jp/u-rey-profile/
 - ピ：https://dic.pixiv.net/a/VOICEVOX 、https://dic.pixiv.net/a/WhiteCUL 、https://dic.pixiv.net/a/猫使アル 、https://dic.pixiv.net/a/猫使ビィ 、https://dic.pixiv.net/a/あいえるたん 、https://dic.pixiv.net/a/東北ずん子 、https://dic.pixiv.net/a/東北きりたん 、https://dic.pixiv.net/a/冥鳴ひまり
-- ニ：https://dic.nicovideo.jp/a/満別花丸 、https://dic.nicovideo.jp/a/whitecul 、https://dic.nicovideo.jp/a/小夜/sayo 、https://dic.nicovideo.jp/a/四国めたん 、https://dic.nicovideo.jp/a/模型娘のもち子さん 、https://dic.nicovideo.jp/a/猫使アル&ビィ 、https://dic.nicovideo.jp/t/a/あいえるたん 、https://dic.nicovideo.jp/a/東北きりたん 、https://dic.nicovideo.jp/a/冥鳴ひまり
+- ニ：https://dic.nicovideo.jp/a/満別花丸 、https://dic.nicovideo.jp/a/whitecul 、https://dic.nicovideo.jp/a/小夜/sayo 、https://dic.nicovideo.jp/a/四国めたん 、https://dic.nicovideo.jp/a/模型娘のもち子さん 、https://dic.nicovideo.jp/a/猫使アル&ビィ 、https://dic.nicovideo.jp/t/a/あいえるたん 、https://dic.nicovideo.jp/a/東北きりたん 、https://dic.nicovideo.jp/a/冥鳴ひまり 、https://dic.nicovideo.jp/a/東北イタコ 、https://dic.nicovideo.jp/a/雛菊ルミ
 - ア：https://w.atwiki.jp/aniwotawiki/pages/36471.html（東北ずん子）、https://w.atwiki.jp/aniwotawiki/pages/36455.html（ずんだもん）、https://w.atwiki.jp/aniwotawiki/pages/36465.html（東北きりたん）
