@@ -1,3 +1,4 @@
 match seed=1 teams=[["hanamaru","whitecul","sayo","metan"],["mochiko","aru","bii","ierutan"]] lines=120 sha256=da95584e480ba417b4aec91acd50f55a2788dcb563159d40b39cea12679aec39
 match seed=2 teams=[["zunko","kiritan","himari","aru"],["hanamaru","whitecul","sayo","metan"]] lines=120 sha256=aec4f3f8cc0783e3e100aeb9f751d0e73d04bff4bd0029df534ea7e22b7ea0ab
-all sha256=333af3d8a816ea0b3525127734944d17c378280427f568d978edbf468afde868
+match seed=3 teams=[["itako","yurei","mochiko","bii"],["ierutan","zunko","itako","yurei"]] lines=120 sha256=db40ac172c5b1cccb53e5d80634b9e82c24d9c1af96e7c62acc50839a1fc14ba
+all sha256=3970b1e17612b54e46cc53a4dd2eded4c5c454f156d2e6c20755682aaee82903

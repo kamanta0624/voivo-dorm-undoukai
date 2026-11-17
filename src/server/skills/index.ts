@@ -12,6 +12,8 @@ import ierutan from './ierutan';
 import zunko from './zunko';
 import kiritan from './kiritan';
 import himari from './himari';
+import itako from './itako';
+import yurei from './yurei';
 
 // 場の物の種類: update=毎tick（種類ごとにこの表の順で全部の物を更新）、fog=敵の視界の外では送らない
 export type EntKind = { update(room: GameRoom, e: Ent, dt: number): void; fog: boolean };
@@ -28,7 +30,7 @@ export type Skill = {
 };
 
 // 並び順＝状態の移動倍率を掛ける順・場の物を更新する順（変えると挙動が変わる）
-const MODS: Record<string, Skill> = { hanamaru, whitecul, sayo, metan, mochiko, aru, bii, ierutan, zunko, kiritan, himari };
+const MODS: Record<string, Skill> = { hanamaru, whitecul, sayo, metan, mochiko, aru, bii, ierutan, zunko, kiritan, himari, itako, yurei };
 export const SKILLS = MODS;
 export const STATUS_ORDER = Object.values(MODS).flatMap((m) => m.statuses ?? []);
 export const ENTS: Record<string, EntKind> = Object.assign({}, ...Object.values(MODS).map((m) => m.ents ?? {}));

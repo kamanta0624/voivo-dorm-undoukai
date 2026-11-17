@@ -13,7 +13,9 @@
       "ierutan": { "name": "あいえるたん", "yomi": "あいえるたん" },
       "zunko": { "name": "東北ずん子", "yomi": "ずん子" },
       "kiritan": { "name": "東北きりたん", "yomi": "きりたん" },
-      "himari": { "name": "冥鳴ひまり", "yomi": "ひまり" }
+      "himari": { "name": "冥鳴ひまり", "yomi": "ひまり" },
+      "itako": { "name": "東北イタコ", "yomi": "イタコ" },
+      "yurei": { "name": "ユーレイちゃん", "yomi": "ユーレイちゃん" }
     },
     "team": {
       "midori": "みどり組", "daidai": "だいだい組", "murasaki": "むらさき組", "shiro": "しろ組",
@@ -39,7 +41,9 @@
       "ierutan": { "name": "加速", "yomi": "かそく" },
       "zunko": { "name": "ずんだアロー", "yomi": "ずんだアロー" },
       "kiritan": { "name": "全弾斉射", "yomi": "ぜんだんせいしゃ" },
-      "himari": { "name": "死神の鎌", "yomi": "しにがみのかま" }
+      "himari": { "name": "死神の鎌", "yomi": "しにがみのかま" },
+      "itako": { "name": "狐火", "yomi": "きつねび" },
+      "yurei": { "name": "エンマビーム", "yomi": "えんまびーむ" }
     },
     "side": "側の",
     "place": {

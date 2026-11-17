@@ -7,10 +7,11 @@ import { GameRoom } from '../src/server/GameRoom';
 
 const FILE = 'verify/golden.txt';
 const SEC = 120, DT = 0.05;
-// プレイアブル11キャラ全員が出る編成（2試合目は1試合目の陣営0を陣営1へ入れ替え、残りの3キャラを加える）
+// プレイアブル全員が出る編成（2試合目は1試合目の陣営0を陣営1へ入れ替え、残りの3キャラを加える。3試合目はイタコ・ユーレイちゃん）
 const MATCHES = [
   { seed: 1, teams: [['hanamaru', 'whitecul', 'sayo', 'metan'], ['mochiko', 'aru', 'bii', 'ierutan']] },
   { seed: 2, teams: [['zunko', 'kiritan', 'himari', 'aru'], ['hanamaru', 'whitecul', 'sayo', 'metan']] },
+  { seed: 3, teams: [['itako', 'yurei', 'mochiko', 'bii'], ['ierutan', 'zunko', 'itako', 'yurei']] }, // イタコ・ユーレイちゃん（2026-11-17 追加）
 ];
 
 // mulberry32

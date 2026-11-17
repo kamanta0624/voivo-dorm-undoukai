@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery } from '../src/server/GameRoom';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
-import { CHARS, visionRadius } from '../src/shared/chars';
+import { CHARS, visionRadius, moveWalls, charAtk } from '../src/shared/chars';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
 import { stepPlayer } from '../src/shared/netcode';
@@ -1138,7 +1138,7 @@ console.log('--- 猫使ビィ（再現江湖）');
 
 console.log('--- もち子（ホバー）・ずん子');
 {
-  ok('もち子の歩行タイプはホバー', CHARS.mochiko.walk === 'hover' && Object.entries(CHARS).every(([k, c]) => k === 'mochiko' || c.walk === 'normal'));
+  ok('もち子・ユーレイちゃんの歩行タイプはホバー（ほかは normal）', CHARS.mochiko.walk === 'hover' && CHARS.yurei.walk === 'hover' && Object.entries(CHARS).every(([k, c]) => k === 'mochiko' || k === 'yurei' || c.walk === 'normal'));
   ok('ずんだアローの CT は旧の2/3（18→12秒）', Math.abs(CHARS.zunko.skill.ct - (18 * 2) / 3) < 1e-9);
 }
 
@@ -1335,6 +1335,111 @@ console.log('--- 撃破の演出（視界の維持・敵への送信）');
   // リコール: 元いた場所に瞬間移動の跡
   const rc = mk('sayo'); const from = { x: rc.A.x, y: rc.A.y }; rc.A.recallAt = rc.r.now - C.RECALL_HOLD; rc.r.updatePlayers(0.05);
   ok('リコール: 元いた場所に瞬間移動の跡のエフェクト', rc.r.fx.some((f: any) => f.kind === 'recall' && f.x === from.x && f.y === from.y) && inRoom(rc.A, C.RECALL_ROOMS[0]));
+}
+
+console.log('--- 東北イタコ（通常攻撃・狐火）');
+{
+  const S = CHARS.itako.skill, M = CHARS.itako.aa[0];
+  const tick = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); z.r.updateShots(0.05); z.r.updateEnts(0.05); } };
+  const dealt = (ch: string) => { const z = mk(ch, 'sayo'); z.B.hp = 9999; z.A.tgt = null; z.r.attack('a'); return { d: 9999 - z.B.hp, cd: z.A.cooldownUntil - z.r.now, fx: z.r.fx.find((f: any) => f.kind === 'slash') }; };
+  const it = dealt('itako'), hm = dealt('hanamaru'); // 同じ balance・近接の花丸と比べる
+  ok(`通常攻撃: 間隔は半分（${it.cd}秒）、1発は半分（${it.d} / 花丸 ${hm.d}）、エフェクトはキツネ（color ${it.fx?.color}）`, it.cd === hm.cd / 2 && M.dmg === 0.5 && it.d === Math.round(charAtk('itako') * 0.5 * C.DAMAGE_MULT) && it.fx?.color === 'kitsune' && !hm.fx?.color, { it, hm });
+  // 展開: n 個が半径 r の円周に並び、時計回りに回る。CT はまだ
+  const z = mk('itako', 'sayo'); Object.assign(z.B, { x: 1552 + 300, hp: 9999 }); const ready0 = z.A.skillReadyAt; z.r.skill('a');
+  const fb = () => ents(z.r, 'foxfire');
+  const a0 = fb().map((e: any) => e.ang); tick(z, 0.1); const a1 = fb().map((e: any) => e.ang);
+  ok(`狐火: ${S.n}個が半径${S.r}の円周に出て時計回りに回る（CT はまだ）`, fb().length === S.n && fb().every((e: any) => Math.abs(Math.hypot(e.x - z.A.x, e.y - z.A.y) - S.r) < 1e-6) && a1.every((v: number, i: number) => Math.abs(v - a0[i] - S.spin * 0.1) < 1e-6) && z.A.skillReadyAt === ready0);
+  // 回っている火の玉に触れた敵はダメージ、火の玉は消えない。同じ火の玉は rehit 秒おき
+  const c = mk('itako', 'sayo'); Object.assign(c.B, { x: 1552 + S.r, y: 900, hp: 9999 }); c.r.skill('a'); let hits = 0, last = c.B.hp;
+  for (let i = 0; i < 40; i++) { c.r.now += 0.05; c.r.updateEnts(0.05); if (c.B.hp < last) { hits++; last = c.B.hp; } }
+  ok(`回る火の玉に触れた敵にダメージ（2秒で${hits}回）、当たっても消えない`, hits > 0 && ents(c.r, 'foxfire').length === S.n && c.B.hp < 9999, { hits });
+  // 時間切れで消え、CT はそこから
+  const e = mk('itako', 'sayo'); Object.assign(e.B, { x: 1552 + 300 }); e.r.skill('a'); tick(e, S.dur + 0.1);
+  ok(`${S.dur}秒で消え、CT は時間切れから`, ents(e.r, 'foxfire').length === 0 && Math.abs(e.A.skillReadyAt - (S.dur + S.ct)) <= 0.1 + 1e-9, { ready: e.A.skillReadyAt });
+  // 再発動: 範囲内に敵がいなければ何もしない
+  const n = mk('itako', 'sayo'); Object.assign(n.B, { x: 1552 + S.range + 100 }); n.r.skill('a'); n.r.skill('a');
+  ok('再発動: 範囲内に敵がいなければ何もしない（回り続け、CT はまだ）', ents(n.r, 'foxfire').every((f: any) => f.mode === 'orbit') && n.A.skillReadyAt <= n.r.now);
+  // 再発動: 最寄りの敵へ。標的の方向を12時とした9時の位置で円から離れ、ホーミングで命中して消える
+  const h = mk('itako', 'sayo'); h.r.addPlayer('c', 1, false); const far = h.r.players.get('c'); Object.assign(far, { x: 1552 + 220, y: 900, char: 'sayo', hp: 9999 }); far.st.test = NOAUTO();
+  Object.assign(h.B, { x: 1552 + 150, y: 900, hp: 9999 }); h.r.skill('a'); tick(h, 0.2); h.r.skill('a');
+  ok('再発動で全弾が最寄りの敵を標的にし、CT はここから', ents(h.r, 'foxfire').every((f: any) => f.tgt === 'p:b') && Math.abs(h.A.skillReadyAt - (h.r.now + S.ct)) < 1e-9);
+  const leave: number[][] = []; const seen = new Set<number>();
+  for (let i = 0; i < 80; i++) { h.r.now += 0.05; h.r.updateEnts(0.05); for (const f of ents(h.r, 'foxfire')) if (f.mode === 'home' && !seen.has(f.id)) { seen.add(f.id); leave.push([f.ang, f.y]); } }
+  const want9 = -Math.PI / 2; // 標的は真右（0）→ 9時は真上
+  ok(`各火の玉は9時（標的が右なら真上）で離れ、順に標的へ飛んで命中して消える（${seen.size}個）`, seen.size === S.n && leave.every(([a]) => Math.abs(Math.atan2(Math.sin(a - want9), Math.cos(a - want9))) < 1e-9) && ents(h.r, 'foxfire').length === 0 && 9999 - h.B.hp === S.n * Math.round(S.homeDmg * C.DAMAGE_MULT) && far.hp === 9999, { leave, dmg: 9999 - h.B.hp });
+  // 飛行中に標的が倒れたら、そのまま直進して寿命・壁で消える
+  const l = mk('itako', 'sayo'); Object.assign(l.B, { x: 1552 + 200, hp: 9999 }); l.r.skill('a'); l.r.skill('a'); for (let i = 0; i < 20; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
+  l.B.alive = false; const homing = ents(l.r, 'foxfire').filter((f: any) => f.mode === 'home').length; for (let i = 0; i < 80; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
+  ok('飛行中に標的が倒れたら直進して寿命・壁で消える（離れる前の火の玉は消える）', homing > 0 && ents(l.r, 'foxfire').length === 0);
+  // Bot: 近くに敵がいれば展開し、円の外の敵へ撃ち出す
+  const bt = mk('itako', 'sayo'); bt.A.bot = true; bt.A.aim = C.BOT_AIM; Object.assign(bt.B, { x: 1552 + 60, hp: 1e9 });
+  let deployed = false, launched = false;
+  for (let i = 0; i < 200 && !launched; i++) { bt.r.now += 0.05; bt.r.updateBots(); bt.r.updatePlayers(0.05); bt.r.updateEnts(0.05); deployed ||= ents(bt.r, 'foxfire').length > 0; launched = ents(bt.r, 'foxfire').some((f: any) => f.mode !== 'orbit'); if (deployed && i === 40) Object.assign(bt.B, { x: bt.A.x + 180, y: bt.A.y }); }
+  ok('Bot: 敵が近いと狐火を展開し、円の外の敵へ撃ち出す', deployed && launched);
+}
+
+console.log('--- ユーレイちゃん（壁すり抜け・エンマビーム）');
+{
+  const S = CHARS.yurei.skill;
+  ok(`通常攻撃の間隔は2倍（${CHARS.yurei.aa[0].cd}秒）、威力は普通（倍率${CHARS.yurei.aa[0].dmg}）`, CHARS.yurei.aa[0].cd === C.ATTACK_COOLDOWN_MELEE * 2 && CHARS.yurei.aa[0].dmg === 1);
+  const walk = (ch: string, x: number, y: number, dx: number, dy: number, sec: number) => {
+    const z = mk(ch); Object.assign(z.A, { x, y });
+    for (let i = 0; i < Math.round(sec / C.NET_STEP); i++) { z.A.inputs.push({ seq: i + 1, dx, dy }); z.r.now += C.NET_STEP; z.r.updatePlayers(C.NET_STEP); z.r.unstick(); }
+    return z;
+  };
+  // study の東壁（x=27タイル、外周ではない）へ東へ歩く
+  const g = walk('yurei', 400, 150, 1, 0, 1.5), s = walk('sayo', 400, 150, 1, 0, 1.5);
+  ok('壊せる壁（study の東壁）をすり抜ける。ほかのキャラは止まる', tileAt(g.r, 432, 150) === '#' && g.A.x > 28 * T + C.PLAYER_RADIUS && s.A.x < 27 * T, { yurei: g.A.x, sayo: s.A.x });
+  // 外周（study の北壁）は通れない
+  const o = walk('yurei', 400, 150, 0, -1, 2);
+  ok('外周の壁（study の北壁）は通れない', o.A.y >= 3 * T && !moveWalls('yurei', o.r.walls).some((w: any) => circleBody(o.A.x, o.A.y, C.PLAYER_RADIUS, w)), { y: o.A.y });
+  // クライアントの予測と同じ計算（共通の stepPlayer に同じ壁）
+  let px = 400, py = 150; for (let i = 0; i < Math.round(1.5 / C.NET_STEP); i++) ({ x: px, y: py } = stepPlayer(px, py, 1, 0, g.r.speedOf(g.A), moveWalls('yurei', C.WALLS)));
+  ok('クライアントの予測（stepPlayer＋moveWalls）とサーバーの位置が一致', Math.abs(px - g.A.x) < 1e-9 && Math.abs(py - g.A.y) < 1e-9, { px, sx: g.A.x });
+  ok('ほかのキャラの移動の壁は変わらない（moveWalls は ghost だけ外周）', moveWalls('sayo', C.WALLS) === C.WALLS && moveWalls(undefined, C.WALLS) === C.WALLS && moveWalls('yurei', C.WALLS) !== C.WALLS);
+  // Bot の経路: 壁を抜ける
+  const pb = mk('yurei'); pb.A.bot = true; Object.assign(pb.A, { x: 400, y: 150 }); pb.r.botGoto(pb.A, { x: 480, y: 150 }, pb.r.obstacles());
+  const ps = mk('sayo'); ps.A.bot = true; Object.assign(ps.A, { x: 400, y: 150 }); ps.r.botGoto(ps.A, { x: 480, y: 150 }, ps.r.obstacles());
+  const plen = (p: any) => p.path.reduce((a: number, q: any, i: number, arr: any[]) => a + Math.hypot(q.x - (i ? arr[i - 1].x : p.x), q.y - (i ? arr[i - 1].y : p.y)), 0);
+  ok(`Bot の経路は壁を抜ける（${plen(pb.A).toFixed(0)}px、ほかのキャラは回り道 ${plen(ps.A).toFixed(0)}px）`, plen(pb.A) < 100 && plen(ps.A) > 200);
+  // エンマビーム: ダメージは悪行に比例、指名手配中は即死
+  const beam = (bad: number, wanted = false) => {
+    const z = mk('yurei', 'sayo'); Object.assign(z.B, { x: 1552 + 150, hp: 9999, bad });
+    if (wanted) { z.B.hp = z.r.maxHp(z.B); z.r.updateWanted(); }
+    z.r.skill('a'); for (let i = 0; i < 20; i++) { z.r.now += 0.05; z.r.updateEnts(0.05); }
+    return { d: (wanted ? z.r.maxHp(z.B) : 9999) - z.B.hp, alive: z.B.alive, left: ents(z.r, 'enma').length };
+  };
+  const b0 = beam(0), bh = beam(C.WANTED_MIN / 2), bm = beam(C.WANTED_MIN - 0.01), bw = beam(C.WANTED_MIN, true);
+  ok(`エンマビーム: 悪行0で${S.minDmg}、悪行${C.WANTED_MIN / 2}で${S.maxDmg / 2}、閾値手前でほぼ${S.maxDmg}（全体の倍率込み ${b0.d}/${bh.d}/${bm.d}）、指名手配中は即死`,
+    b0.d === Math.round(S.minDmg * C.DAMAGE_MULT) && bh.d === Math.round((S.maxDmg / 2) * C.DAMAGE_MULT) && bm.d === Math.round(S.maxDmg * ((C.WANTED_MIN - 0.01) / C.WANTED_MIN) * C.DAMAGE_MULT) && !bw.alive && b0.left === 0, { b0, bh, bm, bw });
+  // 当たり判定は先頭の光弾だけ（半径 r）: 弾の通り道から少し外れた敵には当たらない
+  const side = mk('yurei', 'sayo'); Object.assign(side.B, { x: 1552 + 150, y: 900 + S.r + C.PLAYER_RADIUS + 1, hp: 9999 }); side.r.skill('a'); for (let i = 0; i < 20; i++) { side.r.now += 0.05; side.r.updateEnts(0.05); }
+  ok('当たり判定は先頭の光弾だけ（1つの場の物、半径 r）', side.B.hp === 9999);
+  // 壁で止まる
+  const w = mk('yurei', 'sayo'); Object.assign(w.A, { x: 400, y: 150 }); Object.assign(w.B, { x: 480, y: 150, hp: 9999 }); w.r.skill('a'); for (let i = 0; i < 20; i++) { w.r.now += 0.05; w.r.updateEnts(0.05); }
+  ok('エンマビームは壁で消える', w.B.hp === 9999 && ents(w.r, 'enma').length === 0);
+  // Bot: 悪行のある敵が射程内にいれば撃つ
+  const bt = mk('yurei', 'sayo'); bt.A.bot = true; Object.assign(bt.B, { x: 1552 + 150, bad: 1 }); const bt0 = mk('yurei', 'sayo'); bt0.A.bot = true; Object.assign(bt0.B, { x: 1552 + 150, bad: 0 });
+  ok('Bot: 悪行のある敵が射程内にいれば撃つ（悪行0の敵には撃たない）', SKILLS.yurei.botUse(bt.r, bt.A) && !SKILLS.yurei.botUse(bt0.r, bt0.A));
+}
+
+console.log('--- イタコ・ユーレイちゃんの Bot 戦');
+{
+  const r: any = new (GameRoom as any)();
+  r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
+  Object.defineProperty(r, 'clients', { value: [] });
+  r.onCreate(); r.notice = () => {};
+  [['itako', 'yurei', 'sayo', 'metan'], ['yurei', 'itako', 'zunko', 'aru']].forEach((list, team) => list.forEach((ch, i) => { r.addPlayer(`g${team}${i}`, team, true).char = ch; }));
+  r.startMatch();
+  let fox = 0, home = 0, enma = 0, inWall = 0;
+  const seenE = new Set<number>();
+  for (let i = 0; r.phase !== 'ended' && i < 20 * 400; i++) {
+    r.tick(0.05, false);
+    for (const e of r.ents) if (!seenE.has(e.id)) { seenE.add(e.id); if (e.kind === 'foxfire') fox++; if (e.kind === 'enma') enma++; }
+    if (r.ents.some((e: any) => e.kind === 'foxfire' && e.mode === 'home')) home++;
+    for (const p of r.players.values()) if (p.char === 'yurei' && p.alive && r.tiles[Math.floor(p.y / T)]?.[Math.floor(p.x / T)] === '#') inWall++;
+  }
+  ok(`Bot 戦が最後まで動き（${r.phase}）、狐火の展開・撃ち出し・エンマビーム・ユーレイちゃんの壁抜けが起きる`, r.phase === 'ended' && fox > 0 && home > 0 && enma > 0 && inWall > 0, { fox, home, enma, inWall, phase: r.phase });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

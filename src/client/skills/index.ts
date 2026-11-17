@@ -11,6 +11,8 @@ import bii from './bii';
 import himari from './himari';
 import whitecul from './whitecul';
 import metan from './metan';
+import itako from './itako';
+import yurei from './yurei';
 
 type G = Phaser.GameObjects.Graphics;
 // 状態の描画。v: サーバーが送った描画用の値（なければ true）
@@ -36,7 +38,7 @@ export type ClientSkill = {
 };
 
 // 並び順＝描画の重なり順（先に描いたものが下）
-const MODS: Record<string, ClientSkill> = { zunko, ierutan, sayo, kiritan, aru, mochiko, hanamaru, bii, himari, whitecul, metan };
+const MODS: Record<string, ClientSkill> = { zunko, ierutan, sayo, kiritan, aru, mochiko, hanamaru, bii, himari, whitecul, metan, itako, yurei };
 export const CLIENT_SKILLS = Object.values(MODS);
 export const STATUS_VIEW: Record<string, StatusView> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.status ?? {}));
 export const ENT_VIEW: Record<string, EntView> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.ents ?? {}));

@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { Client, Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
-import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf, charStats } from '../shared/chars';
+import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
@@ -570,7 +570,7 @@ class GameScene extends Phaser.Scene {
 
   // 自キャラの移動予測に使う障害物（カウント中と終了後は部屋の外へ出られない）
   obstacles(s: any, m: any) {
-    return [...this.walls, ...(m?.cage ? cage(m.cage) : [])];
+    return [...moveWalls(m?.char, this.walls), ...(m?.cage ? cage(m.cage) : [])];
   }
 
   // スロットの当たり・連チャンのカットイン（両陣営）: 当てた陣営と連チャン数、払い出し
@@ -1071,7 +1071,7 @@ class GameScene extends Phaser.Scene {
     // 技の範囲エフェクト
     for (const f of this.fxQueue) {
       const dv = `${f.d > 0 ? '+' : '−'}${Math.abs(f.d).toFixed(2).replace(/0$/, '')}`;
-      if (f.kind === 'slash' || f.kind === 'sweat') this.aaFx(f); // 通常攻撃の斬撃・汗
+      if ((f.kind === 'slash' && !(f.color && FX_VIEW[f.color])) || f.kind === 'sweat') this.aaFx(f); // 通常攻撃の斬撃・汗（color の描画があれば技の fx の層で描く）
       else if (f.kind === 'toku') this.popup(`徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）
       else this.skillFx.push({ ...f, t0: time });
     }

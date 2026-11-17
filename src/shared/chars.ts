@@ -1,16 +1,18 @@
 // キャラの性能定義（キャラ key → 定義）。素材・表示の対応表は chars.json（Python の素材生成も読む）
 // HP・移動・攻撃の実数値は書かない。共通の基本値（config.ts）× ROLES × MELEE_BONUS × mult をここの関数で算出する
-import { CONFIG as C } from './config';
+import { CONFIG as C, wallRects, Rect } from './config';
 import CHARS_JSON from './chars.json';
+import MAP from './map.json';
 
-// 通常攻撃のモード。kind: melee=前方の扇形（ATTACK_ARC）、shot=弾。dmg: ダメージ倍率。far: 対象がこれより遠い（対象なしを含む）ときだけ使う
-export type AaMode = { name: string; kind: 'melee' | 'shot'; range: number; cd: number; dmg: number; shot?: 'bullet' | 'cannon'; speed?: number; far?: number };
+// 通常攻撃のモード。kind: melee=前方の扇形（ATTACK_ARC）、shot=弾。dmg: ダメージ倍率。far: 対象がこれより遠い（対象なしを含む）ときだけ使う。fx: 近接の斬撃のエフェクトを技ごとの描画（client/skills の fx）に差し替える color
+export type AaMode = { name: string; kind: 'melee' | 'shot'; range: number; cd: number; dmg: number; shot?: 'bullet' | 'cannon'; speed?: number; far?: number; fx?: string };
 export type CharDef = {
   role?: string; // ROLES の key（なし可）
   walk: 'normal' | 'hover'; // 歩行タイプ。normal=歩きの2コマを交互、hover=移動中は歩きの1コマ目で固定
   aa: AaMode[]; // 通常攻撃のモード（使えるもののうち最後のものを使う）
   mult: { speed?: number }; // キャラ固有の倍率
   melee: boolean; // 近接補正（MELEE_BONUS）の対象
+  ghost?: boolean; // 壊せる壁をすり抜けて移動する（外周の壁だけ当たる。弾・視界・他キャラは変わらない）
   toku: number; // 徳の初期値の補正（陣営の全員分を足す）
   skill: { name: string; ct: number; [k: string]: any }; // 技（R）。ct=クールタイム(秒)、ほかは技処理（server/skills・client/skills）が使う値
 };
@@ -37,6 +39,14 @@ export const CHARS: Record<string, CharDef> = {
   // 弾道（3種を順に）: straight=直進して追う、spread=左右へゆっくり展開（spreadT 秒、spreadSpeed）→加速（accel）して目標へ、brake=前方／後方へ偏差的に速く飛ぶ（leadT 秒、leadSpeed、leadAngle）→急制動（brakeT 秒）→目標へ。速さの上限 maxSpeed、life 秒で消える、弾の半径 r
   // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中は対象が範囲に入ると自動で鎌（前方 range・arc、dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
   himari: def({ role: 'attacker', skill: { name: '死神の鎌', ct: 12, dur: 5, range: 60, arc: Math.PI / 2, dmg: 999, bossDmg: 30, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
+  // 東北イタコ: 通常攻撃はキツネ（狐火の見た目）。間隔は半分、1発は半分
+  // 狐火: 自分中心の半径 r の円周に n 個の火の玉を出し、時計回りに spin(ラジアン/秒) で回す（dur 秒で消える）。触れた敵に dmg、同じ相手には rehit 秒おき。ballR: 火の玉の半径
+  // 展開中に再発動: 射程 range 内の最寄りの敵を標的に、各火の玉は標的の方向を12時とした9時の位置で円から離れ、homeSpeed(px/秒)・旋回 turn(ラジアン/秒) で追う。命中で homeDmg を与えて消える。life 秒・壁で消える。CT は再発動（または時間切れ）から
+  itako: def({ role: 'balance', aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE / 2, dmg: 0.5, fx: 'kitsune' }], skill: { name: '狐火', ct: 8, n: 5, r: 50, spin: 3, dur: 6, ballR: 8, dmg: 8, rehit: 0.5, range: 260, homeSpeed: 360, turn: 6, homeDmg: 15, life: 3 } }),
+  // ユーレイちゃん: 足がなく浮遊（hover）。壊せる壁をすり抜ける（ghost）。通常攻撃の間隔は2倍
+  // エンマビーム: 光弾が螺旋を描きながら直進（speed px/秒、range px、壁で消える）。当たり判定は先頭の光弾（半径 r）だけ。プレイヤーへのダメージは悪行量に比例（悪行0で minDmg、WANTED_MIN 手前で maxDmg、指名手配中は即死 killDmg）。大将・場の物には minDmg
+  // 見た目: 光弾 orbs 個、螺旋の半径 spiralR・1周の長さ spiralLen(px)
+  yurei: def({ role: 'support', walk: 'hover', ghost: true, aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE * 2 }], skill: { name: 'エンマビーム', ct: 10, speed: 420, range: 320, r: 8, minDmg: 1, maxDmg: 50, killDmg: 999, orbs: 4, spiralR: 6, spiralLen: 40 } }),
   kiritan: def({
     melee: false, mult: { speed: 0.8 },
     aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 260, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.7, shot: 'cannon', speed: 300, far: 60 }],
@@ -77,6 +87,9 @@ export const charAtk = (char: string) => {
   if (melee(char)) dmg *= C.MELEE_BONUS.atk;
   return dmg;
 };
+// 移動の当たり判定に使う壁。ghost のキャラは外周の壁（壊せない壁）だけ。walls: 今の壁（壁破壊で変わる）
+const OUTER_WALLS = wallRects(MAP.tiles.map((row, y) => [...row].map((c, x) => (c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' ')) ? '#' : '.')).join('')));
+export const moveWalls = (char: string | undefined, walls: Rect[]) => (CHARS[char ?? '']?.ghost ? OUTER_WALLS : walls);
 const aaOf = (char: string) => CHARS[char]?.aa ?? [MELEE];
 // 通常攻撃の射程（モードのうち一番長いもの）
 export const aaRange = (char: string) => Math.max(...aaOf(char).map((m) => m.range));

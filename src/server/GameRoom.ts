@@ -2,7 +2,7 @@ import { Room, Client } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
-import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode } from '../shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
 import { findPath } from './pathfind';
@@ -453,7 +453,7 @@ export class GameRoom extends Room {
   moveHumans() {
     for (const p of this.players.values()) {
       if (p.bot) continue;
-      const c = this.cageOf(p), obs = c && [...this.obstacles(), ...cage(c)];
+      const c = this.cageOf(p), obs = c && [...moveWalls(p.char, this.obstacles()), ...cage(c)];
       for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
         const m = p.inputs.shift()!;
         if (obs && p.alive && !this.effect(p, 'lock')) { this.setInput(p.id, m.dx, m.dy); Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), obs)); }
@@ -469,7 +469,7 @@ export class GameRoom extends Room {
       if (!p.bot || !p.alive) continue;
       this.botThink(p, obs);
       const sp = this.speedOf(p) * dt;
-      Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, [...obs, ...cage(C.START_ROOMS[p.team])]));
+      Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, [...moveWalls(p.char, obs), ...cage(C.START_ROOMS[p.team])]));
     }
   }
 
@@ -557,7 +557,7 @@ export class GameRoom extends Room {
   // 保険: 壁と重なっているキャラ・大将・ユニット扱いの場の物を最寄りの空き位置へ押し出す
   unstick() {
     const obs = this.obstacles();
-    for (const p of this.players.values()) if (p.alive) Object.assign(p, pushOut(p.x, p.y, C.PLAYER_RADIUS, obs));
+    for (const p of this.players.values()) if (p.alive) Object.assign(p, pushOut(p.x, p.y, C.PLAYER_RADIUS, moveWalls(p.char, obs)));
     for (const b of this.bosses) Object.assign(b, pushOut(b.x, b.y, C.BOSS_RADIUS, obs));
     for (const e of this.ents) if (e.body === 'unit') Object.assign(e, pushOut(e.x, e.y, e.r, obs));
   }
@@ -631,12 +631,12 @@ export class GameRoom extends Room {
         for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
           const m = p.inputs.shift()!;
           this.setInput(p.id, m.dx, m.dy);
-          if (this.now >= p.stunUntil && !locked) Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), obs));
+          if (this.now >= p.stunUntil && !locked) Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), moveWalls(p.char, obs)));
           p.ack = m.seq;
         }
       } else if (this.now >= p.stunUntil && !locked) {
         const sp = this.speedOf(p) * dt;
-        Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, obs));
+        Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, moveWalls(p.char, obs)));
       }
       SKILLS[p.char]?.afterMove?.(this, p, dt, px, py, locked);
       if (!p.assist) {
@@ -895,7 +895,7 @@ export class GameRoom extends Room {
     if (SKILLS[p.char]?.attack?.(this, p, a)) return; // 技による通常攻撃の上書き
     const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC });
     let dmg = p.assist ? C.ATTACK_DAMAGE * (roleOf(p.char)?.atk ?? 1) * C.POWER_MULT[p.tier] : charAtk(p.char);
-    let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC;
+    let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC, fx: string | undefined;
     if (p.ult && !p.ult.pending) {
       const f = C.ULT_FORMS[p.ult.form];
       dmg *= f.atk * C.POWER_MULT[p.ult.tier];
@@ -905,9 +905,9 @@ export class GameRoom extends Room {
       // 通常攻撃のモード（対象までの距離と状態で決まる）: 弾なら撃つ、近接なら前方の扇形
       const m = aaMode(p.char, p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) : null);
       if (m.kind === 'shot') { aaShot(this.shoot(p, m.shot!, a, m.range, dmg * m.dmg, m.speed)); return; }
-      dmg *= m.dmg; range = m.range;
+      dmg *= m.dmg; range = m.range; fx = m.fx;
     }
-    this.addFx(p, 'slash', { a, r: range, arc }); // 斬撃のエフェクト（向き・射程・角度）
+    this.addFx(p, 'slash', { a, r: range, arc, ...(fx && { color: fx }) }); // 斬撃のエフェクト（向き・射程・角度）。fx: 技ごとの描画に差し替える
     for (const t of this.enemyThings(p.team)) {
       if ((toC || t.k !== 'c') && this.inArc(p, t.x, t.y, t.r, a, range, arc) && this.reach(p, t)) this.hitThing(p, t, dmg, true);
     }
@@ -1356,7 +1356,7 @@ export class GameRoom extends Room {
 
   botGoto(p: Player, to: Pt, obs: Rect[]) {
     if (this.now - p.pathAt >= C.BOT_REPATH || !p.path.length) {
-      p.path = findPath(p, to, obs, this.walls);
+      p.path = findPath(p, to, moveWalls(p.char, obs), moveWalls(p.char, this.walls));
       p.pathAt = this.now;
     }
     while (p.path.length && Math.hypot(p.path[0].x - p.x, p.path[0].y - p.y) < 6) p.path.shift();

@@ -14,6 +14,8 @@
 | `src/client/skills/index.ts` | `import` と `MODS` に1つ（描画の重なり順の位置に） | 必要なら2行 | ― |
 | `tools/make_dot.py` | `CHARS`（PSDの名前の頭・脚・固有差分）と `WAIST`（腰 01/02/None）。技の見た目に追加のコマが要るときは `EYES_ONLY`（目レイヤーだけのコマ）など | 各1項目 | 必要なら1項目 |
 
+足のないキャラは make_dot.py の `CHARS` の脚を `None` にする（脚は空レイヤー `*dummy`。例: ユーレイちゃん）。
+
 追加したら素材を作る（ドット・立ち絵・map.json。システムの python3 には psd_tools・PIL がない）:
 
 ```
@@ -27,6 +29,8 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - HP・移動・攻撃の実数値は書かない。共通の基本値（config.ts）× `ROLES[role]` × `MELEE_BONUS`（`melee` のとき）× `mult` を `charHp`・`charSpeed`・`charAtk` が算出する
 - `aa`: 通常攻撃のモードの配列。使えるモードのうち最後のものを使う。`kind`: `melee`（前方の扇形）／`shot`（弾。`shot` に弾の種類、`speed` に弾速）。`dmg`: ダメージ倍率、`cd`: 間隔、`range`: 射程、`far`: 対象がこれより遠い（対象なしを含む）ときだけ使う。省略時は近接1モード
 - `walk`: `'normal'`（歩きの2コマを交互）／`'hover'`（移動中は歩きの1コマ目で固定、止まると棒立ち）
+- `aa` の `fx`: 近接の通常攻撃の斬撃を、client/skills の `fx.<fx>` の描画に差し替える（判定は変わらない。例: イタコのキツネ `kitsune`）
+- `ghost: true`: 壊せる壁をすり抜けて移動する（移動の壁が外周だけになる）。共通処理は `moveWalls(char, walls)` で移動の壁を引く（サーバーの移動・押し出し・Bot の経路探索、クライアントの移動予測）。弾・視界・他キャラは変わらない
 - `skill`: `name`・`ct` は共通処理が使う（技名表示・CT）。ほかの値は自分の技処理だけが使う
 - 秒数・ダメージ・距離など技の値は `skill` に置く（技処理の中に数値を書かない）
 - 表示用ステータスは `charStats(key)` が自動で出す（閾値は `STAT_STEPS`）
@@ -85,5 +89,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - `npm run typecheck`、`npm run test:server`（技を足したら verify/server.ts に検証を足す）
 - 既存キャラの挙動を変えていないか: `npx tsx verify/golden.ts`（仕様を変えたときは `--write` で取り直す）
 - `E2E_HOOKS=1 npm run dev` で起動し、選択・技の発動を見る。e2e は `npx tsx verify/e2e.ts`
+- 新キャラは verify/golden.ts の `MATCHES` に、そのキャラを含む試合を1つ足してから `--write` する（既存の試合のハッシュが変わらないことを先に確かめる）
+- 実況: 台本（src/shared/commentary_script.json）の `parts.char`・`parts.skill` に名前と読みを足し、`npm run cm:vvproj`（VOICEVOX エンジンを起動しておく）。音声（cm:audio）は調声の後。音声のない部品は字幕だけ出る
 - `npm run share` で公開中は 2567・5173 を使わない。`GAME_PORT=2568 CLIENT_PORT=5174 E2E_HOOKS=1 npm run dev` で別ポートに起動し、e2e・スクショも `GAME_PORT=2568 CLIENT_PORT=5174 npx tsx verify/e2e.ts`（verify/lib.ts が同じ変数に従う）。止めるのは自分が起動したプロセスだけ
 - 技の判定を変えるとき: 変更前に、そのキャラを含まない編成の golden を取っておき、変更後も一致することを確かめてから verify/golden.txt を取り直す
