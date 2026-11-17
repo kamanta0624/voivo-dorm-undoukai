@@ -14,7 +14,7 @@
 ## 1. 着手前：基準を取る
 - 変更前のコードで以下を記録（同条件で後から再計測できる手順として残す）
   - 視界の計算平均：`?perf=1`、Bot戦の playing 中の一定区間（例：30秒）
-  - HUD の DOM 変更回数：`#fx` 以下に MutationObserver（subtree・childList・attributes・characterData）を掛け、同じ区間の記録数
+  - HUD の DOM 変更回数：HUD 本体（タイマー・名簿・技・HPバー・#info など。`.timer` の親要素）以下に MutationObserver（subtree・childList・attributes・characterData）を掛け、同じ区間の記録数
   - スクショ：同じ場面（固定の位置・時刻）を数枚（視界の縁・壁際・壊れた壁・HUD 全体が写るもの）
 - `npx tsx verify/golden.ts` の変更前の出力を記録（比較は変更前の出力と変更後の出力で行う）
 
@@ -28,7 +28,7 @@
 
 ## 成功基準
 1. 視界の計算平均（`window.perf.ray / n`）が基準の 1/3 以下
-2. HUD の DOM 変更回数が基準の 1/5 以下
+2. HUD 本体（タイマー・名簿・技・HPバー・#info など）の DOM 変更回数が基準の 1/5 以下
 3. 前後スクショの差なし（画素比較。差が出たら場所と理由を報告）
 4. `visPoly` の新旧比較：ランダムな位置・半径（壁際・壁の中・壊れた壁を含む）で全頂点一致（使い捨てスクリプトで可、結果を報告）
 5. `npx tsx verify/golden.ts` が変更前の出力と一致
