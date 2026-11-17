@@ -491,10 +491,11 @@ console.log('--- A・B・C. タイムライン（言い切る・切れ目で選�
   const z = mk('sayo', 'metan'); z.r.cm.durOf = () => 2;
   z.r.cm.kills.set('a', 2); z.r.cm.toku.set('b', 1.2); z.r.cm.bad.set('a', 0.5); z.r.cm.bossDmg.set('a', 300);
   z.r.cm.emit([{ k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); z.r.cm.emit([{ k: 'play_courier', p: 0, a: { A: 'sayo' } }]);
-  z.r.bosses[1].hp = 0; z.r.endMatch(0, 'boss');
+  z.r.damageBoss(z.r.bosses[1], C.BOSS_HP, z.A); // 大将撃破 → 決着演出（スロー→爆発→止め→WIN）→ 決着後
+  for (let i = 0; i < 800 && z.r.phase !== 'ended'; i++) z.r.tick(0.05, false);
   for (let i = 0; i < 40; i++) z.r.cm.flow(0.5);
   const order = z.got.map((u: any) => u.s[0].k);
-  ok('試合後: 決着→総評→活躍キャラ（キル・大将ダメージ・徳・悪行）→締めの順で最後まで（待っていたものは捨てる）', JSON.stringify(order.slice(1)) === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']) || JSON.stringify(order.slice(1)).replace('rev_onesided', 'rev_good') === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']), order);
+  ok('試合後: 決着（大将撃破→止め→勝った組）→総評→活躍キャラ（キル・大将ダメージ・徳・悪行）→締めの順で最後まで（待っていたものは捨てる）', JSON.stringify(order.slice(1)) === JSON.stringify(['end_boss', 'end_killer', 'end_win', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']) || JSON.stringify(order.slice(1)).replace('rev_onesided', 'rev_good') === JSON.stringify(['end_boss', 'end_killer', 'end_win', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']), order);
 }
 console.log('--- D. 話題のクールタイム');
 {
@@ -573,21 +574,32 @@ console.log('--- 6. 全体・進行');
   ok('スロットの罰', keys().some((k) => k.startsWith('pen_')));
 }
 {
+  // リーチ: 待ち行列に入れず、雑談を言って雑談がクールタイム中・待っているセリフなし・沈黙のときだけ言う。言う前にリールが止まったら捨てる
   const { r, got } = mk('sayo', 'metan');
+  r.cm.cool = r.cm.coolOrig; r.cm.durOf = () => 0.5; r.cm.filler = () => null;
   const reach = () => got.filter((u) => u.s[0].k === 'slot_reach' && u.s[0].a.組[0] === 1).length;
   const spin = () => { r.startSpin(1, 'miss'); r.teams[1].slot.reels = [0, 0, 1]; r.teams[0].slot.start = r.now; r.now += C.SLOT.stops[1] * C.SLOT.spin; r.cm.tick(0.05); };
+  const chat = () => { r.cm.topicAt.set('chat', r.cm.clock); }; // 雑談を言い始めた（雑談のクールタイム中）
+  const wait = (sec: number) => { for (let i = 0; i < sec / 0.05; i++) { r.cm.flow(0.05); } };
   r.cm.reachAt = [-Infinity, -Infinity];
-  spin();
-  ok('リーチ（2つ目が止まって2つそろった）', reach() === 1);
-  spin();
+  spin(); wait(M.fill.silence + 0.1);
+  ok('リーチ: 雑談がクールタイム中でなければ言わない（沈黙でも）', reach() === 0 && r.cm.reachWait[1] !== null);
+  chat(); r.cm.emit([{ k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); r.cm.busyUntil = r.cm.clock + 0.1; wait(0.05);
+  ok('リーチ: 待っているセリフがあればそちらが先', reach() === 0 && got.at(-1).s[0].k === 'play_dodge');
+  wait(M.fill.silence + 0.1);
+  ok('リーチ（2つ目が止まって2つそろった）: 雑談の直後（雑談のクールタイム中）・ほかに言うことがない沈黙で言う', reach() === 1 && r.cm.reachWait[1] === null);
+  spin(); chat(); wait(M.fill.silence + 0.1);
   ok('同じ組は20秒に1回', reach() === 1);
-  r.now += M.reachCd; spin();
+  r.now += M.reachCd; spin(); r.now += C.SLOT.spin; chat(); wait(M.fill.silence + 0.1);
+  ok('言う前にリールが止まって結果が確定していたら捨てる', reach() === 1 && r.cm.reachWait[1] === null);
+  r.now += M.reachCd; r.cm.topicAt.delete('slot'); spin(); chat(); wait(M.fill.silence + 0.1);
   ok('20秒たてばまた喋る', reach() === 2);
-  r.startSpin(1, 'pen'); r.now += C.SLOT.stops[1] * C.SLOT.spin + M.reachCd; r.cm.tick(0.05);
+  r.startSpin(1, 'pen'); r.now += C.SLOT.stops[1] * C.SLOT.spin + M.reachCd; r.cm.tick(0.05); chat(); wait(M.fill.silence + 0.1);
   ok('罰の出目（×××）はリーチにしない', reach() === 2);
+  ok('リーチは雑談・盤面コメント・出来事より優先度が低い（待ち行列に入れない）', !r.cm.q.some((x: any) => x.u.s[0].k === 'slot_reach'));
 }
 {
-  const { r, keys } = mk('sayo', 'metan');
+  const { r, keys, got } = mk('sayo', 'metan');
   r.cm.prevLeft = 181; r.timeLeft = 180; r.cm.tick(0.01);
   ok('形勢（SITUATION_AT、接戦）', keys().includes('sit_even'), keys());
   r.bosses[0].hp = C.BOSS_HP * 0.5; r.cm.prevLeft = 121; r.timeLeft = 120; r.cm.tick(0.01);
@@ -596,15 +608,20 @@ console.log('--- 6. 全体・進行');
   r.cm.prevLeft = 31; r.timeLeft = 30; r.cm.tick(0.01);
   r.cm.prevLeft = 11; r.timeLeft = 10; r.cm.tick(0.01);
   ok('残り30秒・10秒', keys().includes('left30') && keys().includes('left10'));
-  r.endMatch(1, 'boss');
-  ok('決着（大将撃破）', keys().includes('end_boss') && r.cm.lastPat.has('end_boss'));
+  const B = r.players.get('b'); r.damageBoss(r.bosses[0], C.BOSS_HP, B);
+  const seq = () => keys().filter((k: string) => k.startsWith('end_'));
+  ok('大将撃破の瞬間は決着の実況なし（スロー）', !seq().length && r.phase === 'finale');
+  for (let i = 0; i < 800 && r.phase === 'finale'; i++) r.tick(0.05, false);
+  ok('決着（大将撃破）: 爆発で大将撃破 → 止めのキャラ（[A]=止めのキャラ）→ WIN で勝った組の順', JSON.stringify(seq()) === JSON.stringify(['end_boss', 'end_killer', 'end_win']) && got.find((u: any) => u.s[0].k === 'end_killer').s[0].a.A === 'metan' && got.find((u: any) => u.s[0].k === 'end_win').s[0].a.組[0] === 1, seq());
 }
 {
+  const fin = (r: any) => { for (let i = 0; i < 800 && r.phase === 'finale'; i++) r.tick(0.05, false); };
   const { r, keys } = mk('sayo', 'metan');
-  r.endMatch(2, 'timeout');
+  r.now = C.MATCH_TIME - 0.01; r.tick(0.05, false); fin(r);
   const { r: r2, keys: k2 } = mk('sayo', 'metan');
-  r2.endMatch(0, 'timeout');
-  ok('決着（時間切れ・引き分け／勝ち）', keys().includes('end_draw') && k2().includes('end_time'));
+  r2.bosses[1].hp = 100; r2.now = C.MATCH_TIME - 0.01; r2.tick(0.05, false); fin(r2);
+  const e = (k: () => string[]) => k().filter((x) => x.startsWith('end_'));
+  ok('決着（時間切れ）: 時間切れ → 引き分け／勝った組の順', JSON.stringify(e(keys)) === JSON.stringify(['end_timeup', 'end_draw']) && JSON.stringify(e(k2)) === JSON.stringify(['end_timeup', 'end_time']), [e(keys), e(k2)]);
 }
 {
   const got: any[] = [];

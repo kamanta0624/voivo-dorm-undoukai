@@ -27,7 +27,7 @@ export const CHARS: Record<string, CharDef> = {
   whitecul: def({ desc: '前方に吹雪を起こし、範囲の敵にダメージを与えてはじき飛ばす', role: 'speed', skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
   sayo: def({ desc: 'しばらく足が速くなり、自分のまわりの敵を斬り続ける', role: 'attacker', skill: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 } }),
   // ドリル: dur 秒、前方（向きは移動・照準に追従）に長さ len・幅 w のドリルを出しっぱなし。触れた敵に dmg ＋自分から離れる向きへ push はじく。同じ相手には rehit 秒おき。ドリル中は通常攻撃しない（移動は可）
-  metan: def({ desc: 'しばらく前方にドリルを出し続ける。触れた敵にダメージを与えてはじく（その間は通常攻撃しない）', role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 3, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),
+  metan: def({ desc: 'しばらく前方にドリルを出し続ける。触れた敵にダメージを与えてはじく（その間は通常攻撃しない）', role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 2.4, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),
   mochiko: def({ desc: 'ファンネル6機を出す。敵を囲んで撃つ（ファンネルは攻撃されると壊れる）', role: 'defense', walk: 'hover', skill: { name: 'ファンネル', ct: 30, n: 6, hp: 20, life: 15, sense: 250, dmg: 6, every: 1, range: 60, speed: 220, radius: 6, pathMax: 400, ring: 44, slotStep: Math.PI / 3, retarget: 0.5 } }), // pathMax: 向かう敵までの経路長の上限、ring: 敵を囲む半径、slotStep: 射撃ごとに回り込む角度、retarget: 対象と経路の見直し間隔
   // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
   // fx: 見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
@@ -51,8 +51,8 @@ export const CHARS: Record<string, CharDef> = {
   yurei: def({ desc: '螺旋を描く光弾をまっすぐ撃つ。悪行が多い敵ほど大ダメージ、指名手配中なら一撃', passive: '壊せる壁をすり抜けて移動できる', role: 'support', walk: 'hover', ghost: true, aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE * 2 }], skill: { name: 'エンマビーム', ct: 10, speed: 420, range: 320, r: 8, minDmg: 1, maxDmg: 50, killDmg: 999, orbs: 4, spiralR: 6, spiralLen: 40 } }),
   kiritan: def({
     desc: '1回目で射程内の敵をロックオン、2回目でロックした全員へホーミング弾を撃ち込む', melee: false, mult: { speed: 0.8 },
-    aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 260, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.7, shot: 'cannon', speed: 300, far: 60 }],
-    skill: { name: '全弾斉射', ct: 7.2, range: 260, lockEvery: 0.1, lockMax: 3, perTarget: 2, volleys: 3, volleyGap: 0.3, dmg: 5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12 },
+    aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 310, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.85, shot: 'cannon', speed: 300, far: 60 }],
+    skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 2, volleys: 3, volleyGap: 0.3, dmg: 7.5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12 },
   }),
 };
 

@@ -262,7 +262,7 @@ async function ending(A: Tab) {
 
 // リザルト: 勝利／敗北／引き分けの表示（集合・部屋から出られないはサーバー単体テスト）
 async function result(A: Tab) {
-  await A.until((x) => x.phase === 'ended', 5000);
+  await A.until((x) => x.phase === 'ended', 5000 + (C.FINALE.timeup + C.FINALE.win) * 1000); // 時間切れの決着演出（時間切れ → WIN）のあと
   await sleep(500);
   const s = await A.snap();
   const want = s.winner === 2 ? '引き分け' : s.winner === 0 ? '勝利' : '敗北';

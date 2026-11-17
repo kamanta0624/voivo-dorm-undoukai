@@ -1,4 +1,4 @@
-match seed=1 teams=[["hanamaru","whitecul","sayo","metan"],["mochiko","aru","bii","ierutan"]] lines=120 sha256=c8ac1d382c45e4ce2c4ea603af76c53c4fbed74ff04ca1a13b3ea34170e1cb5e
-match seed=2 teams=[["zunko","kiritan","himari","aru"],["hanamaru","whitecul","sayo","metan"]] lines=120 sha256=03842343480dbec157bec39217888b0451bc63e33b6c685ee564773fc0a63b9e
-match seed=3 teams=[["itako","yurei","mochiko","bii"],["ierutan","zunko","itako","yurei"]] lines=120 sha256=e1671d929a9be03268bce8fcb3f3f9027980eb7b405f5cbd10fe1bacc6d94bf2
-all sha256=bf1338c4645959ab3e32197d1a589d318023852cc0c1f6909b27ea8e28d9582e
+match seed=1 teams=[["hanamaru","whitecul","sayo","metan"],["mochiko","aru","bii","ierutan"]] lines=120 sha256=1d181675d9a32989b87bc83f935b5e02a27b7b10f7af093e45a6aa0017cc0262
+match seed=2 teams=[["zunko","kiritan","himari","aru"],["hanamaru","whitecul","sayo","metan"]] lines=120 sha256=0f013bb55c07142c2fa01bf83552798c94d6e1b40ceafee962a2881d482dd620
+match seed=3 teams=[["itako","yurei","mochiko","bii"],["ierutan","zunko","itako","yurei"]] lines=120 sha256=6c90887fd15d53faa990a822fc8be04e8e1ba3ef6a99c92f4ccd139caa8466aa
+all sha256=262a1ef099dc062ae2238f08331966c367da2949d1f0c79ba4de01bb13451da0

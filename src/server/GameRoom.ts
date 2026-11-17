@@ -66,6 +66,8 @@ export type Player = {
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻
 type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number }; // start: 回転の開始時刻、reels: この回転の結果（陣営のキャラの添字。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）
+// 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
+type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
 type Team = { toku: number; wanted: string | null; slot: Slot }; // toku: 徳、wanted: 指名手配中のプレイヤーid
 type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）
 type Material = { id: number; x: number; y: number; hi: boolean; big?: boolean }; // hi: 裏側に出た高ポイントの資材、big: コバコが置いた高性能の徳
@@ -90,7 +92,8 @@ export class GameRoom extends Room {
   static logFile = ''; // 試合ログの出力先（JSON Lines、空なら書かない）。src/server/index.ts で設定
   maxClients = C.MAX_CLIENTS;
   now = 0;
-  phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'ended' = 'waiting'; // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）
+  phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting'; // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）、finale: 決着演出（入力なし。CONFIG.FINALE）
+  finale: Finale | null = null; // 決着演出の状態
   phaseLeft = 0; // intro / countdown の残り秒数
   elapsed = 0; // スナップショットの時刻（試合の前後も進む。他キャラの補間の時計合わせに使う）
   timeLeft = C.MATCH_TIME;
@@ -297,7 +300,7 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
+    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.backVotes.clear();
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
@@ -493,6 +496,7 @@ export class GameRoom extends Room {
     if (this.phase === 'intro' || this.phase === 'countdown' || this.phase === 'ended') this.moveHumans();
     if (this.phase === 'countdown' && C.INTRO_MODE !== 'old') this.moveBotsCaged(dt);
     if (this.phase === 'ended') this.updateEnded(dt);
+    if (this.phase === 'finale') this.updateFinale(dt);
     if (this.phase !== 'waiting') this.cm.flow(dt); // 実況のタイムライン（試合前後も進める）
     if (this.phase === 'playing') {
       this.now += dt;
@@ -514,7 +518,7 @@ export class GameRoom extends Room {
       this.cm.tick(dt);
       if (this.timeLeft <= 0) {
         const r = this.bosses.map((b) => b.hp / C.BOSS_HP);
-        this.endMatch(r[0] > r[1] ? 0 : r[1] > r[0] ? 1 : 2, 'timeout');
+        this.startFinale(r[0] > r[1] ? 0 : r[1] > r[0] ? 1 : 2, 'timeout', null);
       }
     }
     if (!send) return; // 早送り中は最後の1回だけ送る
@@ -567,8 +571,42 @@ export class GameRoom extends Room {
     for (const e of this.ents) if (e.body === 'unit') Object.assign(e, pushOut(e.x, e.y, e.r, obs));
   }
 
+  // 決着: 演出（finale）を始める。試合ログはここで書く（試合時間に演出を含めない）
+  startFinale(winner: number, kind: 'boss' | 'timeout', killer: Player | null) {
+    if (this.phase !== 'playing') return;
+    this.phase = 'finale';
+    this.winner = winner;
+    const b = kind === 'boss' ? this.bosses[1 - winner] : null;
+    this.finale = { kind, winner, stage: kind === 'boss' ? 'slow' : 'timeup', t: 0, boss: b && { team: b.team, x: b.x, y: b.y }, killer: null };
+    for (const p of this.players.values()) { p.dx = p.dy = 0; p.qAt = p.recallAt = null; }
+    this.writeLog(kind);
+    this.cm.finale(this.finale, killer);
+    this._killer = killer;
+  }
+  private _killer: Player | null = null;
+
+  // 決着演出の進行: スロー中は弾・場の物だけ slowRate 倍で進める（キャラ・Bot・スロットなどは止める）。入力は捨てる。段の終わりで次の段へ、最後に現行の決着後へ
+  updateFinale(dt: number) {
+    const f = this.finale!, F = C.FINALE;
+    for (const p of this.players.values()) while (p.inputs.length) p.ack = p.inputs.shift()!.seq;
+    f.t += dt;
+    if (f.stage === 'slow') { const d = dt * F.slowRate; this.now += d; this.updateShots(d); this.updateEnts(d); }
+    const len = { slow: F.slow, boss: F.cam + F.boom, killer: F.cam + F.killer, timeup: F.timeup, win: F.win }[f.stage];
+    if (f.t < len) return;
+    f.t = 0;
+    if (f.stage === 'slow') f.stage = 'boss';
+    else if (f.stage === 'boss') {
+      const k = this._killer;
+      f.stage = 'killer';
+      f.killer = k && { id: k.id, char: k.char, team: k.team, assist: k.assist, x: k.x, y: k.y };
+    } else if (f.stage === 'killer' || f.stage === 'timeup') f.stage = 'win';
+    else return this.endMatch(f.winner, f.kind);
+    this.cm.finale(f, this._killer);
+  }
+
   endMatch(winner: number, kind: 'boss' | 'timeout' = 'timeout') {
     if (this.phase === 'ended') return;
+    this.finale = null; this._killer = null;
     this.phase = 'ended';
     this.winner = winner;
     this.writeLog(kind);
@@ -983,7 +1021,7 @@ export class GameRoom extends Room {
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
     this.cm.bossDmgBy(p, dmg);
-    if (boss.hp <= 0) return this.endMatch(1 - boss.team, 'boss');
+    if (boss.hp <= 0) return this.startFinale(1 - boss.team, 'boss', p); // 止めを刺したキャラ（大将は大将を攻撃しない）
     this.cm.bossHit(boss);
     if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD) {
       this.cm.bossWarn(boss);
@@ -1414,10 +1452,10 @@ export class GameRoom extends Room {
     const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok }));
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
-      const v = me && !this.reveal.has(client.sessionId) ? vis[me.team] : all; // 観戦者はフォグなし
+      const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
       client.send('s', {
-        me: me?.id ?? null, t: this.elapsed, roster, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
+        me: me?.id ?? null, t: this.elapsed, roster, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) } })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({

@@ -111,7 +111,7 @@ export const CONFIG = {
   RECALL_ROOMS: TEAM_KEYS.map((t) => inner(room(t, 'kitchen'))), // リコールの行き先（給湯室）
   COURIER_START: center(ROOMS.find((r) => r.id === 'entrance')!), // ブイブイ・コバコの出現・復活場所（マップ中央下部）
   COURIER_ROUTE: ['entrance', 'hall', 'smoking'].map((id) => { const r = ROOMS.find((q) => q.id === id)!; return { ...center(r), room: id, area: inner(r) }; }), // コバコの巡回経路: 中央3部屋の中心を往復する（entrance から出発、両端で折り返し。room: 部屋の id、area: 部屋の内側）
-  COURIER_DROP: { n: 3, cap: 9 }, // コバコが巡回の部屋に着くたび、その部屋に高性能の徳（TOKU.materialBig）を n 個置く。部屋の未取得のコバコの徳が cap 個以上なら置かない
+  COURIER_DROP: { n: 2, cap: 9 }, // コバコが巡回の部屋に着くたび、その部屋に高性能の徳（TOKU.materialBig）を n 個置く。部屋の未取得のコバコの徳が cap 個以上なら置かない
   WALL_EDGE, // 移動の当たり判定の壁の終端・凸角（wallRects）
 
   PLAYER_HP: 100,
@@ -183,8 +183,8 @@ export const CONFIG = {
     rateMult: 0.7, // 当たる確率（rate）に掛ける倍率
     winToku: -2, // 当たったときの徳の増減（最初の当選時だけ）
     payout: { ult: 50, assist: 50 } as Record<string, number>, // 払い出しの抽選（ult=自陣の生存者全員が変身、assist=アシスト1体）
-    chain: 0.5, // 払い出しのあと連チャンする確率
-    chainBreak: 0.25, // 連チャンの先がバランスブレーカー（POWER_TIERS の最後）のときの確率
+    chain: 0.35, // 払い出しのあと連チャンする確率
+    chainBreak: 0.15, // 連チャンの先がバランスブレーカー（POWER_TIERS の最後）のときの確率
     firstTier: 1, // 最初の払い出しの強さ（POWER_TIERS の添字。連チャンのたびに1段階上がる）
     gap: 1.5, // 連チャンの払い出しの間隔(秒)。この間スロットは止まる
     penHold: 1.5, // 罰の出目を見せる秒数（この間スロットは止まる）
@@ -200,8 +200,8 @@ export const CONFIG = {
   },
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
   POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ
-  POWER_MULT: [0.7, 1, 1.4, 2],
-  POWER_WEIGHTS: [30, 40, 22, 0], // コバコの荷物の強さの抽選（バランスブレーカーはスロットの連チャン限定）
+  POWER_MULT: [0.49, 0.7, 0.98, 1.4], // 強さの倍率（見た目のレベル表現 POWERUP_AURA などは別）
+  POWER_WEIGHTS: [30, 40, 0, 0], // コバコの荷物の強さの抽選（レベル3・4はスロットの連チャン限定）
   ULT_DURATION: 20, // ウルトの効果時間(秒)
   // 変身先: hp=最大HP倍率 def=被ダメ倍率 speed=移動倍率 atk=攻撃倍率 range=射程 arc=攻撃の角度 ranged=弾を撃つ
   ULT_FORMS: {
@@ -289,6 +289,9 @@ export const CONFIG = {
   FREE_CAM_SPEED: 400, // 撤退中に WASD で視点を動かす速さ(px/秒)
   WALK_FRAME_MS: 200, // 歩きの1コマの長さ（walk1 ⇔ walk2 の交互）
   CUTIN_MS: 1000, // KOカットインの長さ
+  // 決着演出（サーバーの段。秒は実時間）。大将撃破: slow（ゲームを slowRate 倍でスロー、入力なし）→ boss（カメラを倒された大将へ cam 秒で移し、boom 秒で爆発）→ killer（カメラを止めのキャラへ cam 秒で移し、立ち絵と名前を killer 秒）→ win（WIN 表示 win 秒）→ 現行の決着後（ended）
+  // 時間切れ: timeup（ゲームを止めて「時間切れ」を timeup 秒）→ win → ended。bossScale: 大将の爆発の大きさ（撃破の演出 KO_FX に対する倍率）
+  FINALE: { slowRate: 0.25, slow: 2, cam: 0.8, boom: 2.2, killer: 2.6, win: 2.6, timeup: 2, bossScale: 2.5 },
   KO_CUTIN_GAP: 25, // 撃破した側のカットイン: 2人の立ち絵の中心どうしの間隔（画面幅の%）。画面中央を挟んで並べる
   RANGE_ALPHA: 0.25, // 自キャラの射程円の不透明度
   SLASH_MS: 200, // 斬撃エフェクトの長さ

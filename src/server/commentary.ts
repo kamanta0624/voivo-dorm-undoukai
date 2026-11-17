@@ -169,7 +169,7 @@ export class Director {
   seen = new Map<string, boolean>(); spotAt = new Map<string, number>(); nearAt = new Map<string, number>(); rampAt = new Map<string, number>();
   courierTeam: number | null = null; // 最後にコバコを撃破した組
   bossSaid = [new Set<number>(), new Set<number>()]; leader: number | null = null; reverseAt = -Infinity;
-  reachSpin = [-1, -1]; reachAt = [-Infinity, -Infinity]; wins: number[][] = [[], []];
+  reachSpin = [-1, -1]; reachAt = [-Infinity, -Infinity]; reachWait: (number | null)[] = [null, null]; wins: number[][] = [[], []]; // reachWait: 言うのを待っているリーチ（その回転の開始時刻）
   boardAt = -Infinity; behind: number | null = null; alldown = [false, false];
   walls: number[] = [0, 0]; // 陣営側ごとの壊せる壁タイル数（壁の壊れ方の話題）
   // タイムライン（実況の時計。試合前後も進む）
@@ -229,6 +229,7 @@ export class Director {
     if (best) { this.q = this.q.filter((x) => x !== best); return this.send(best.u); }
     if (this.room.phase !== 'playing' || this.clock - this.busyUntil < M.fill.silence) return;
     if (this.prefix) { const p = this.prefix; this.prefix = null; if (!this.cool(p.k)) return this.send({ pr: priority(p.k), s: [this.say(p.k, { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
+    if (this.reachFill()) return;
     if (this.noFill && this.clock - this.noFillAt < M.every) return; // 候補がなければ CM.every 秒おきに探し直す
     const f = this.filler();
     if (f) this.send({ pr: priority(f.k), s: [f], fill: true });
@@ -270,12 +271,21 @@ export class Director {
   // ---- 試合の進行 ----
   intro() { this.emit([this.say('pre_match', { 組: [0, 1] })]); }
   play() { this.emit([this.say('start', {})]); }
-  // 決着: 待っているものは捨て、決着 → 総評 → 活躍したキャラ → 締め の順に続けて喋る（7章。捨てない）
+  // 決着演出の段ごと（GameRoom の finale）: 決着の瞬間に待っているものを捨てる。大将撃破は 爆発（boss）で大将撃破 → 止め（killer）で止めのキャラ → WIN（win）で勝った組、
+  // 時間切れは 時間切れ（timeup）→ WIN で勝った組（引き分けは引き分け）。捨てない種類なので、喋り終わる前に次の段が来たら順に続ける
+  finale(f: { kind: string; winner: number; stage: string; boss: { team: number } | null }, killer: Player | null) {
+    this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), finale: f.stage }));
+    if (f.stage === 'slow' || f.stage === 'timeup') { // 決着の瞬間: 待っているものを捨て、喋っている途中のセリフも打ち切る（演出の段に実況を合わせる）
+      this.q = []; this.prefix = null; this.busyUntil = this.clock; this.speaking = false;
+      for (const c of this.room.clients) c.send('cmStop', {});
+    }
+    if (f.stage === 'boss') this.emit([this.say('end_boss', { 大将: f.boss!.team })]);
+    else if (f.stage === 'killer' && killer) this.emit([this.say('end_killer', { A: killer.char })]);
+    else if (f.stage === 'timeup') this.emit([this.say('end_timeup', {})]);
+    else if (f.stage === 'win') this.emit([f.winner === 2 ? this.say('end_draw', {}) : f.kind === 'boss' ? this.say('end_win', { 組: [f.winner] }) : this.say('end_time', { 組: [f.winner] })]);
+  }
+  // 決着演出の後: 総評 → 活躍したキャラ → 締め の順に続けて喋る（7章。捨てない。決着の実況は finale で済み）
   end(winner: number, kind: string) {
-    this.q = [];
-    if (kind === 'boss') this.emit([this.say('end_boss', { 大将: 1 - winner, 組: [winner] })]);
-    else if (winner === 2) this.emit([this.say('end_draw', {})]);
-    else this.emit([this.say('end_time', { 組: [winner] })]);
     const [a, b] = this.room.bosses.map((x) => x.hp / C.BOSS_HP), r = review(this.adv, winner, a - b);
     this.emit([this.say(r.k, r.a)]);
     for (const [key, m] of [['kill', this.kills], ['boss', this.bossDmg], ['toku', this.toku], ['bad', this.bad]] as const) {
@@ -297,8 +307,7 @@ export class Director {
       if (sl.payoutAt !== null || sl.pen || sl.holdUntil || this.reachSpin[team] === sl.start || now - sl.start < C.SLOT.stops[1] * C.SLOT.spin || sl.reels[0] !== sl.reels[1]) return;
       this.reachSpin[team] = sl.start;
       if (now - this.reachAt[team] < M.reachCd) return;
-      this.reachAt[team] = now;
-      this.emit([this.say('slot_reach', { 組: [team] })]);
+      this.reachWait[team] = sl.start; // リーチは待ち行列に入れず、雑談の直後の間（pump）でだけ言う
     });
     const left = this.room.timeLeft;
     for (const a of C.SITUATION_AT) if (this.prevLeft > a && left <= a) {
@@ -575,6 +584,21 @@ export class Director {
   tokuBy(p: Player, d: number, bad: number) {
     if (d > 0) this.toku.set(p.id, (this.toku.get(p.id) ?? 0) + d);
     else this.bad.set(p.id, (this.bad.get(p.id) ?? 0) + bad);
+  }
+
+  // スロットのリーチ（雑談より低い優先度）: 雑談を言って雑談がクールタイム中、かつ待っているセリフがないときだけ言う。言う前にリールが止まって結果が確定していたら捨てる
+  private reachFill() {
+    const now = this.now;
+    for (const team of [0, 1]) {
+      const start = this.reachWait[team], sl = this.room.teams[team]?.slot;
+      if (start === null) continue;
+      if (!sl || sl.start !== start || now - start >= C.SLOT.stops[2] * C.SLOT.spin || sl.payoutAt !== null) { this.reachWait[team] = null; continue; } // 結果が確定した
+      if (this.q.length || !this.cool('chat:') || this.cool('slot_reach')) continue;
+      this.reachWait[team] = null; this.reachAt[team] = now;
+      this.send({ pr: priority('slot_reach'), s: [this.say('slot_reach', { 組: [team] })!] });
+      return true;
+    }
+    return false;
   }
 
   // ---- 4章 つなぎ ----

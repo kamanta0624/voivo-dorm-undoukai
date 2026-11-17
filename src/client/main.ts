@@ -10,6 +10,7 @@ import MAP from '../shared/map.json';
 import { Controls } from './input';
 import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
+import { GUMI, TEAM_GUMI } from '../shared/commentary';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
@@ -29,7 +30,7 @@ const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
 const TITLE = 'ブイブイ運動会';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
-const CARD_W = 56, TACHIE_BROWSE_H = 80;
+const CARD_W = 56, TACHIE_BROWSE_H = 80, BAR_COPIES = 3; // BAR_COPIES: 選択バーのループのために全員分を並べる回数
 const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty: '#ffffff26', ok: '#66ff99', pending: '#bbbbbb' };
 const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサーバーへ送る間隔の下限（カーソルを動かすたびに送らない）
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
@@ -158,6 +159,19 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .cut .how span{display:block}
 #fx .killer div{white-space:pre;text-align:right}
 #fx .iris{position:absolute;inset:0;display:none}
+#fx.finale > :not(.fin):not(.cmsub){display:none!important}
+#fx .fin{position:absolute;inset:0;display:none;pointer-events:none}
+#fx.finale .fin{display:block}
+#fx .fin .tu,#fx .fin .wn{position:absolute;left:0;right:0;top:36%;text-align:center;font:900 calc(var(--z) * 40px) sans-serif;-webkit-text-stroke:calc(var(--z) * 1.5px) #000;text-shadow:0 0 10px #000;animation:pop .3s ease-out}
+#fx .fin .tu{color:#fff}
+#fx .fin .kt{position:absolute;bottom:0;height:78%;animation:fadein .3s}
+#fx .fin .kt.k0{left:4%}
+#fx .fin .kt.k1{right:4%}
+#fx .fin .kt img{height:100%}
+#fx .fin .kn{position:absolute;bottom:14%;white-space:nowrap;color:#ffe066;font:900 calc(var(--z) * 18px) sans-serif;-webkit-text-stroke:calc(var(--z) * .6px) #000;text-shadow:0 0 6px #000;animation:pop .3s ease-out}
+#fx .fin .kn small{display:block;font-size:calc(var(--z) * 9px);color:#fff}
+#fx .fin .kn.k0{left:6%}
+#fx .fin .kn.k1{right:6%;text-align:right}
 #fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
@@ -229,6 +243,9 @@ const down = document.createElement('div');
 down.className = 'down';
 down.innerHTML = '<img><div></div>';
 fx.appendChild(down);
+const finEl = document.createElement('div'); // 決着演出（時間切れ・止めの立ち絵と名前・WIN）。演出中は fx のほかの表示を隠す（#fx.finale）
+finEl.className = 'fin';
+fx.appendChild(finEl);
 const killer = document.createElement('div'); // KOされた時: ラストヒットを取ったキャラの立ち絵と、誰に何で倒されたか
 killer.className = 'killer';
 killer.innerHTML = '<img><div></div>';
@@ -280,6 +297,8 @@ class GameScene extends Phaser.Scene {
   mmHeld = false; // 直前のフレームでミニマップの視点だった（離したら即座に自キャラへ戻す）
   koedBy: { kc: string | null; how: string } | null = null; // 自分を倒した相手と手段
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
+  finKey = ''; // 決着演出の表示中の段（変わったときだけ作り直す）
+  centerBar: (() => void) | null = null; // 選択バーを真ん中の組へ（最初に表示した時だけ）
   hits: { x: number; y: number; ratio: number; big: boolean; t0: number; seed: number }[] = []; // 被ダメージの着弾エフェクト（中・大）
   labels = new Map<string, HTMLElement>();
   slotHtml = ['', ''];
@@ -373,21 +392,26 @@ class GameScene extends Phaser.Scene {
     const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
     cmBtn.onclick = () => { commentary.setOn(!commentary.on); cmShow(); };
     cmShow();
-    lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
+    // 選択バーは全員分を BAR_COPIES 回並べて左右をつなぐ（複製したカードも同じキャラ。data-k で扱う）
+    lobby.querySelector('.cards')!.innerHTML = Array.from({ length: BAR_COPIES }, () => PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('')).join('');
     // 選択バーのスクロール: 指・マウスで左右にドラッグ、ホイール（縦・横どちらも横送り）。ドラッグした時はカードを押した扱いにしない
+    // 無限ループ: 真ん中の組の範囲（1組の幅の 0.5〜1.5 倍）を出たら1組分戻す（見た目は同じ並びなので継ぎ目は見えない）。戻すのはドラッグ・ホイールの時だけ
     const cards = lobby.querySelector<HTMLElement>('.cards')!;
+    const setW = () => { const c = cards.children; return (c[PICKABLE.length] as HTMLElement).offsetLeft - (c[0] as HTMLElement).offsetLeft; };
+    const wrap = () => { const w = setW(), d = !w ? 0 : cards.scrollLeft < w * 0.5 ? w : cards.scrollLeft > w * 1.5 ? -w : 0; cards.scrollLeft += d; return d; };
+    this.centerBar = () => { const w = setW(); if (w) { cards.scrollLeft = w; this.centerBar = null; } }; // 最初に表示した時に真ん中の組へ
     let drag: { x: number; left: number; moved: boolean; id: number } | null = null, dragged = false;
     cards.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, left: cards.scrollLeft, moved: false, id: e.pointerId }; dragged = false; });
     cards.addEventListener('pointermove', (e) => {
       if (!drag || e.pointerId !== drag.id) return;
       if (Math.abs(e.clientX - drag.x) > 6) drag.moved = true;
-      if (drag.moved) cards.scrollLeft = drag.left - (e.clientX - drag.x);
+      if (drag.moved) { cards.scrollLeft = drag.left - (e.clientX - drag.x); drag.left += wrap(); }
     });
     const end = () => { if (drag?.moved) dragged = true; drag = null; };
     cards.addEventListener('pointerup', end);
     cards.addEventListener('pointercancel', end);
     cards.addEventListener('pointerleave', end);
-    cards.addEventListener('wheel', (e) => { e.preventDefault(); cards.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; }, { passive: false });
+    cards.addEventListener('wheel', (e) => { e.preventDefault(); cards.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; wrap(); }, { passive: false });
     // 選択バー: カーソルを乗せる（PC）か1回タップで表示を切り替え、表示中のキャラをもう一度クリック／タップで OK?
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => {
       const k = el.dataset.k!;
@@ -451,6 +475,7 @@ class GameScene extends Phaser.Scene {
       });
       room.onMessage('notice', (m: any) => this.notify(m.text));
       room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
+      room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
       room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
       room.onMessage('slot', (m: any) => this.slotCutin(m.team, m.chain, m.kind, m.tier));
@@ -559,6 +584,48 @@ class GameScene extends Phaser.Scene {
     } else {
       const sp = this.add.image(f.x + 9, f.y - 30, 'sweat').setDepth(21);
       this.tweens.add({ targets: sp, y: f.y - 22, alpha: 0, duration: C.SWEAT_MS, ease: 'Quad.easeIn', onComplete: () => sp.destroy() });
+    }
+  }
+
+  // 決着演出（サーバーの finale の段）: カメラ（大将へ・止めのキャラへ）、時間切れ・止めの立ち絵と名前・WIN の表示。演出中は fx のほかの表示を隠す
+  // 止めの立ち絵・名前は止めのキャラの陣営の側（陣営0=左、1=右）。アシストは立ち絵なしで名前だけ
+  finaleView(s: any, sinceSnap: number, camera: Phaser.Cameras.Scene2D.Camera) {
+    const f = s.phase === 'finale' ? s.finale : null, F = C.FINALE;
+    fx.classList.toggle('finale', !!f);
+    if (!f) { if (this.finKey) { this.finKey = ''; finEl.innerHTML = ''; } return; }
+    camera.stopFollow();
+    const shown = f.stage === 'killer' && f.t + sinceSnap < F.cam ? 'pan' : '', key = `${f.stage}${shown}`;
+    if (key === this.finKey) return;
+    this.finKey = key;
+    const k = f.killer;
+    if (f.stage === 'boss' && f.boss) camera.pan(f.boss.x, f.boss.y - 30, F.cam * 1000, 'Sine.easeInOut');
+    if (key === 'killerpan' && k) camera.pan(k.x, k.y - 16, F.cam * 1000, 'Sine.easeInOut');
+    const g = GUMI[TEAM_GUMI[f.winner]];
+    finEl.innerHTML = f.stage === 'timeup' ? '<div class="tu">時間切れ</div>'
+      : key === 'killer' && k ? `${k.assist ? '' : `<div class="kt k${k.team}"><img src="${TACHIE(k.char, 'ko')}"></div>`}<div class="kn k${k.team}"><small>止めを刺した</small>${charName(k.char)}</div>`
+      : f.stage === 'win' ? (f.winner === 2 || !g ? '<div class="wn" style="color:#fff">DRAW</div>' : `<div class="wn" style="color:${g.color}">${g.en} TEAM WIN</div>`)
+      : '';
+  }
+
+  // 撃破の演出の爆発（KO_FX）: ko=撃破からの秒数。揺れの間は小爆発、その後に大爆発。s: 大きさの倍率、seed: 小爆発の位置の擬似乱数の種
+  koBoom(fxG: Phaser.GameObjects.Graphics, d: { x: number; y: number }, ko: number, seed: number, s: number) {
+    const K = C.KO_FX;
+    if (ko >= K.shake + K.boom) return;
+    const cy = d.y - 18 * s; // 体の中心のあたり
+    if (ko < K.shake) {
+      const i0 = Math.floor(ko / K.pop);
+      for (let j = Math.max(0, i0 - Math.ceil(K.popLife / K.pop)); j <= i0; j++) {
+        const t = ko - j * K.pop;
+        if (t < 0 || t >= K.popLife || j * K.pop >= K.shake) continue;
+        const h = Math.sin((j + 1) * 12.9898 + seed * 78.233) * 43758.5453, u = h - Math.floor(h), v = (h * 7.13) - Math.floor(h * 7.13); // 小爆発ごとの位置（決まった擬似乱数）
+        const x = d.x + (u - 0.5) * 24 * s, y = d.y - (4 + v * 32) * s, k = t / K.popLife, r = (3 + 6 * k) * s;
+        fxG.fillStyle(0xff6020, 0.9 * (1 - k)).fillCircle(x, y, r).fillStyle(0xffe066, 1 - k).fillCircle(x, y, r * 0.55);
+      }
+    } else {
+      const k = (ko - K.shake) / K.boom, e = 1 - (1 - k) ** 3, W = 32 * 2 * s, H = 42 * 1.5 * s; // 横2キャラ・縦1.5キャラ
+      fxG.fillStyle(0xff3010, 0.85 * (1 - k)).fillEllipse(d.x, cy, W * (0.5 + 0.5 * e), H * (0.5 + 0.5 * e));
+      fxG.fillStyle(0xffa020, 0.9 * (1 - k)).fillEllipse(d.x, cy, W * 0.75 * (0.4 + 0.6 * e), H * 0.75 * (0.4 + 0.6 * e));
+      fxG.fillStyle(0xffffff, 1 - k).fillEllipse(d.x, cy, W * 0.4 * (1 - k), H * 0.4 * (1 - k));
     }
   }
 
@@ -808,6 +875,7 @@ class GameScene extends Phaser.Scene {
     lobby.style.display = s.phase === 'waiting' ? 'block' : 'none';
     if (TOUCH) ver.style.visibility = s.phase === 'waiting' ? '' : 'hidden'; // スマホは試合中のHUDと重なるので、ビルド番号はキャラ選択の時だけ出す
     if (s.phase !== 'waiting') return;
+    this.centerBar?.();
     // 選択猶予の残り秒数（最初の出撃から。全員に出す）
     const gr = lobby.querySelector<HTMLElement>('.grace')!, gt = s.lobbyLeft == null ? '' : `あと ${Math.ceil(Math.max(0, s.lobbyLeft - (performance.now() - this.snapAt) / 1000))} 秒で出撃`;
     gr.style.display = gt ? 'block' : 'none';
@@ -1007,7 +1075,7 @@ class GameScene extends Phaser.Scene {
       const h = sp.displayHeight * 0.85;
       if (p && !p.alive) return;
       if (!bare) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
-      if (alpha === 1 && !bare) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
+      if (alpha === 1 && !bare && s.phase !== 'finale') feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
       // 被弾: 点滅（全段階）とダメージ数値。被弾側の最大HP比で 小=点滅だけ、中=ダメージ量に比例した着弾エフェクト、大=派手な着弾エフェクト＋揺れ（HIT_FX）
       if (e.hp !== undefined && hp < e.hp) {
         const ratio = (e.hp - hp) / maxHp;
@@ -1043,6 +1111,7 @@ class GameScene extends Phaser.Scene {
       }
     };
     const K = C.KO_FX, dying: { p: any; x: number; y: number; ko: number }[] = []; // 撃破の演出中（揺れ・大爆発）
+    const fin = s.phase === 'finale' ? s.finale : null, F = C.FINALE; // 決着演出（サーバーの段）
     for (const p of s.players) {
       const pos = p.id === s.me ? this.me : (this.interp.at(p.id, now) ?? p);
       const ko = p.alive ? 0 : p.ko + sinceSnap;
@@ -1052,7 +1121,17 @@ class GameScene extends Phaser.Scene {
       const sx = p.alive ? 0 : K.amp * (1 - ko / K.shake) * Math.sin(ko * K.hz * Math.PI * 2); // 左右に揺れて収まる
       draw(p.id, p.char, p.team, pos.x + sx, pos.y, p.face, p.hp, p.maxHp, 1, p.assist ? C.DOT_SCALE * C.ASSIST.scale : C.DOT_SCALE, p); // アシストは大将と同じ大きさ
     }
-    for (const b of s.bosses) { const q = this.interp.at('boss' + b.team, now) ?? b; draw('boss' + b.team, BOSS_CHAR[b.team], b.team, q.x, q.y, b.team === 0 ? 0 : Math.PI, b.hp, C.BOSS_HP, 1, C.DOT_SCALE * 2); }
+    for (const b of s.bosses) {
+      // 倒された大将: 決着演出の爆発の揺れの間は揺れ、大爆発で消える（決着後も出さない）
+      let bx = 0;
+      if (b.hp <= 0 && (fin || s.phase === 'ended')) {
+        const ko = fin?.stage === 'slow' ? -1 : fin?.stage === 'boss' ? ((fin.t + sinceSnap - F.cam) / F.boom) * (K.shake + K.boom) : Infinity;
+        if (ko >= K.shake) continue;
+        if (ko >= 0) bx = K.amp * F.bossScale * (1 - ko / K.shake) * Math.sin(ko * K.hz * Math.PI * 2);
+      }
+      const q = this.interp.at('boss' + b.team, now) ?? b;
+      draw('boss' + b.team, BOSS_CHAR[b.team], b.team, q.x + bx, q.y, b.team === 0 ? 0 : Math.PI, b.hp, C.BOSS_HP, 1, C.DOT_SCALE * 2);
+    }
     // ブイブイ・コバコ（中立）: 進む向きを見て、頭上に荷物の中身のアイコン
     for (const c of s.couriers) {
       const id = 'c' + c.id, q = this.interp.at(id, now) ?? c, u = this.units.get(id);
@@ -1068,22 +1147,24 @@ class GameScene extends Phaser.Scene {
     const freeCam = !!mine && !mine.alive && s.phase === 'playing' && (mine.ko === null || mine.ko + sinceSnap >= C.RESPAWN_BASE); // 撃破の演出（絞り切るまで）はカメラを自キャラの位置のまま
     if (C.INTRO_MODE === 'old') this.introCamOld(s, myTeam, camera);
     else this.introCamNew(s, myTeam, sinceSnap, camera, labelSeen);
-    const mmOn = !!this.mmCam && !this.introCam && s.phase !== 'waiting';
+    const fcam = s.phase === 'finale'; // 決着演出のカメラ（finaleView）
+    const mmOn = !!this.mmCam && !this.introCam && s.phase !== 'waiting' && !fcam;
     $('.mm').style.display = this.introCam || s.phase === 'waiting' ? 'none' : 'block';
     if (mmOn) camera.stopFollow();
-    else if (this.mmHeld && meUnit && !freeCam) { camera.centerOn(meUnit.s.x, meUnit.s.y); camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP); }
+    else if (this.mmHeld && meUnit && !freeCam && !fcam) { camera.centerOn(meUnit.s.x, meUnit.s.y); camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP); }
     else if (this.mmHeld && freeCam) camera.centerOn(this.me.x, this.me.y);
     this.mmHeld = mmOn;
     if (mmOn) camera.centerOn(this.mmCam!.x, this.mmCam!.y);
     else if (freeCam) {
       camera.stopFollow();
       camera.scrollX += dx * C.FREE_CAM_SPEED * dt; camera.scrollY += dy * C.FREE_CAM_SPEED * dt;
-    } else if (meUnit && !this.introCam && (camera as any)._follow !== meUnit.s) camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP);
+    } else if (meUnit && !this.introCam && !fcam && (camera as any)._follow !== meUnit.s) camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP);
+    this.finaleView(s, sinceSnap, camera);
     // 画面に固定の表示（フォグ・ミニマップ）はカメラの拡大で崩れるので、開始演出の間は隠す
-    this.miniImg.setVisible(!this.introCam); this.ui.setVisible(!this.introCam);
+    this.miniImg.setVisible(!this.introCam && !fcam); this.ui.setVisible(!this.introCam && !fcam);
 
     // 自キャラ: 射程の円と、硬直中のクールタイムバー
-    if (mine?.alive) {
+    if (mine?.alive && s.phase !== 'finale') {
       feet.lineStyle(1, 0xffffff, C.RANGE_ALPHA).strokeCircle(this.me.x, this.me.y, DEFS[mine.char]?.aa[0].range ?? C.ATTACK_RANGE);
       // 今狙っている対象の足元に輪
       const tp = thingPos(mine.tgt);
@@ -1133,24 +1214,9 @@ class GameScene extends Phaser.Scene {
       if (f.kind === 'arc') fxG.fillStyle(col, al * 1.4).slice(f.x, f.y, f.r, f.a - f.arc / 2, f.a + f.arc / 2).fillPath();
     }
     // 撃破の演出: 揺れている間はあちこちで小爆発、揺れが収まると大爆発（横2キャラ・縦1.5キャラ分）
-    for (const d of dying) {
-      const cy = d.y - 18; // 体の中心のあたり
-      if (d.ko < K.shake) {
-        const i0 = Math.floor(d.ko / K.pop);
-        for (let j = Math.max(0, i0 - Math.ceil(K.popLife / K.pop)); j <= i0; j++) {
-          const t = d.ko - j * K.pop;
-          if (t < 0 || t >= K.popLife || j * K.pop >= K.shake) continue;
-          const h = Math.sin((j + 1) * 12.9898 + d.p.id.length * 78.233) * 43758.5453, u = h - Math.floor(h), v = (h * 7.13) - Math.floor(h * 7.13); // 小爆発ごとの位置（決まった擬似乱数）
-          const x = d.x + (u - 0.5) * 24, y = d.y - 4 - v * 32, k = t / K.popLife, r = 3 + 6 * k;
-          fxG.fillStyle(0xff6020, 0.9 * (1 - k)).fillCircle(x, y, r).fillStyle(0xffe066, 1 - k).fillCircle(x, y, r * 0.55);
-        }
-      } else {
-        const k = (d.ko - K.shake) / K.boom, e = 1 - (1 - k) ** 3, W = 32 * 2, H = 42 * 1.5; // 横2キャラ・縦1.5キャラ
-        fxG.fillStyle(0xff3010, 0.85 * (1 - k)).fillEllipse(d.x, cy, W * (0.5 + 0.5 * e), H * (0.5 + 0.5 * e));
-        fxG.fillStyle(0xffa020, 0.9 * (1 - k)).fillEllipse(d.x, cy, W * 0.75 * (0.4 + 0.6 * e), H * 0.75 * (0.4 + 0.6 * e));
-        fxG.fillStyle(0xffffff, 1 - k).fillEllipse(d.x, cy, W * 0.4 * (1 - k), H * 0.4 * (1 - k));
-      }
-    }
+    for (const d of dying) this.koBoom(fxG, d, d.ko, d.p.id.length, 1);
+    // 決着演出: 倒された大将の爆発（撃破の演出 KO_FX の時間を FINALE.boom 秒に伸ばし、大きさを bossScale 倍）
+    if (fin?.stage === 'boss' && fin.boss) { const t = fin.t + sinceSnap - F.cam; if (t >= 0) this.koBoom(fxG, fin.boss, (t / F.boom) * (K.shake + K.boom), 7, F.bossScale); }
     // 被ダメージの着弾エフェクト: 撃破の小爆発と同じ橙・黄の円が広がって消え、火花が飛び散る。大きさ・火花の数はダメージ量（最大HP比）に比例。大は白い閃光の輪と大きな火花を足す
     const HF = C.HIT_FX;
     this.hits = this.hits.filter((h) => time - h.t0 < (h.big ? HF.bigMs : HF.ms));
@@ -1195,7 +1261,7 @@ class GameScene extends Phaser.Scene {
 
     // 視界（観戦者はフォグなし）
     const vg = this.visG.clear().fillStyle(0xffffff);
-    this.fog.setVisible(!!mine && !this.introCam);
+    this.fog.setVisible(!!mine && !this.introCam && s.phase !== 'finale');
     if (mine) {
       const eyes = s.players.filter((p: any) => p.team === myTeam && (p.alive || (p.ko !== null && p.ko + sinceSnap < K.shake + K.boom))).map((p: any) => (p.id === s.me ? { ...this.me, char: p.char } : p)); // 撃破の演出中も消えるまでは見える
       const boss = s.bosses.find((b: any) => b.team === myTeam);

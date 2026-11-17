@@ -9,6 +9,11 @@ import { CONFIG as C } from './config';
 export { SCRIPT, CHATTER };
 // 組の色 → チームの対応（陣営0＝あんこもん側＝だいだい組、陣営1＝ずんだもん側＝みどり組）
 export const TEAM_GUMI = ['daidai', 'midori'];
+// 組の色（台本の parts.team と同じ8色）: 英語名（決着の「〜 TEAM WIN」）と文字色
+export const GUMI: Record<string, { en: string; color: string }> = {
+  daidai: { en: 'ORANGE', color: '#ff8c28' }, midori: { en: 'GREEN', color: '#3cc850' }, murasaki: { en: 'PURPLE', color: '#a060e0' }, shiro: { en: 'WHITE', color: '#ffffff' },
+  ao: { en: 'BLUE', color: '#3c8cff' }, ki: { en: 'YELLOW', color: '#ffe040' }, aka: { en: 'RED', color: '#ff4040' }, kuro: { en: 'BLACK', color: '#303030' },
+};
 const ROOM_TEAM: Record<string, number> = { L: 0, R: 1 }; // map.json の部屋 id の接尾辞 → 陣営
 
 // セリフ1つ: k=イベントキー、p=パターンの添字、a=部品の引数（キャラ・組・技・場所・数のID。座標は送らない）

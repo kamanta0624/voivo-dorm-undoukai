@@ -44,6 +44,7 @@ const clear = (r: any, o: { x: number; y: number }, rad = C.PLAYER_RADIUS) => !r
 const inRoom = (p: any, h: any) => p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h;
 const tileAt = (r: any, x: number, y: number) => r.tiles[Math.floor(y / T)][Math.floor(x / T)];
 // 大将の拠点移動の予告を進めて、広範囲攻撃と移動まで終わらせる
+const finish = (r: any) => { for (let i = 0; i < 1000 && r.phase === 'finale'; i++) r.tick(0.05, false); }; // 決着演出（finale）を最後まで進める
 const finishMove = (r: any) => { r.now += C.BOSS_BLAST.warn; r.updateWarns(); };
 // ご飯を置き場所（HEAL_SPOTS）すべてに置く
 const putHeals = (r: any) => { for (const [x, y] of C.HEAL_SPOTS) r.items.push({ id: r.nextId++, kind: 'heal', team: -1, x, y }); };
@@ -301,7 +302,7 @@ console.log('--- バランス調整（回復アイテム間隔・近接補正・
   const z = mk('zunko'), k = mk('kiritan'), s = mk('sayo');
   ok('近接補正は zunko・kiritan 以外（HP×1.2・移動×1.1・攻撃×1.2）', z.r.maxHp(z.A) === 70 && k.r.maxHp(k.A) === 100 && Math.abs(s.r.maxHp(s.A) - 84) < 1e-9 && MB.hp === 1.2 && MB.speed === 1.1 && MB.atk === 1.2);
   const u = mk('sayo'); u.A.ult = { form: 'melee', tier: 1, until: u.r.now + 20, pending: false };
-  ok('ウルト変身中の最大HPは旧倍率の0.8倍（近接 1.8→1.44）', Math.abs(u.r.maxHp(u.A) - 84 * 1.8 * 0.8) < 1e-9);
+  ok(`ウルト変身中の最大HPは旧倍率の0.8倍×強さ（近接 1.8→1.44、レベル2は×${C.POWER_MULT[1]}）`, Math.abs(u.r.maxHp(u.A) - 84 * 1.8 * 0.8 * C.POWER_MULT[1]) < 1e-9);
   u.r.now = 5; u.A.hp = 10; u.r.giveUlt(u.A, 3);
   ok('変身中に重ねてウルトが付いたら効果時間だけリセット（変身先・強さ・HPはそのまま）', u.A.ult.form === 'melee' && u.A.ult.tier === 1 && u.A.hp === 10 && Math.abs(u.A.ult.until - (5 + C.ULT_DURATION)) < 1e-9);
 }
@@ -444,12 +445,60 @@ console.log('--- 大将の逃亡・勝敗（e2e から移動）');
   r.damageBoss(bo, C.BOSS_MOVE_THRESHOLD - 1, A); const stay = bo.base === base0;
   r.damageBoss(bo, 1, A); finishMove(r);
   ok(`大将: 同じ拠点での被ダメが閾値（${C.BOSS_MOVE_THRESHOLD}）に届くと、予告と広範囲攻撃のあと別拠点へ移動`, stay && bo.base !== base0 && bo.dmgAtBase === 0 && bo.x === r.bases[1][bo.base].x);
-  const k = mk('sayo'); k.r.damageBoss(k.r.bosses[1], C.BOSS_HP, k.A);
-  ok('大将のHPが0になった側の負け', k.r.phase === 'ended' && k.r.winner === 0);
+  const k = mk('sayo'); k.r.damageBoss(k.r.bosses[1], C.BOSS_HP, k.A); const ph = k.r.phase; finish(k.r);
+  ok('大将のHPが0になった側の負け（決着演出のあと決着後へ）', ph === 'finale' && k.r.phase === 'ended' && k.r.winner === 0);
   for (const [h0, h1, w] of [[500, 400, 0], [400, 500, 1], [450, 450, 2]]) {
-    const t = mk('sayo'); t.r.bosses[0].hp = h0; t.r.bosses[1].hp = h1; t.r.now = C.MATCH_TIME - 0.01; t.r.tick(0.05, false);
-    ok(`時間切れは大将のHP割合で勝敗（${h0} 対 ${h1} → ${['あんこもん軍', 'ずんだもん軍', '引き分け'][w]}）`, t.r.phase === 'ended' && t.r.winner === w);
+    const t = mk('sayo'); t.r.bosses[0].hp = h0; t.r.bosses[1].hp = h1; t.r.now = C.MATCH_TIME - 0.01; t.r.tick(0.05, false); const p0 = t.r.phase; finish(t.r);
+    ok(`時間切れは大将のHP割合で勝敗（${h0} 対 ${h1} → ${['あんこもん軍', 'ずんだもん軍', '引き分け'][w]}）`, p0 === 'finale' && t.r.phase === 'ended' && t.r.winner === w);
   }
+}
+
+console.log('--- 決着演出（finale）');
+{
+  const F = C.FINALE, st = (r: any) => r.finale?.stage ?? r.phase;
+  const run = (r: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) r.tick(0.05, false); };
+  // 大将撃破: スロー → 大将の爆発 → 止めのキャラ → WIN → 決着後
+  const k = mk('sayo', 'metan'); k.r.shots.push({ id: 999, kind: 'bullet', team: 1, owner: 'b', x: 1400, y: 950, vx: 100, vy: 0, sp: 100, left: 1e9, dmg: 0, r: 4 });
+  const x0 = k.A.x, now0 = k.r.now; k.r.damageBoss(k.r.bosses[1], C.BOSS_HP, k.A);
+  const seq: string[] = [st(k.r)];
+  k.r.players.get('a').inputs.push({ seq: 1, dx: 1, dy: 0 }); run(k.r, 1);
+  const slowNow = k.r.now - now0, moved = k.A.x !== x0, shot = k.r.shots.find((x: any) => x.id === 999);
+  ok(`大将撃破の瞬間からスロー（${F.slowRate}倍）。スロー中は入力を受けない（入力は捨てて処理済みにする）・弾は遅く進む`, k.r.phase === 'finale' && Math.abs(slowNow - F.slowRate) < 1e-6 && !moved && k.A.ack === 1 && shot && Math.abs(shot.x - (1400 + 100 * F.slowRate)) < 1e-6, { slowNow, moved, shotX: shot?.x });
+  const cd0 = k.A.skillReadyAt; k.r.skill('a');
+  ok('演出中は技も受けない', k.A.skillReadyAt === cd0 && !k.r.ents.length);
+  for (let i = 0; i < 600 && k.r.phase === 'finale'; i++) { k.r.tick(0.05, false); if (st(k.r) !== seq.at(-1)) seq.push(st(k.r)); }
+  ok('大将撃破の段: スロー → 大将（カメラ・爆発）→ 止めのキャラ → WIN → 決着後', JSON.stringify(seq) === JSON.stringify(['slow', 'boss', 'killer', 'win', 'ended']), seq);
+  const k2 = mk('sayo', 'metan'); k2.r.damageBoss(k2.r.bosses[1], C.BOSS_HP, k2.A); run(k2.r, F.slow + F.cam + F.boom + 0.05);
+  ok('止めのキャラ（id・キャラ・陣営・位置）を送る。倒された大将の位置も', k2.r.finale.killer?.id === 'a' && k2.r.finale.killer.char === 'sayo' && k2.r.finale.killer.team === 0 && !k2.r.finale.killer.assist && k2.r.finale.boss.team === 1);
+  const k3 = mk('sayo', 'metan'); const as = k3.r.summonAssist(0, 1); k3.r.damageBoss(k3.r.bosses[1], C.BOSS_HP, as); run(k3.r, F.slow + F.cam + F.boom + 0.05);
+  ok('止めがアシストなら assist（立ち絵なしで名前だけ）', k3.r.finale.killer?.assist === true);
+  const k4 = mk('sayo', 'metan'); k4.r.damageBoss(k4.r.bosses[1], C.BOSS_HP, k4.A); k4.r.damageBoss(k4.r.bosses[0], C.BOSS_HP, k4.B);
+  ok('演出中はもう一方の大将は倒れない（勝者は最初の撃破で決まる）', k4.r.winner === 0 && k4.r.bosses[0].hp === C.BOSS_HP);
+  // 時間切れ: 停止 → 時間切れ → WIN → 決着後
+  const t = mk('sayo', 'metan'); t.r.now = C.MATCH_TIME - 0.01; t.r.tick(0.05, false); const tn = t.r.now; const tseq = [st(t.r)];
+  for (let i = 0; i < 600 && t.r.phase === 'finale'; i++) { t.r.tick(0.05, false); if (st(t.r) !== tseq.at(-1)) tseq.push(st(t.r)); }
+  ok('時間切れの段: 時間切れ（ゲーム停止）→ WIN → 決着後', JSON.stringify(tseq) === JSON.stringify(['timeup', 'win', 'ended']), tseq);
+  const t2 = mk('sayo', 'metan'); t2.r.now = C.MATCH_TIME - 0.01; t2.r.tick(0.05, false); const n2 = t2.r.now; run(t2.r, F.timeup / 2);
+  ok('時間切れの間はゲームの時間が止まる', t2.r.now === n2 && t2.r.phase === 'finale');
+  // 演出中は全員に全ユニットを送る（倒された大将・止めのキャラを映す）
+  const v: any = mk('sayo', 'metan'); const last: any = {};
+  Object.defineProperty(v.r, 'clients', { value: [{ sessionId: 'x', send: (ty: string, m: any) => { if (ty === 's') last.s = m; } }] }); v.r.owners.set('x', 'a');
+  Object.assign(v.B, { x: 200, y: 200 }); v.r.sendSnapshots(); const hid = !last.s.players.some((p: any) => p.id === 'b');
+  v.r.damageBoss(v.r.bosses[1], C.BOSS_HP, v.A); v.r.sendSnapshots();
+  ok('演出中はフォグなしで送る（通常は視界外の敵を送らない）', hid && last.s.players.some((p: any) => p.id === 'b') && last.s.finale?.stage === 'slow');
+}
+
+console.log('--- バランス（ending1）');
+{
+  ok('POWER_MULT は旧の0.7倍 [0.49, 0.7, 0.98, 1.4]（見た目のオーラは据え置き）', JSON.stringify(C.POWER_MULT) === JSON.stringify([0.49, 0.7, 0.98, 1.4]) && JSON.stringify(C.POWERUP_AURA.scale) === JSON.stringify([1.2, 1.2 + 0.8 / 3, 1.2 + 1.6 / 3, 2]));
+  ok('POWER_WEIGHTS: レベル3・4はコバコから出ない [30, 40, 0, 0]', JSON.stringify(C.POWER_WEIGHTS) === JSON.stringify([30, 40, 0, 0]));
+  ok('連チャン確率: レベル3へ 0.35、レベル4へ 0.15', C.SLOT.chain === 0.35 && C.SLOT.chainBreak === 0.15);
+  const K = CHARS.kiritan, cannon = K.aa.find((m) => m.name === 'きりたん砲')!, knife = K.aa.find((m) => m.name === '包丁')!;
+  ok('きりたん: 包丁は不変（近接・ダメージ1.2）、きりたん砲 射程310・ダメージ0.85、全弾斉射 射程310・1発7.5', knife.kind === 'melee' && knife.dmg === 1.2 && knife.range === C.ATTACK_RANGE && cannon.range === 310 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 7.5);
+  ok('めたんのドリル: 持続2.4秒', CHARS.metan.skill.dur === 2.4);
+  ok('コバコの徳: 1部屋に2個、上限9は据え置き', C.COURIER_DROP.n === 2 && C.COURIER_DROP.cap === 9);
+  const box: number[] = [0, 0, 0, 0]; for (let i = 0; i < 20000; i++) box[lottery(C.POWER_WEIGHTS)]++;
+  ok(`コバコの荷物の強さの抽選でレベル3・4は出ない（2万回: ${box.join('/')}）`, box[2] === 0 && box[3] === 0);
 }
 
 console.log('--- Botだけの試合・視界外の敵を送らない（e2e の試合2から移動）');
@@ -485,7 +534,7 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
   }
   ok('視界外の敵ユニットを送らない（視界内の敵は送る）', checks > 50 && leaked === 0 && missing === 0, { checks, leaked, missing });
   ok(`Botが資材を拾う（${SIM}秒で${picked}個）`, picked > 0, { toku: r.teams.map((t: any) => t.toku.toFixed(2)) });
-  r.now = C.MATCH_TIME - 0.01; r.tick(0.05, false);
+  r.now = C.MATCH_TIME - 0.01; r.tick(0.05, false); finish(r);
   const ratio = r.bosses.map((b: any) => b.hp / C.BOSS_HP), want = ratio[0] > ratio[1] ? 0 : ratio[1] > ratio[0] ? 1 : 2;
   ok('Botだけの試合が時間切れで決着、勝敗が大将のHP割合どおり', r.phase === 'ended' && r.winner === want, { ratio, winner: r.winner });
 }
@@ -661,7 +710,7 @@ console.log('--- スロット（当たる確率・連チャン・払い出し）
       if (got.includes(top)) broke++;
     }
     const pb = broke / reach;
-    ok(`バランスブレーカー段階への連チャン = ${(pb * 100).toFixed(1)}%（期待 ${C.SLOT.chainBreak * 100}%、通常の連チャンは ${C.SLOT.chain * 100}%）`, Math.abs(pb - C.SLOT.chainBreak) < 0.03 && C.SLOT.chain === 0.5, { reach, broke });
+    ok(`バランスブレーカー段階への連チャン = ${(pb * 100).toFixed(1)}%（期待 ${C.SLOT.chainBreak * 100}%、通常の連チャンは ${C.SLOT.chain * 100}%）`, Math.abs(pb - C.SLOT.chainBreak) < 0.03 && C.SLOT.chain === 0.35, { reach, broke });
   }
   // 払い出し: ウルト（自陣の生存者全員が変身）
   const u = mk('sayo'); u.r.addPlayer('d', 0, true); const D = u.r.players.get('d'); Object.assign(D, { alive: true, x: 1500, y: 900 }); const orig = Math.random; Math.random = () => 0.1; u.r.payout(0, 2, 2); Math.random = orig;
@@ -700,7 +749,7 @@ console.log('--- アシスト3人（技の発動条件・効果・予告と回�
   z = setup('shirakami'); z.a.hp = 50; run(z, 0.05);
   ok(`白上虎太郎: 周囲${U.shirakami.sense}pxに味方がいなければ発動しない`, z.a.hp === 50);
   z = setup('shirakami'); Object.assign(z.A, { x: 1552 + 100, y: 900, hp: 20 }); z.a.hp = 50; const sp0 = z.r.speedOf(z.A); run(z, 0.05);
-  ok(`白上虎太郎: 味方がいると、周囲の味方と自分を${U.shirakami.heal}回復、移動×${U.shirakami.boost}（${U.shirakami.dur}秒）`, z.A.hp === 20 + U.shirakami.heal && z.a.hp === 50 + U.shirakami.heal && Math.abs(z.r.speedOf(z.A) / sp0 - U.shirakami.boost) < 1e-9 && z.r.fx.some((f: any) => f.kind === 'ring' && f.color === 'heal'));
+  ok(`白上虎太郎: 味方がいると、周囲の味方と自分を${U.shirakami.heal}×強さ回復、移動×${U.shirakami.boost}（${U.shirakami.dur}秒）`, z.A.hp === 20 + U.shirakami.heal * C.POWER_MULT[1] && z.a.hp === 50 + U.shirakami.heal * C.POWER_MULT[1] && Math.abs(z.r.speedOf(z.A) / sp0 - U.shirakami.boost) < 1e-9 && z.r.fx.some((f: any) => f.kind === 'ring' && f.color === 'heal'));
   z.r.now += U.shirakami.dur; ok('移動速度上昇は時間で切れる', Math.abs(z.r.speedOf(z.A) - sp0) < 1e-9);
   // 前進: 敵大将へ経路探索で進み、攻撃されても止まらない
   const g = mk('sayo', 'metan'); Object.assign(g.r.bosses[1], g.r.bases[1][g.r.bosses[1].base]); const a = g.r.summonAssist(0, 1, 'kurono'); Object.assign(a, { x: 1552, y: 900 });
@@ -1286,11 +1335,14 @@ console.log('--- 友人テストの反映（通常攻撃の見た目・撃破の
   const D = C.COURIER_DROP, cb = mk('sayo'), hall = C.COURIER_ROUTE.find((q: any) => q.room === 'hall')!, ent = C.COURIER_ROUTE.find((q: any) => q.room === 'entrance')!;
   cb.r.items.push({ id: 900, kind: 'heal', team: -1, x: hall.x, y: hall.y });
   const counts = [0, 1, 2, 3, 4].map(() => { cb.r.courierArrive(hall); return cb.r.materials.filter((m: any) => m.big).length; });
-  const hb = cb.r.materials.find((m: any) => m.big && inRoom(m, hall.area)); cb.r.materials = cb.r.materials.filter((m: any) => m !== hb); cb.r.courierArrive(hall); const after8 = cb.r.materials.filter((m: any) => m.big && inRoom(m, hall.area)).length;
+  const want: number[] = []; for (let i = 0, c = 0; i < 5; i++) want.push((c += c < D.cap ? D.n : 0)); // 未取得が cap 未満なら n 個足す
+  const inHall = () => cb.r.materials.filter((m: any) => m.big && inRoom(m, hall.area));
+  while (inHall().length > D.cap - 1) { const hb = inHall()[0]; cb.r.materials = cb.r.materials.filter((m: any) => m !== hb); } // 拾って cap-1 個に
+  cb.r.courierArrive(hall); const after8 = inHall().length;
   cb.r.courierArrive(ent); const inEnt = cb.r.materials.filter((m: any) => m.big && inRoom(m, ent.area)).length;
   const all = [...cb.r.materials, ...cb.r.items];
   const apart = all.every((m: any, i: number) => all.every((n: any, j: number) => i === j || Math.hypot(m.x - n.x, m.y - n.y) >= C.MATERIAL_GAP));
-  ok(`コバコが着くたびに高性能の徳を${D.n}個置き、部屋の未取得が${D.cap}個以上なら置かない（hall: ${counts.join('→')}、1個拾って${D.cap - 1}個なら${D.n}個置いて${after8}個。別の部屋は別に数える）。重ならない`, JSON.stringify(counts) === JSON.stringify([3, 6, 9, 9, 9]) && after8 === D.cap - 1 + D.n && inEnt === D.n && apart, { counts, after8 });
+  ok(`コバコが着くたびに高性能の徳を${D.n}個置き、部屋の未取得が${D.cap}個以上なら置かない（hall: ${counts.join('→')}、1個拾って${D.cap - 1}個なら${D.n}個置いて${after8}個。別の部屋は別に数える）。重ならない`, JSON.stringify(counts) === JSON.stringify(want) && after8 === D.cap - 1 + D.n && inEnt === D.n && apart, { counts, after8 });
   // 自然湧きの徳は中央3部屋に出ない
   const sp = mk('sayo'); for (let i = 0; i < 3000; i++) sp.r.spawnMaterial();
   const inCenter = sp.r.materials.filter((m: any) => ['smoking', 'hall', 'entrance'].includes(roomKindAt(Math.floor(m.x / T), Math.floor(m.y / T)) ?? '')).length, front = sp.r.materials.filter((m: any) => !m.hi).length;
