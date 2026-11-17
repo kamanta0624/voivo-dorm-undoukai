@@ -21,7 +21,7 @@ function client(says: any[]) {
 }
 const N = Number(process.argv[2]) || 3, CD = (C.CM as any).topicCd ?? 5, SIL = 1;
 let mx = 0, cmx = 0, over = 0, cover = 0; // 最長の沈黙、1.2秒超（1秒の規則＋tickの端数を超えるもの）の回数
-let tot = { n: 0, sum: 0, dup: 0, says: 0, sec: 0, none: 0, cn: 0, csum: 0, drop: 0, reach: 0, reachOk: 0, finBad: 0 };
+let tot = { n: 0, sum: 0, dup: 0, says: 0, sec: 0, none: 0, cn: 0, csum: 0, drop: 0, reach: 0, reachOk: 0, finBad: 0, made: 0 };
 for (let g = 0; g < N; g++) {
   const r: any = new (GameRoom as any)();
   r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
@@ -31,7 +31,8 @@ for (let g = 0; g < N; g++) {
   r.startMatch(); r.cm.log = [];
   while (r.phase !== 'playing') r.tick(1 / C.TICK_HZ, false); // 開幕演出・カウントも流す（試合前のセリフの後に start が続く）
   const c0 = r.cm.clock;
-  while (r.phase === 'playing') r.tick(1 / C.TICK_HZ, false);
+  let made = 0; const seen = [-1, -1]; // リーチ成立（2つ目が止まって2つそろった回転）の回数
+  while (r.phase === 'playing') { r.tick(1 / C.TICK_HZ, false); for (const t of [0, 1]) if (r.cm.reachSpin[t] !== seen[t]) { seen[t] = r.cm.reachSpin[t]; made++; } }
   const c1 = r.cm.clock;
   // 決着演出と試合後も流す（決着の実況が段の順に並ぶか）
   for (let i = 0; i < 60 / (1 / C.TICK_HZ) && r.phase !== 'waiting'; i++) r.tick(1 / C.TICK_HZ, false);
@@ -58,14 +59,15 @@ for (let g = 0; g < N; g++) {
   let stage = '', finOk = true;
   for (const x of fin) { if (x.finale) stage = x.finale; else for (const k of x.keys) if (want[k] && want[k] !== stage) finOk = false; }
   console.log(`  決着: ${finSeq} → ${finOk ? '段の順どおり' : '順が違う'}`);
-  // リーチ: 言い始めの直前（CM.topicCd 秒以内）に雑談を言い始めていること
+  // リーチ: 直前の発話（リーチの1つ前に言い始めたもの）がつなぎ（fill）か
   const allSays = L.filter((x: any) => x.keys);
   const reaches = allSays.filter((x: any) => x.keys.includes('slot_reach'));
-  const reachOk = reaches.filter((x: any) => allSays.some((y: any) => y.keys[0].startsWith('chat:') && y.c <= x.c && x.c - y.c < CD)).length;
-  console.log(`  リーチ: ${reaches.length}回（雑談の言い始めから${CD}秒以内 ${reachOk}回）${reaches.map((x: any) => { const ch = [...allSays].reverse().find((y: any) => y.keys[0].startsWith('chat:') && y.c <= x.c); return ` @${x.c.toFixed(1)}（直前の雑談 ${ch ? (x.c - ch.c).toFixed(1) + '秒前' : 'なし'}）`; }).join('')}`);
+  const reachOk = reaches.filter((x: any) => { const i = allSays.indexOf(x); return i > 0 && allSays[i - 1].fill === true; }).length;
+  console.log(`  リーチ: ${reaches.length}回／リーチ成立${made}回（${made ? ((reaches.length / made) * 100).toFixed(1) : '-'}%）、直前の発話がつなぎ ${reachOk}/${reaches.length}${reaches.map((x: any) => { const p = allSays[allSays.indexOf(x) - 1]; return ` @${x.c.toFixed(1)}（直前 ${p?.keys[0]}${p?.fill ? '・つなぎ' : ''}、言い終わりから${(x.c - p?.end).toFixed(2)}秒）`; }).join('')}`);
+  tot.made += made;
   tot.reach += reaches.length; tot.reachOk += reachOk; if (!finOk) tot.finBad++;
   console.log(`試合${g + 1}: 試合中${(c1 - c0).toFixed(0)}秒 発話${says.length} 沈黙(>${SIL}秒)${n}回 合計${sum.toFixed(1)}秒 候補切れ${none}回 ／ クライアント模擬(遅延${LAT}秒): 沈黙${cn}回 合計${csum.toFixed(1)}秒 捨てたつなぎ${cl.dropped}回 ／ 同じ話題の${CD}秒以内の重複${dup}回${dups.length ? '\n  ' + dups.slice(0, 15).join('\n  ') : ''}`);
-  tot = { n: tot.n + n, sum: tot.sum + sum, dup: tot.dup + dup, says: tot.says + says.length, sec: tot.sec + c1 - c0, none: tot.none + none, cn: tot.cn + cn, csum: tot.csum + csum, drop: tot.drop + cl.dropped, reach: tot.reach, reachOk: tot.reachOk, finBad: tot.finBad };
+  tot = { n: tot.n + n, sum: tot.sum + sum, dup: tot.dup + dup, says: tot.says + says.length, sec: tot.sec + c1 - c0, none: tot.none + none, cn: tot.cn + cn, csum: tot.csum + csum, drop: tot.drop + cl.dropped, reach: tot.reach, reachOk: tot.reachOk, finBad: tot.finBad, made: tot.made };
 }
 console.log(`# 最長の沈黙: サーバー${mx.toFixed(2)}秒・クライアント模擬${cmx.toFixed(2)}秒、1.2秒超: サーバー${over}回・クライアント模擬${cover}回`);
-console.log(`# 合計 ${N}試合: 試合中${tot.sec.toFixed(0)}秒 発話${tot.says} 沈黙(>${SIL}秒)${tot.n}回 合計${tot.sum.toFixed(1)}秒 候補切れ${tot.none}回 ／ クライアント模擬: 沈黙${tot.cn}回 合計${tot.csum.toFixed(1)}秒 捨てたつなぎ${tot.drop}回 ／ 重複${tot.dup}回 ／ リーチ${tot.reach}回（雑談の直後${tot.reachOk}回） ／ 決着の順が違う試合${tot.finBad}`);
+console.log(`# 合計 ${N}試合: 試合中${tot.sec.toFixed(0)}秒 発話${tot.says} 沈黙(>${SIL}秒)${tot.n}回 合計${tot.sum.toFixed(1)}秒 候補切れ${tot.none}回 ／ クライアント模擬: 沈黙${tot.cn}回 合計${tot.csum.toFixed(1)}秒 捨てたつなぎ${tot.drop}回 ／ 重複${tot.dup}回 ／ リーチ${tot.reach}回／成立${tot.made}回（${tot.made ? ((tot.reach / tot.made) * 100).toFixed(1) : '-'}%、直前がつなぎ${tot.reachOk}回） ／ 決着の順が違う試合${tot.finBad}`);

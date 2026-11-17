@@ -173,7 +173,7 @@ export class Director {
   boardAt = -Infinity; behind: number | null = null; alldown = [false, false];
   walls: number[] = [0, 0]; // 陣営側ごとの壊せる壁タイル数（壁の壊れ方の話題）
   // タイムライン（実況の時計。試合前後も進む）
-  clock = 0; busyUntil = 0; speaking = false; q: Q[] = []; seq = 0; noFill = false; noFillAt = 0;
+  clock = 0; busyUntil = 0; speaking = false; q: Q[] = []; seq = 0; noFill = false; noFillAt = 0; lastFill = false;
   topicAt = new Map<string, number>(); // 話題カテゴリ（topicOf）→ 最後に言い始めた時刻（実況の時計）。CM.topicCd 秒は同じ話題を出さない
   durOf = durOf; // 発話の長さ（秒）
   // つなぎ: 使ったパターン（k:p）、雑談の使用済み、直前の話題と話題ごとの前回の値、盤面と雑談の交互
@@ -211,6 +211,7 @@ export class Director {
   private coolU(u: Utter) { const main = u.s.filter((x) => topicOf(x.k) !== 'pre'); return (main.length ? main : u.s).some((x) => this.cool(x.k)); }
   // 言い始める: 全員に送り、言い終わる時刻を決める。クールタイム中の前置きは外す
   private send(u: Utter) {
+    this.lastFill = !!u.fill; // 直前の発話がつなぎか（リーチの条件）
     if (u.s.length > 1) { const s = u.s.filter((x) => topicOf(x.k) !== 'pre' || !this.cool(x.k)); if (s.length) u = { ...u, s }; }
     for (const x of u.s) { const t = topicOf(x.k); if (t !== null) this.topicAt.set(t, this.clock); }
     const d = this.durOf(u.s);
@@ -227,9 +228,9 @@ export class Director {
     this.q = this.q.filter((x) => (x.keep || this.clock - x.at < M.drop) && !this.coolU(x.u)); // 同じ話題がクールタイム中のものは捨てる（種類によらず）
     const best = this.q.reduce<Q | null>((a, x) => (!a || x.u.pr > a.u.pr || (x.u.pr === a.u.pr && x.seq < a.seq) ? x : a), null);
     if (best) { this.q = this.q.filter((x) => x !== best); return this.send(best.u); }
+    if (this.room.phase === 'playing' && this.reachFill()) return; // リーチは沈黙を待たない
     if (this.room.phase !== 'playing' || this.clock - this.busyUntil < M.fill.silence) return;
     if (this.prefix) { const p = this.prefix; this.prefix = null; if (!this.cool(p.k)) return this.send({ pr: priority(p.k), s: [this.say(p.k, { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
-    if (this.reachFill()) return;
     if (this.noFill && this.clock - this.noFillAt < M.every) return; // 候補がなければ CM.every 秒おきに探し直す
     const f = this.filler();
     if (f) this.send({ pr: priority(f.k), s: [f], fill: true });
@@ -586,14 +587,14 @@ export class Director {
     else this.bad.set(p.id, (this.bad.get(p.id) ?? 0) + bad);
   }
 
-  // スロットのリーチ（雑談より低い優先度）: 雑談を言って雑談がクールタイム中、かつ待っているセリフがないときだけ言う。言う前にリールが止まって結果が確定していたら捨てる
+  // スロットのリーチ（つなぎより低い優先度）: 直前の発話がつなぎ（雑談・盤面コメント）で、待っているセリフがないセリフの切れ目で言う（沈黙は待たない）。言う前にリールが止まって結果が確定していたら捨てる
   private reachFill() {
     const now = this.now;
     for (const team of [0, 1]) {
       const start = this.reachWait[team], sl = this.room.teams[team]?.slot;
       if (start === null) continue;
       if (!sl || sl.start !== start || now - start >= C.SLOT.stops[2] * C.SLOT.spin || sl.payoutAt !== null) { this.reachWait[team] = null; continue; } // 結果が確定した
-      if (this.q.length || !this.cool('chat:') || this.cool('slot_reach')) continue;
+      if (this.q.length || !this.lastFill || this.cool('slot_reach')) continue;
       this.reachWait[team] = null; this.reachAt[team] = now;
       this.send({ pr: priority('slot_reach'), s: [this.say('slot_reach', { 組: [team] })!] });
       return true;

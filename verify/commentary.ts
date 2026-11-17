@@ -574,29 +574,31 @@ console.log('--- 6. 全体・進行');
   ok('スロットの罰', keys().some((k) => k.startsWith('pen_')));
 }
 {
-  // リーチ: 待ち行列に入れず、雑談を言って雑談がクールタイム中・待っているセリフなし・沈黙のときだけ言う。言う前にリールが止まったら捨てる
+  // リーチ: 待ち行列に入れず、直前の発話がつなぎ（雑談・盤面コメント）で待っているセリフがないセリフの切れ目で言う（沈黙は待たない）。言う前にリールが止まったら捨てる
   const { r, got } = mk('sayo', 'metan');
   r.cm.cool = r.cm.coolOrig; r.cm.durOf = () => 0.5; r.cm.filler = () => null;
   const reach = () => got.filter((u) => u.s[0].k === 'slot_reach' && u.s[0].a.組[0] === 1).length;
-  const spin = () => { r.startSpin(1, 'miss'); r.teams[1].slot.reels = [0, 0, 1]; r.teams[0].slot.start = r.now; r.now += C.SLOT.stops[1] * C.SLOT.spin; r.cm.tick(0.05); };
-  const chat = () => { r.cm.topicAt.set('chat', r.cm.clock); }; // 雑談を言い始めた（雑談のクールタイム中）
+  const spin = () => { r.startSpin(1, 'miss'); r.teams[1].slot.reels = [0, 0, 1]; Object.assign(r.teams[0].slot, { start: r.now, reels: [0, 1, 2] }); r.now += C.SLOT.stops[1] * C.SLOT.spin; r.cm.tick(0.05); }; // 陣営0はそろわない出目（陣営1のリーチだけを見る）
+  const fill = () => r.cm.send({ pr: 1, s: [{ k: 'idle_toku', p: 2, a: {} }], fill: true }); // つなぎ（盤面コメント）を言い始める
   const wait = (sec: number) => { for (let i = 0; i < sec / 0.05; i++) { r.cm.flow(0.05); } };
+  const lastAt = () => JSON.parse(r.cm.log.filter((x: string) => x.includes('"keys"')).at(-1)); // 最後の発話（言い始め c・言い終わり end）
   r.cm.reachAt = [-Infinity, -Infinity];
-  spin(); wait(M.fill.silence + 0.1);
-  ok('リーチ: 雑談がクールタイム中でなければ言わない（沈黙でも）', reach() === 0 && r.cm.reachWait[1] !== null);
-  chat(); r.cm.emit([{ k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); r.cm.busyUntil = r.cm.clock + 0.1; wait(0.05);
-  ok('リーチ: 待っているセリフがあればそちらが先', reach() === 0 && got.at(-1).s[0].k === 'play_dodge');
-  wait(M.fill.silence + 0.1);
-  ok('リーチ（2つ目が止まって2つそろった）: 雑談の直後（雑談のクールタイム中）・ほかに言うことがない沈黙で言う', reach() === 1 && r.cm.reachWait[1] === null);
-  spin(); chat(); wait(M.fill.silence + 0.1);
+  r.cm.emit([{ k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); wait(0.5); spin(); wait(M.fill.silence + 0.5);
+  ok('リーチ: 直前の発話がつなぎでなければ言わない（沈黙でも）', reach() === 0 && r.cm.reachWait[1] !== null);
+  fill(); r.cm.emit([{ k: 'play_boss_near', p: 0, a: { A: 'sayo', 大将: 1 } }]); wait(1.2);
+  ok('リーチ: 待っているセリフがあればそちらが先（言った後は直前がつなぎでないので言わない）', reach() === 0 && got.at(-1).s[0].k === 'play_boss_near', got.map((u: any) => u.s[0].k));
+  fill(); const fEnd = lastAt().end; wait(0.55);
+  const rs = lastAt();
+  ok(`リーチ（2つ目が止まって2つそろった）: 直前がつなぎなら、待っているセリフがない切れ目ですぐ言う（沈黙${M.fill.silence}秒を待たない）`, reach() === 1 && r.cm.reachWait[1] === null && rs.keys[0] === 'slot_reach' && rs.c - fEnd < M.fill.silence, { gap: +(rs.c - fEnd).toFixed(2) });
+  spin(); fill(); wait(0.6);
   ok('同じ組は20秒に1回', reach() === 1);
-  r.now += M.reachCd; spin(); r.now += C.SLOT.spin; chat(); wait(M.fill.silence + 0.1);
+  r.now += M.reachCd; spin(); r.now += C.SLOT.spin; fill(); wait(0.6);
   ok('言う前にリールが止まって結果が確定していたら捨てる', reach() === 1 && r.cm.reachWait[1] === null);
-  r.now += M.reachCd; r.cm.topicAt.delete('slot'); spin(); chat(); wait(M.fill.silence + 0.1);
+  r.now += M.reachCd; r.cm.topicAt.delete('slot'); spin(); fill(); wait(0.6);
   ok('20秒たてばまた喋る', reach() === 2);
-  r.startSpin(1, 'pen'); r.now += C.SLOT.stops[1] * C.SLOT.spin + M.reachCd; r.cm.tick(0.05); chat(); wait(M.fill.silence + 0.1);
+  r.startSpin(1, 'pen'); r.now += C.SLOT.stops[1] * C.SLOT.spin + M.reachCd; r.cm.tick(0.05); fill(); wait(0.6);
   ok('罰の出目（×××）はリーチにしない', reach() === 2);
-  ok('リーチは雑談・盤面コメント・出来事より優先度が低い（待ち行列に入れない）', !r.cm.q.some((x: any) => x.u.s[0].k === 'slot_reach'));
+  ok('リーチはつなぎ・出来事より優先度が低い（待ち行列に入れない）', !r.cm.q.some((x: any) => x.u.s[0].k === 'slot_reach'));
 }
 {
   const { r, keys, got } = mk('sayo', 'metan');
