@@ -153,11 +153,11 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .mm{position:absolute;right:calc(var(--z) * 4px);bottom:calc(var(--z) * 4px);width:calc(var(--z) * ${MAP.width * MINI}px);height:calc(var(--z) * ${MAP.height * MINI}px);pointer-events:auto;touch-action:none}
 #fx .killer{position:absolute;left:${50 + C.KO_CUTIN_GAP / 2}%;transform:translateX(-50%);bottom:22%;height:62%;display:none}
 #fx .killer img{height:100%}
-#fx .killer div,#fx .cut .how{position:absolute;right:0;top:4%;white-space:nowrap;color:#fff;font:900 calc(var(--z) * 14px) sans-serif;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 4px #000,0 0 4px #000}
+#fx .kohow,#fx .cut .how{position:absolute;right:0;top:4%;white-space:nowrap;color:#fff;font:900 calc(var(--z) * 14px) sans-serif;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .cut .how{right:auto;left:50%;top:auto;bottom:16%;transform:translateX(-50%);text-align:center;color:#ffe066}
+#fx .kohow{right:auto;left:50%;top:auto;bottom:${62 * 0.16}%;transform:translateX(-50%);white-space:pre;text-align:center;display:none} /* KOされた時の文字: 自分が撃破した時（.cut .how）と同じ画面中央の位置（立ち絵の下端より下） */
 #fx .cut .how b{display:block;font-size:calc(var(--z) * 22px);color:#ff5040}
 #fx .cut .how span{display:block}
-#fx .killer div{white-space:pre;text-align:right}
 #fx .iris{position:absolute;inset:0;display:none}
 #fx.finale > :not(.fin):not(.cmsub){display:none!important}
 #fx .fin{position:absolute;inset:0;display:none;pointer-events:none}
@@ -248,8 +248,11 @@ finEl.className = 'fin';
 fx.appendChild(finEl);
 const killer = document.createElement('div'); // KOされた時: ラストヒットを取ったキャラの立ち絵と、誰に何で倒されたか
 killer.className = 'killer';
-killer.innerHTML = '<img><div></div>';
+killer.innerHTML = '<img>';
 fx.appendChild(killer);
+const kohow = document.createElement('div'); // KOされた時: 誰に何で倒されたか（画面中央）
+kohow.className = 'kohow';
+fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
@@ -1289,7 +1292,7 @@ class GameScene extends Phaser.Scene {
     // 技のアイコンとクールタイム
     const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
     skEl.style.display = sk ? 'flex' : 'none';
-    skEl.classList.toggle('sealed', !!sk && (['waiting', 'intro', 'countdown'].includes(s.phase) || (mine.ult && mine.ult.left !== null))); // 封印: 戦闘開始前・ウルト中
+    skEl.classList.toggle('sealed', !!sk && ['waiting', 'intro', 'countdown'].includes(s.phase)); // 封印: 戦闘開始前
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
@@ -1349,9 +1352,9 @@ class GameScene extends Phaser.Scene {
       if (ksrc && !kimg.src.endsWith(ksrc)) kimg.src = ksrc;
       kimg.style.display = ksrc ? '' : 'none';
       const kt = by ? [by.kc ? charName(by.kc) : '', by.how].filter((x) => x).join('\n') : ''; // 1行目: 倒したキャラ名、2行目: 倒した手段
-      if (killer.querySelector('div')!.textContent !== kt) killer.querySelector('div')!.textContent = kt;
-      killer.style.display = by ? 'block' : 'none';
-    } else { down.style.display = 'none'; killer.style.display = 'none'; }
+      if (kohow.textContent !== kt) kohow.textContent = kt;
+      killer.style.display = kohow.style.display = by ? 'block' : 'none';
+    } else { down.style.display = 'none'; killer.style.display = 'none'; kohow.style.display = 'none'; }
 
     const result = s.winner === 2 ? '引き分け' : s.winner >= 0 ? `${TEAM_NAME[s.winner]}の勝ち` : '';
     setText($('#info'), [

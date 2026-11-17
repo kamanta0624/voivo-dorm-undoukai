@@ -201,6 +201,7 @@ export const CONFIG = {
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
   POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ
   POWER_MULT: [0.49, 0.7, 0.98, 1.4], // 強さの倍率（見た目のレベル表現 POWERUP_AURA などは別）
+  ULT_HP_MULT: [0.49, 0.49, 0.686, 0.98], // パワーアップ中の最大HP（0になると変身が解ける＝シールド）の倍率。2026-11-18 POWER_MULT から分離: Lv4=旧Lv3、Lv2・3は旧値×(旧Lv3÷旧Lv4=0.7)、Lv1据え置き
   POWER_WEIGHTS: [30, 40, 0, 0], // コバコの荷物の強さの抽選（レベル3・4はスロットの連チャン限定）
   ULT_DURATION: 20, // ウルトの効果時間(秒)
   // 変身先: hp=最大HP倍率 def=被ダメ倍率 speed=移動倍率 atk=攻撃倍率 range=射程 arc=攻撃の角度 ranged=弾を撃つ
@@ -219,7 +220,8 @@ export const CONFIG = {
       aoyama: { name: '青山龍星', sense: 250, every: 6, r: 64, warn: 1, dmg: 50 }, // 周囲に敵がいるとき、一番近い敵の位置に範囲攻撃（予告の位置は発動時点で固定）
     } as Record<string, any>,
   },
-  RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）
+  RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）。溜め中に移動・攻撃（通常攻撃・技）・被弾で中断（溜めは0に戻る）
+  RECALL_HEAL: 0.5, // リコール完了時の回復量（最大HPに対する割合。最大HPで頭打ち）
   BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する
   HEAL_ITEM_AMOUNT: 60, // 回復アイテムの回復量
@@ -262,7 +264,8 @@ export const CONFIG = {
     chaseSec: 2, chaseGap: 150, // 追跡: 逃げる相手に chaseSec 秒以上、chaseGap px 以内でついていく
     bossNearR: 300, bossNearCd: 30, // 大将に接近: 敵大将からこの半径内で大将側の視界に入った。同じキャラは bossNearCd 秒に1回
     spotCd: 30, // 敵を視界に捉える: 同じキャラは spotCd 秒に1回
-    prefixWait: 1.2, // 前置きの後に続くセリフをこの秒数まで待つ（来なければ前置きだけ）
+    prefixWait: 1.2, // 前置きの後に続くセリフをこの秒数まで待つ（来なければ前置きだけ。型1の文言）
+    preOrder: 0.5, // フォーカス変更の場所と状況のまとめ方: 型1（状況→場所 pre_t1）になる確率。残りは型2（場所→状況 pre_t2）
     fill: { silence: 1, board: 0.5, short: 2.5 }, // つなぎ: この秒数黙ったら1つ。フォーカスなしで盤面コメントを選ぶ割合（残りは雑談）。フォーカス中は short 秒以下の盤面コメントだけ
     topicCd: 5, // 話題のクールタイム(秒): 同じ話題カテゴリ（shared/commentary.ts の topicOf）は言い始めてからこの秒数出さない（決着・試合後は対象外）。クールタイム中のセリフは捨てる
     drop: 3, // 待たされたセリフを捨てる秒数（決着・全員反省中・大将HP・撃破系・試合後は捨てない）

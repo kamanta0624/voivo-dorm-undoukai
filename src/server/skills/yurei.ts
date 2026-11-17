@@ -29,7 +29,8 @@ function update(room: GameRoom, e: Ent, dt: number) {
 }
 
 const skill: Skill = {
-  use(room, p, a) {
+  use(room, p) {
+    const a = room.skillAim(p, S.range);
     room.ents.push({ id: room.nextId++, kind: 'enma', team: p.team, owner: p.id, x: p.x, y: p.y, r: S.r, body: null, a, left: S.range });
   },
   // Bot: 射程内に悪行のある（または指名手配中の）敵がいれば撃つ

@@ -14,7 +14,7 @@ function scythe(room: GameRoom, p: Player, a: number) {
   for (const t of room.enemyThings(p.team)) {
     if (!room.inArc(p, t.x, t.y, t.r, a, S.range, S.arc) || !room.reach(p, t)) continue;
     hit = true;
-    room.hitThing(p, t, t.k === 'boss' ? S.bossDmg : S.dmg);
+    room.hitThing(p, t, t.k === 'boss' ? S.bossDmg : t.k === 'p' && t.o.assist ? S.dmg * S.assistMult : S.dmg);
   }
   room.addFx(p, 'arc', { a, r: S.range, arc: S.arc, color: 'scythe' });
   if (!hit) return;

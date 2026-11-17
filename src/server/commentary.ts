@@ -156,7 +156,8 @@ export class Director {
   attn = new Map<string, number>();
   focus: string | null = null;
   focusRoom: string | null = null;
-  prefix: { k: string; place: string; at: number } | null = null; // 続くセリフ待ちの前置き
+  prefix: { k: string; place: string; at: number } | null = null; // 続くセリフ待ちの場所のセリフ（k: pre_t1=型1 状況→場所 / pre_t2=型2 場所→状況）
+  held = new Map<string, { list: Say[]; o: { bt?: Battle; merge?: Battle }; at: number }>(); // フォーカス外で言えなかった状況のセリフ（対象 id → 最新）。その対象へフォーカスが移ったら場所のセリフとまとめて言う
   battles: Battle[] = [];
   tracks: Track[] = [];
   lastPat = new Map<string, number>();
@@ -224,13 +225,13 @@ export class Director {
   // セリフの切れ目: フォーカスを判定し、待っているうち優先度が一番高い（同じなら古い）ものを言う。捨てない種類以外は発生から CM.drop 秒で捨てる。何もなく CM.fill.silence 秒黙ったら、つなぎ
   private pump() {
     if (this.clock < this.busyUntil) return;
-    if (this.speaking) { this.speaking = false; this.evalFocus(); }
+    if (this.speaking) { this.speaking = false; this.evalFocus(); if (this.clock < this.busyUntil) return; } // フォーカス変更で言い始めた
     this.q = this.q.filter((x) => (x.keep || this.clock - x.at < M.drop) && !this.coolU(x.u)); // 同じ話題がクールタイム中のものは捨てる（種類によらず）
     const best = this.q.reduce<Q | null>((a, x) => (!a || x.u.pr > a.u.pr || (x.u.pr === a.u.pr && x.seq < a.seq) ? x : a), null);
     if (best) { this.q = this.q.filter((x) => x !== best); return this.send(best.u); }
     if (this.room.phase === 'playing' && this.reachFill()) return; // リーチは沈黙を待たない
     if (this.room.phase !== 'playing' || this.clock - this.busyUntil < M.fill.silence) return;
-    if (this.prefix) { const p = this.prefix; this.prefix = null; if (!this.cool(p.k)) return this.send({ pr: priority(p.k), s: [this.say(p.k, { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
+    if (this.prefix) { const p = this.prefix; this.prefix = null; if (!this.cool('pre_t1')) return this.send({ pr: priority('pre_t1'), s: [this.say('pre_t1', { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
     if (this.noFill && this.clock - this.noFillAt < M.every) return; // 候補がなければ CM.every 秒おきに探し直す
     const f = this.filler();
     if (f) this.send({ pr: priority(f.k), s: [f], fill: true });
@@ -239,12 +240,21 @@ export class Director {
   // 実況の時計を進める（試合前後も毎tick。GameRoom から）
   flow(dt: number) { this.clock += dt; this.pump(); }
   // フォーカス中の対象が関わるときだけ喋る（前置きが待っていれば前に付ける）
+  // フォーカス外なら、状況のセリフとして対象ごとに取っておく（フォーカスが移ったら場所のセリフとまとめる）
   private focusSay(ids: string[], list: (Say | null)[], o: { bt?: Battle; merge?: Battle } = {}) {
-    if (this.focus === null || !ids.includes(this.focus)) return false;
-    const pre = this.prefix ? this.say(this.prefix.k, { 場所: this.prefix.place }) : null;
-    this.prefix = null;
-    this.emit([pre, ...list], o);
+    if (this.focus === null || !ids.includes(this.focus)) {
+      const s = list.filter((x): x is Say => !!x);
+      if (s.length) { for (const id of ids) this.held.set(id, { list: s, o, at: this.clock }); this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), held: s.map((x) => x.k), ids: ids.map((id) => this.char(id)) })); }
+      return false;
+    }
+    this.emit(this.withPre(list), o);
     return true;
+  }
+  // 待っている場所のセリフを型どおりの順で付ける（型1: 状況→場所、型2: 場所→状況）
+  private withPre(list: (Say | null)[]) {
+    const p = this.prefix, alone = list.every((x) => !x), pre = p ? this.say(alone ? 'pre_t1' : p.k, { 場所: p.place }) : null; // 本文がなければ単独で言える型1
+    this.prefix = null;
+    return p?.k === 'pre_t1' ? [...list, pre] : [pre, ...list];
   }
 
   // ---- 注目度とフォーカス ----
@@ -259,7 +269,18 @@ export class Director {
     const p = this.room.players.get(r.focus), place = p ? roomAt(p.x, p.y) : null;
     const same = r.change === 'move' && place !== null && place === this.focusRoom;
     this.focusRoom = place;
-    this.prefix = same || !place ? null : { k: prev === null ? 'pre_start' : 'pre_move', place, at: this.now };
+    this.prefix = same || !place ? null : { k: this.rnd() < M.preOrder ? 'pre_t1' : 'pre_t2', place, at: this.now };
+    // 移った先の対象の、言えずに取ってあった状況のセリフ（M.drop 秒以内）を場所のセリフとまとめてすぐ言う
+    // （フォーカス変更はセリフの切れ目なので、待っている他のセリフより先に言い始める。話題のクールタイム中なら捨てる）
+    const h = this.held.get(r.focus);
+    this.held.clear();
+    if (!h || this.clock - h.at >= M.drop) return;
+    const s = this.withPre(h.list).filter((x): x is Say => !!x), u = { pr: Math.max(...s.map((x) => priority(x.k))), s };
+    const cool = this.coolU(u);
+    this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), heldUse: !cool, keys: h.list.map((x) => x.k) }));
+    if (cool) return;
+    if (h.o.merge) this.q = this.q.filter((x) => x.bt !== h.o.merge);
+    this.send(u);
   }
   private add(id: string, v: number) { bump(this.attn, id, v); }
   // 出来事: 注目度を上げ、フォーカスを判定し、フォーカス中の対象が関わればセリフ
@@ -302,7 +323,7 @@ export class Director {
   tick(dt: number) {
     const now = this.now;
     for (const b of this.battles) if (b.pend && now - b.pend.t >= M.killHold) { const k = b.pend; b.pend = null; this.single(k); }
-    if (this.prefix && now - this.prefix.at >= M.prefixWait) { const p = this.prefix; this.prefix = null; this.emit([this.say(p.k, { 場所: p.place })]); }
+    if (this.prefix && now - this.prefix.at >= M.prefixWait) { const p = this.prefix; this.prefix = null; this.emit([this.say('pre_t1', { 場所: p.place })]); } // 単独なら型1の文言（型2「〜では」は続きがないと切れる）
     this.room.teams.forEach((t, team) => {
       const sl = t.slot;
       if (sl.payoutAt !== null || sl.pen || sl.holdUntil || this.reachSpin[team] === sl.start || now - sl.start < C.SLOT.stops[1] * C.SLOT.spin || sl.reels[0] !== sl.reels[1]) return;

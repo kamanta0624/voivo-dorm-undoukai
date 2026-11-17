@@ -1,4 +1,4 @@
-// 猫使ビィ: 再現江湖（敵へ残像を残して高速移動 → 当たればさらに進み、止まった瞬間に相手を中心に爆発。範囲の壁も壊す）
+// 猫使ビィ: 再現江湖（デッドリーウェイブ。敵へ残像を残して高速移動（この間は通常攻撃のダメージを受けない） → 当たればさらに進み、止まった瞬間に相手を中心に爆発。範囲の壁も壊す）
 import type { GameRoom, Player } from '../GameRoom';
 import { PERIMETER, thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -42,9 +42,8 @@ function step(room: GameRoom, p: Player, dt: number) {
 const skill: Skill = {
   // 対象: 射程内の敵（照準モードに従う。いなければ向いている方向）
   use(room, p) {
-    const t = room.pickTarget(p, B.range);
-    const a = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
-    p.st.phantom = { until: Infinity, lock: true, noAttack: true, cancel: true, view: () => ({ a }) };
+    const a = room.skillAim(p, B.range);
+    p.st.phantom = { until: Infinity, lock: true, noAttack: true, cancel: true, noAaDmg: true, view: () => ({ a }) };
     p.sk.phantom = { a, left: B.range, hit: null };
   },
   afterMove: (room, p, dt) => step(room, p, dt),

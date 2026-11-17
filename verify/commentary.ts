@@ -126,6 +126,8 @@ console.log('--- パターン');
   ok('使えるパターンだけから選ぶ', pickPattern(2, undefined, 0.9, [0]) === 0);
 }
 
+// フォーカス変更の場所のセリフ: 型1（状況→場所 pre_t1）か型2（場所→状況 pre_t2）
+const typed = (ks: string[], body: string[]) => JSON.stringify(ks) === JSON.stringify(['pre_t2', ...body]) || JSON.stringify(ks) === JSON.stringify([...body, 'pre_t1']);
 console.log('--- 撃破（GameRoom のフック）');
 {
   const { r, A, B, keys, got } = mk('sayo', 'metan');
@@ -133,8 +135,10 @@ console.log('--- 撃破（GameRoom のフック）');
   ok('撃破の直後は保留（1秒）', !keys().some((k) => k.startsWith('kill')));
   run(r, 1.05);
   const u = got.find((x) => x.s.some((s: any) => s.k === 'kill_normal')); // （ほかのBotは倒してあるので、先に「全員反省中」が入る）
-  ok('1秒後に単発: 前置き＋本文＋ファーストキル（1つの発話）', JSON.stringify(u?.s.map((s: any) => s.k)) === JSON.stringify(['pre_start', 'kill_normal', 'add_first']), keys());
-  ok('前置きの場所は部屋の id、本文は A=撃破者 B=倒された', u.s[0].a.場所 === roomAt(B.x, B.y) && u.s[1].a.A === 'sayo' && u.s[1].a.B === 'metan');
+  const pu = got.find((x) => x.s.some((s: any) => s.k.startsWith('pre_'))), uk = (x: any) => x?.s.map((s: any) => s.k);
+  ok('1秒後に単発: 本文＋ファーストキル（1つの発話）。場所のセリフはフォーカス変更で取ってあった接敵か撃破とまとめる（型1は後ろ、型2は前）', JSON.stringify(uk(u).filter((k: string) => !k.startsWith('pre_'))) === '["kill_normal","add_first"]' && (typed(uk(pu), ['engage_1']) || typed(uk(pu), ['kill_normal', 'add_first'])), got.map(uk));
+  const pre = pu.s.find((s: any) => s.k.startsWith('pre_')), kn = u.s.find((s: any) => s.k === 'kill_normal');
+  ok('場所は部屋の id、本文は A=撃破者 B=倒された', pre.a.場所 === roomAt(B.x, B.y) && kn.a.A === 'sayo' && kn.a.B === 'metan');
   ok('座標を送らない', got.every((u) => u.s.every((s: any) => Object.keys(s.a).every((k) => ['A', 'B', 'C', '組', '大将', '助っ人', '技', '場所', 'n', 'm'].includes(k)))));
 }
 {
@@ -243,7 +247,7 @@ console.log('--- 戦闘の検知・合流・まとめ（撃破0）');
   const { r, A, B, keys } = mk('sayo', 'metan');
   r.cm.attn.set('a', 60);
   r.damagePlayer(B, 5, 'a', false, '通常攻撃');
-  ok('フォーカス中の対象が関わる戦闘の開始 → 前置き＋接敵（1対1）', JSON.stringify(keys()) === JSON.stringify(['pre_start', 'engage_1']), keys());
+  ok('フォーカス中の対象が関わる戦闘の開始 → 前置き＋接敵（1対1）', typed(keys(), ['engage_1']), keys());
   ok('戦闘は1つ', r.cm.battles.length === 1);
   r.addPlayer('c', 0, false); const Cc = r.players.get('c'); Object.assign(Cc, { char: 'zunko', x: 1552 - 250, y: 900, alive: true }); Cc.hp = r.maxHp(Cc);
   r.damagePlayer(B, 5, 'c', false, '通常攻撃');
@@ -389,7 +393,7 @@ console.log('--- 2. 個別プレー');
   const { r, keys } = mk('sayo', 'metan');
   Object.assign(r.bosses[0], { x: 1400, y: 900 }); // 助っ人は大将の所に現れる
   const a = r.summonAssist(0, 1, 'kurono');
-  ok('助っ人の登場: 本人の注目度60でフォーカス → 前置き＋登場', r.cm.attn.get(a.id) === 60 && JSON.stringify(keys()) === JSON.stringify(['pre_start', 'play_assist_in']), keys());
+  ok('助っ人の登場: 本人の注目度60でフォーカス → 前置き＋登場', r.cm.attn.get(a.id) === 60 && typed(keys(), ['play_assist_in']), keys());
   r.summonAssist(0, 1, 'kurono');
   ok('助っ人の強化', keys().includes('play_assist_up'), keys());
   const { r: r2, B: B2, keys: k2 } = mk('sayo', 'metan');
@@ -418,15 +422,27 @@ console.log('--- 3. 前置き');
 {
   const { r, A, B, keys } = mk('sayo', 'metan');
   r.cm.attn.set('a', 60); r.cm.evalFocus();
-  ok('平時からフォーカス開始 → 開始の前置きが待つ', r.cm.prefix?.k === 'pre_start');
+  ok('平時からフォーカス開始 → 場所のセリフが待つ', ['pre_t1', 'pre_t2'].includes(r.cm.prefix?.k));
   run(r, M.prefixWait + 0.1);
-  ok('続くセリフが来なければ前置きだけ', keys().includes('pre_start'));
+  ok('続くセリフが来なければ場所のセリフだけ（単独で言える型1の文言）', JSON.stringify(keys()) === '["pre_t1"]', keys());
   r.addPlayer('c', 1, false); const Cc = r.players.get('c'); Object.assign(Cc, { char: 'zunko', x: 400, y: 300, alive: true });
   r.cm.attn.set('c', 100); r.cm.attn.set('a', 60); (r.cm as any).evalFocus();
-  ok('フォーカス中に別の部屋の対象へ移る → 移動の前置き', r.cm.focus === 'c' && r.cm.prefix?.k === 'pre_move');
+  ok('フォーカス中に別の部屋の対象へ移る → 場所のセリフ', r.cm.focus === 'c' && ['pre_t1', 'pre_t2'].includes(r.cm.prefix?.k));
   Object.assign(B, { x: 1580, y: 900 });
   r.cm.prefix = null; r.cm.focus = 'a'; r.cm.focusRoom = roomAt(A.x, A.y); r.cm.attn.set('b', 100); r.cm.attn.set('a', 60); (r.cm as any).evalFocus();
   ok('同じ部屋で対象だけ変わる → 前置きなし', r.cm.focus === 'b' && r.cm.prefix === null);
+}
+{
+  // 喋っている間に起きたフォーカス外の状況のセリフは捨てず、フォーカスが移ったら場所のセリフとまとめて言う
+  const { r, A, B, keys } = mk('sayo', 'metan');
+  r.addPlayer('c', 1, false); const Cc = r.players.get('c'); Object.assign(Cc, { char: 'zunko', x: 400, y: 300, alive: true }); Cc.hp = r.maxHp(Cc);
+  r.cm.attn.set('a', 60); r.cm.evalFocus(); run(r, M.prefixWait + 0.1); // a にフォーカス、場所のセリフを言っている最中
+  const n0 = keys().length;
+  r.cm.busyUntil = r.cm.clock + 1; r.cm.speaking = true;
+  (r.cm as any).focusSay(['c'], [{ k: 'engage_1', p: 0, a: { A: 'zunko', B: 'sayo' } }]); // フォーカス外（喋っている間なのでフォーカスは移らない）
+  r.cm.attn.set('c', 100);
+  for (let i = 0; i < 24; i++) { r.cm.flow(0.05); r.cm.tick(0.05); r.now += 0.05; } // 実況の時計も進める
+  ok('喋り終わってフォーカスが移ると、取ってあった状況のセリフを場所のセリフとまとめて言う', r.cm.focus === 'c' && typed(keys().slice(n0), ['engage_1']), keys().slice(n0));
 }
 console.log('--- 4. つなぎ（GameRoom）');
 {
@@ -514,7 +530,7 @@ console.log('--- D. 話題のクールタイム');
   ok('撃破も5秒以内の2件目は捨てる', ks(c).filter((k: string) => k.startsWith('kill')).length === 1, ks(c));
   const d = cd(); d.r.cm.emit([{ k: 'end_time', p: 0, a: { 組: [0] } }]); d.r.cm.flow(1); d.r.cm.emit([{ k: 'end_time', p: 0, a: { 組: [0] } }]); d.r.cm.flow(1);
   ok('決着はクールタイムの対象外', ks(d).filter((k: string) => k === 'end_time').length === 2, ks(d));
-  const e = cd(); e.r.cm.emit([{ k: 'pre_move', p: 0, a: { 場所: 'hall' } }]); e.r.cm.flow(1); e.r.cm.emit([{ k: 'pre_move', p: 1, a: { 場所: 'hall' } }, { k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); e.r.cm.flow(1);
+  const e = cd(); e.r.cm.emit([{ k: 'pre_t1', p: 0, a: { 場所: 'hall' } }]); e.r.cm.flow(1); e.r.cm.emit([{ k: 'pre_t2', p: 0, a: { 場所: 'hall' } }, { k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); e.r.cm.flow(1);
   ok('前置きがクールタイム中なら前置きだけ外して本体は言う', ks(e).at(-1) === 'play_dodge', ks(e));
   // つなぎもクールタイム中の話題を選ばない
   const f = cd(); f.r.cm.topics = () => [{ topic: 'toku', sig: '1', says: [0, 1, 2].map((p) => ({ k: 'idle_toku', p, a: {} })) }, { topic: 'time', sig: '2', says: [{ k: 'idle_time', p: 0, a: {} }] }];
@@ -637,10 +653,10 @@ console.log('--- 6. 全体・進行');
 }
 console.log('--- 優先度');
 {
-  const order = ['end_boss', 'alldown', 'boss50', 'kill_normal', 'pre_start', 'play_dodge', 'sit_lead', 'idle_toku'];
+  const order = ['end_boss', 'alldown', 'boss50', 'kill_normal', 'pre_t1', 'play_dodge', 'sit_lead', 'idle_toku'];
   ok('決着・試合後は同じ', ['rev_good', 'mvp_kill', 'close'].every((k) => priority(k) === priority('end_boss')));
   ok('決着 ＞ 全員反省中 ＞ 全体 ＞ 撃破 ＞ 前置き ＞ 個別 ＞ 進行 ＞ つなぎ', order.every((k, i) => i === 0 || priority(order[i - 1]) > priority(k)), order.map(priority));
-  ok('接敵・合流・連続・盤面は前置きと同じ', ['engage_1', 'join', 'multi', 'board_diff'].every((k) => priority(k) === priority('pre_start')));
+  ok('接敵・合流・連続・盤面は前置きと同じ', ['engage_1', 'join', 'multi', 'board_diff'].every((k) => priority(k) === priority('pre_t1')) && priority('pre_t2') === priority('pre_t1'));
   ok('まとめは撃破と同じ、追跡は個別と同じ', priority('sum_double') === priority('kill_normal') && priority('chase_start') === priority('play_dodge'));
 }
 console.log('--- 台本・部品');
@@ -653,8 +669,14 @@ console.log('--- 台本・部品');
   ok('chars.ts の技名を変えると字幕が追従し、生成スクリプトは食い違いを警告', clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } }).some((x) => x.sub.startsWith('テスト拳')) && nameDrift().some((w) => w.includes('テスト拳')));
   CHARS.hanamaru.skill.name = old;
   ok('今の定義と台本の名前は一致', nameDrift().length === 0, nameDrift());
-  const p = clips({ k: 'pre_start', p: 1, a: { 場所: 'library_R' } });
-  ok('陣営側の部屋は「[組]側の[部屋]」（1つの部品。助詞もくっつける）', p.map((x) => x.sub).join('') === 'みどり組側の図書室に注目です！' && p[0].text === 'みどり組側の図書室に', p);
+  const p = clips({ k: 'pre_t1', p: 0, a: { 場所: 'library_R' } });
+  ok('陣営側の部屋は「[組]側の[部屋]」（1つの部品。助詞もくっつける）', p.map((x) => x.sub).join('') === 'みどり組側の図書室も激しい戦いだ！' && p[0].text === 'みどり組側の図書室も', p);
+  const p2 = clips({ k: 'pre_t2', p: 0, a: { 場所: 'library_R' } });
+  ok('型2の場所のセリフ「〜では」は1つの部品', p2.length === 1 && p2[0].text === 'みどり組側の図書室では' && allTexts().includes('エントランスでは'), p2);
+  const nin = [1, 2, 3, 4].map((n) => clips({ k: 'idle_reflect', p: 1, a: { 組: [0], n } }));
+  ok('人数は数詞込みの部品（ひとりで〜よにんで）、字幕は数字', nin.map((c) => c[2].text).join('|') === 'ひとりで|ふたりで|さんにんで|よにんで' && nin[2].map((x) => x.sub).join('') === 'だいだい組は今、3人で戦っています' && Object.keys((SCRIPT.parts as any).nin).length === C.TEAM_SIZE, nin[2]);
+  const bd = clips({ k: 'board_diff', p: 0, a: { 組: [0], n: 4, m: 2 } });
+  ok('「攻め時」は「せめどき」、字幕は漢字', bd.some((x) => x.text.includes('せめどき')) && bd.map((x) => x.sub).join('').includes('攻め時です'), bd);
   ok('名前＋助詞の部品は台本の組み合わせから全部作る', ['花丸が', 'めたんを', 'だいだい組の', 'ずんだもんは', '玄野武宏の'].every((t) => allTexts().includes(t)));
   ok('数は0〜20（徳は四捨五入）', clips({ k: 'idle_toku', p: 0, a: { 組: [0, 1], n: 5.5, m: 4.4 } }).map((x) => x.sub).join('') === '徳の状況です。だいだい組6、みどり組4！');
   ok('全パターンの部品が台本にある', Object.keys(SCRIPT.lines).every((k) => (SCRIPT.lines as any)[k].length > 0) && allTexts().length > 0);

@@ -75,7 +75,7 @@ type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?
 type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void; aa?: boolean; courier?: boolean }; // boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）、aa: 通常攻撃の弾、courier: コバコに当たる（通常攻撃の弾はコバコを狙うときだけ）
 // 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、cancel: KO・試合終了で消える、hidden: 敵の対象にならない、fragile: 被弾で即死、noAuto: オートアタックしない
 // at: 付与した時刻（技処理が使う）、view: スナップショットで送る描画用の値
-export type Status = { until: number; at?: number; speed?: number; regen?: number; noSkill?: boolean; lock?: boolean; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; view?: () => any };
+export type Status = { until: number; at?: number; speed?: number; regen?: number; noSkill?: boolean; lock?: boolean; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; noAaDmg?: boolean; view?: () => any };
 // 場の物（技が出す物）。kind: 種類（server/skills の ENTS）、body: unit=ユニット扱い（自動照準の優先・はじき可）、null=攻撃対象にならない。ほかの項目は種類ごとの持ち物
 export type Ent = { id: number; kind: string; team: number; owner: string; x: number; y: number; r: number; hp?: number; body: 'unit' | null; [k: string]: any };
 type Fx = { id: number; kind: string; team: number; x: number; y: number; [k: string]: any };
@@ -283,7 +283,12 @@ export class GameRoom extends Room {
     const len = Math.hypot(dx, dy);
     p.dx = len > 0 ? dx / len : 0;
     p.dy = len > 0 ? dy / len : 0;
-    if (len > 0) p.face = Math.atan2(p.dy, p.dx);
+    if (len > 0) { p.face = Math.atan2(p.dy, p.dx); this.cancelRecall(p); } // 移動でリコール中断
+  }
+
+  // リコールの中断: 溜めを0に戻す（Q を押し直すまで溜めない）
+  cancelRecall(p: Player) {
+    p.qAt = p.recallAt = null;
   }
 
   // 大将の部屋を決める（その試合の出現・逃亡先と自宅）
@@ -339,7 +344,7 @@ export class GameRoom extends Room {
   maxHp(p: Player) {
     if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * C.POWER_MULT[p.tier];
     let hp = charHp(p.char);
-    if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * C.POWER_MULT[p.ult.tier];
+    if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * C.ULT_HP_MULT[p.ult.tier];
     return hp;
   }
 
@@ -699,6 +704,7 @@ export class GameRoom extends Room {
         p.recallAt = null;
         this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
         Object.assign(p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
+        p.hp = Math.min(this.maxHp(p), p.hp + this.maxHp(p) * C.RECALL_HEAL);
         this.addFx(p, 'aura', { r: 30, color: 'assist' });
         if (p.bot) p.eating = true;
       }
@@ -917,6 +923,12 @@ export class GameRoom extends Room {
     return p.tgt ? Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x) : p.face;
   }
 
+  // 技の向き: 技の射程 R で通常攻撃と同じ照準ルール（pickTarget）で選んだ対象の方向、いなければ向いている方向
+  skillAim(p: Player, R: number) {
+    const t = this.pickTarget(p, R);
+    return t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
+  }
+
   inArc(p: Player, tx: number, ty: number, tr: number, aim = p.face, range = C.ATTACK_RANGE, arc = C.ATTACK_ARC): boolean {
     const d = Math.hypot(tx - p.x, ty - p.y);
     if (d > range + tr) return false;
@@ -936,6 +948,7 @@ export class GameRoom extends Room {
     const p = this.players.get(id);
     if (!p || this.phase !== 'playing' || !p.alive || this.effect(p, 'noAttack') || this.now < p.stunUntil || this.now < p.cooldownUntil) return;
     p.cooldownUntil = this.now + this.atkCooldown(p);
+    this.cancelRecall(p); // 攻撃でリコール中断
     const a = aim ?? p.face, toC = courier ?? p.aim === 'courier';
     if (SKILLS[p.char]?.attack?.(this, p, a)) return; // 技による通常攻撃の上書き
     const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC });
@@ -963,6 +976,7 @@ export class GameRoom extends Room {
     if (this.phase !== 'playing') return; // 結果画面の技は見た目だけ
     if (this.now < p.weakUntil) base *= C.SLOT.penalty.weak; // スロットの罰の攻撃力低下
     if (t.k === 'c' && this.courierGuard && p.bot) return; // e2e: Bot の攻撃ではコバコが倒れない
+    if (aa && t.k === 'p' && this.effect(t.o, 'noAaDmg')) return; // 通常攻撃のダメージを受けない状態
     if (t.k === 'c') { this.addToku(p.team, p, 'courier'); this.cm.courier(p); return this.koCourier(t.o); } // コバコは1発でKO
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
@@ -983,7 +997,7 @@ export class GameRoom extends Room {
     if (role === 'balance' && ![...this.players.values()].some((a) => a !== v && a.team === v.team && a.alive && Math.hypot(a.x - v.x, a.y - v.y) <= C.BALANCE_ALONE_RADIUS)) dmg *= 1 - C.BALANCE_ALONE_CUT;
     if (v.ult && !v.ult.pending && !raw) dmg *= C.ULT_FORMS[v.ult.form].def;
     v.hp -= Math.round(dmg);
-    if (v.recallAt !== null) v.recallAt = this.now; // 被弾でリコールの溜め直し
+    this.cancelRecall(v); // 被弾でリコール中断
     if (attacker) v.lastHitBy.set(attacker, this.now);
     this.cm.damage(v, attacker ? this.players.get(attacker) ?? null : null, dmg, how);
     if (v.hp > 0) return;
@@ -1240,8 +1254,8 @@ export class GameRoom extends Room {
     const p = this.players.get(id);
     const sk = p && CHARS[p.char]?.skill, h = p && SKILLS[p.char];
     if (!p || !sk || !h || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.effect(p, 'noSkill')) return; // 技不可の状態（ずんだ餅など）
-    if (p.ult && !p.ult.pending) return; // ウルト中はキャラ技を使えない
     if (h.use(this, p, this.aimOf(p)) !== false) p.skillReadyAt = this.now + sk.ct; // false: CT は技処理が始める
+    this.cancelRecall(p); // 技でリコール中断
     if (this.phase === 'playing') this.cm.skill(p); // 実況: 回避の判定
   }
 
@@ -1336,6 +1350,7 @@ export class GameRoom extends Room {
     const go = (to: Pt, key: string) => { p.goal = key; this.botGoto(p, to, obs); };
     // リコール: HPが低いとき（給湯室にいるときは使わない）。給湯室に着いたら、HPが満タンになるまでご飯を食べる
     if (p.recallAt === null && !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP) p.recallAt = this.now;
+    if (p.recallAt !== null) { this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
     if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && this.botSkillUseful(p)) this.skill(p.id);

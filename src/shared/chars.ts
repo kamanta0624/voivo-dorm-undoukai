@@ -32,15 +32,15 @@ export const CHARS: Record<string, CharDef> = {
   // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
   // fx: 見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
   aru: def({ desc: 'タメてから決めた方向へ突撃。壁を壊し、触れた敵にダメージ', role: 'speed', skill: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9, fx: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 } } }),
-  // 再現江湖: 射程 range 内の敵（照準モードに従う。いなければ向いている方向）へ残像を残して高速移動（speed px/秒、最大 range）。敵に当たったらさらに extra 進み、止まった瞬間に当てた相手を中心に半径 r の爆発（dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。範囲の壁も壊す。当たらなければ爆発なし
+  // 再現江湖: 射程 range 内の敵（照準モードに従う。いなければ向いている方向）へ残像を残して高速移動（speed px/秒、最大 range。移動中は通常攻撃のダメージを受けない）。敵に当たったらさらに extra 進み、止まった瞬間に当てた相手を中心に半径 r の爆発（dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。範囲の壁も壊す。当たらなければ爆発なし
   bii: def({ desc: '敵へ残像を残して高速で飛び込み、当たると爆発（壁も壊す）。外すと爆発しない', role: 'support', skill: { name: '再現江湖', ct: 10, range: 200, speed: 900, extra: 60, r: 70, dmg: 60, bossDmg: 30 } }),
   ierutan: def({ desc: 'まわりの味方と自分の足を速くし、しばらく回復し続ける', role: 'support', skill: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 } }), // regen: 効果中の毎秒の回復量
   zunko: def({ desc: '矢を撃ち、当たった敵をずんだ餅にする（足が遅くなり、技が使えない）', role: 'attacker', melee: false, aa: [{ name: '遠距離', kind: 'shot', range: 200, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 1, shot: 'bullet', speed: C.BULLET_SPEED }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5 } }), // 当たった敵はずんだ餅（移動×speed、技不可）
   // 足が遅い。対象が 60 より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁
   // 全弾斉射: 1回目でロックオン（射程 range 内の敵に近い順で lockEvery 秒ごとに1体ずつ。最大 lockMax 秒）、2回目でロックした全員へホーミング弾（各 perTarget 発 × volleys 回、volleyGap 秒おき、1発 dmg）。CT は発射（またはロックの時間切れ）から
   // 弾道（3種を順に）: straight=直進して追う、spread=左右へゆっくり展開（spreadT 秒、spreadSpeed）→加速（accel）して目標へ、brake=前方／後方へ偏差的に速く飛ぶ（leadT 秒、leadSpeed、leadAngle）→急制動（brakeT 秒）→目標へ。速さの上限 maxSpeed、life 秒で消える、弾の半径 r
-  // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中は対象が範囲に入ると自動で鎌（前方 range・arc、dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
-  himari: def({ desc: '姿を消す。消えている間は近づいた敵を鎌で一撃で倒し、攻撃の向きへ跳ぶ（攻撃を受けると即やられる）', role: 'attacker', skill: { name: '死神の鎌', ct: 12, dur: 5, range: 60, arc: Math.PI / 2, dmg: 999, bossDmg: 30, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
+  // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中は対象が範囲に入ると自動で鎌（前方 range・arc、dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30、アシストへは dmg×assistMult）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
+  himari: def({ desc: '姿を消す。消えている間は近づいた敵を鎌で一撃で倒し、攻撃の向きへ跳ぶ（攻撃を受けると即やられる）', role: 'attacker', skill: { name: '死神の鎌', ct: 15, dur: 5, range: 60, arc: Math.PI / 2, dmg: 999, bossDmg: 30, assistMult: 0.5, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
   // 東北イタコ: 通常攻撃はキツネ（狐火の見た目）。間隔は半分、1発は半分
   // 狐火: 自分中心の半径 r の円周に n 個の火の玉を出し、時計回りに spin(ラジアン/秒) で回す（dur 秒で消える）。触れた敵に dmg、同じ相手には rehit 秒おき。ballR: 火の玉の半径
   // 展開中に再発動: 射程 range 内の最寄りの敵を標的に、各火の玉は標的の方向を12時とした9時の位置で円から離れ、homeSpeed(px/秒)・旋回 turn(ラジアン/秒) で追う。命中で homeDmg を与えて消える。life 秒・壁で消える。CT は再発動（または時間切れ）から
@@ -52,7 +52,7 @@ export const CHARS: Record<string, CharDef> = {
   kiritan: def({
     desc: '1回目で射程内の敵をロックオン、2回目でロックした全員へホーミング弾を撃ち込む', melee: false, mult: { speed: 0.8 },
     aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 310, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.85, shot: 'cannon', speed: 300, far: 60 }],
-    skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 2, volleys: 3, volleyGap: 0.3, dmg: 7.5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12 },
+    skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 4, volleys: 3, volleyGap: 0.3, dmg: 7.5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12 },
   }),
 };
 

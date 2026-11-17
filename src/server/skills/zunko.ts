@@ -4,8 +4,8 @@ import { CHARS } from '../../shared/chars';
 
 const S = CHARS.zunko.skill;
 const skill: Skill = {
-  use(room, p, a) {
-    room.shoot(p, 'arrow', a, S.range, 0).onHit = (t) => {
+  use(room, p) {
+    room.shoot(p, 'arrow', room.skillAim(p, S.range), S.range, 0).onHit = (t) => {
       if (t.k === 'p' && !room.effect(t.o, 'invincible') && room.phase === 'playing') t.o.st.mochi = { until: room.now + S.dur, speed: S.speed, noSkill: true };
     };
   },

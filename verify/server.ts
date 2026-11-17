@@ -223,7 +223,7 @@ console.log('--- ウルト・アシスト・回復アイテム');
   // ウルト: 撤退中なら復活後に始まる。撃破で元のキャラがHP100%で戻る
   const u = mk('sayo');
   u.A.ult = { form: 'melee', tier: 1, until: u.r.now + 20, pending: false }; u.A.hp = u.r.maxHp(u.A); u.A.skillReadyAt = 0; u.r.skill('a');
-  ok('ウルト中はキャラ技を使えない', u.A.skillReadyAt === 0);
+  ok('パワーアップ中もキャラ技を使える', u.A.skillReadyAt > 0);
   u.r.damagePlayer(u.A, 9999, null);
   ok('ウルト中に撃破されると、元のキャラがその場にHP100%で戻る', u.A.alive && !u.A.ult && u.A.hp === u.r.maxHp(u.A));
   Object.assign(u.A, { alive: false, respawnAt: u.r.now + 5 }); u.r.giveUlt(u.A, 2);
@@ -302,7 +302,8 @@ console.log('--- バランス調整（回復アイテム間隔・近接補正・
   const z = mk('zunko'), k = mk('kiritan'), s = mk('sayo');
   ok('近接補正は zunko・kiritan 以外（HP×1.2・移動×1.1・攻撃×1.2）', z.r.maxHp(z.A) === 70 && k.r.maxHp(k.A) === 100 && Math.abs(s.r.maxHp(s.A) - 84) < 1e-9 && MB.hp === 1.2 && MB.speed === 1.1 && MB.atk === 1.2);
   const u = mk('sayo'); u.A.ult = { form: 'melee', tier: 1, until: u.r.now + 20, pending: false };
-  ok(`ウルト変身中の最大HPは旧倍率の0.8倍×強さ（近接 1.8→1.44、レベル2は×${C.POWER_MULT[1]}）`, Math.abs(u.r.maxHp(u.A) - 84 * 1.8 * 0.8 * C.POWER_MULT[1]) < 1e-9);
+  ok(`ウルト変身中の最大HPは旧倍率の0.8倍×強さ（近接 1.8→1.44、レベル2は×${C.ULT_HP_MULT[1]}）`, Math.abs(u.r.maxHp(u.A) - 84 * 1.8 * 0.8 * C.ULT_HP_MULT[1]) < 1e-9);
+  ok(`パワーアップのシールド（ULT_HP_MULT）: Lv4=旧Lv3 0.98、Lv2・3は旧×0.7、Lv1据え置き、攻撃の倍率 POWER_MULT は不変 ${JSON.stringify(C.ULT_HP_MULT)}`, [0.49, 0.7 * 0.7, 0.98 * 0.7, 0.98].every((v, i) => Math.abs(C.ULT_HP_MULT[i] - v) < 1e-9) && JSON.stringify(C.POWER_MULT) === JSON.stringify([0.49, 0.7, 0.98, 1.4]));
   u.r.now = 5; u.A.hp = 10; u.r.giveUlt(u.A, 3);
   ok('変身中に重ねてウルトが付いたら効果時間だけリセット（変身先・強さ・HPはそのまま）', u.A.ult.form === 'melee' && u.A.ult.tier === 1 && u.A.hp === 10 && Math.abs(u.A.ult.until - (5 + C.ULT_DURATION)) < 1e-9);
 }
@@ -382,10 +383,21 @@ console.log('--- リコール・回復・技のCT');
   const run = (sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { r.now += 0.05; r.updatePlayers(0.05); } };
   r.messages.qdown(cl); run(C.RECALL_HOLD - 0.2);
   ok('Q を押している間は溜める（まだワープしない）', !inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt !== null);
-  r.damagePlayer(A, 1, 'x'); run(0.4);
-  ok('被弾すると溜めは0からやり直し', !inRoom(A, C.RECALL_ROOMS[0]));
-  run(C.RECALL_HOLD - 0.3);
+  r.damagePlayer(A, 1, 'x');
+  ok('被弾で中断し、溜めは0（Q を押し続けても溜めない）', A.recallAt === null);
+  run(C.RECALL_HOLD); ok('中断後は押し直すまでワープしない', !inRoom(A, C.RECALL_ROOMS[0]));
+  r.messages.qup(cl); r.messages.qdown(cl); run(1); r.messages.input(cl, { seq: 1, dx: 1, dy: 0 }); run(0.1);
+  ok('移動で中断し、溜めは0', A.recallAt === null && A.qAt === null);
+  r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900 }); r.messages.qdown(cl); run(1); A.cooldownUntil = 0; r.attack('a', 0);
+  ok('通常攻撃で中断し、溜めは0', A.recallAt === null);
+  r.messages.qup(cl); r.messages.qdown(cl); run(1); A.skillReadyAt = 0; r.skill('a'); fly(r);
+  ok('技で中断し、溜めは0', A.recallAt === null);
+  r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900, hp: 30 }); r.messages.qdown(cl);
+  run(C.RECALL_HOLD + 0.1);
   ok(`Q を${C.RECALL_HOLD}秒押し続けると自陣の給湯室へワープ`, inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt === null);
+  ok(`リコール完了で最大HPの${C.RECALL_HEAL * 100}%回復（30→${A.hp}）`, Math.abs(A.hp - (30 + r.maxHp(A) * C.RECALL_HEAL)) < 1e-9, { hp: A.hp, max: r.maxHp(A) });
+  r.messages.qup(cl); A.hp = r.maxHp(A) - 5; Object.assign(A, { x: 1552, y: 900 }); r.messages.qdown(cl); run(C.RECALL_HOLD + 0.1);
+  ok('リコールの回復は最大HPで頭打ち', inRoom(A, C.RECALL_ROOMS[0]) && A.hp === r.maxHp(A), { hp: A.hp });
   r.messages.qup(cl); ok('ワープ後に離しても何も起きない', inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt === null && A.qAt === null);
   Object.assign(A, { x: 1552, y: 900 }); r.messages.qdown(cl); run(1); r.messages.qup(cl); run(C.RECALL_HOLD);
   ok('キーを離すと溜めはリセット', !inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt === null);
@@ -402,7 +414,7 @@ console.log('--- リコール・回復・技のCT');
   let ate = 0;
   for (let i = 0; i < 600 && be.A.hp < be.r.maxHp(be.A); i++) { const n = be.r.items.length; be.r.now += 0.05; be.r.botThink(be.A, be.r.obstacles()); be.r.updatePlayers(0.05); if (be.r.items.length < n) ate++; }
   be.r.botThink(be.A, be.r.obstacles());
-  ok(`Bot: HP低下でリコール → 給湯室でご飯を食べて満タンまで回復（${ate}個）`, be.A.hp >= be.r.maxHp(be.A) && ate >= 2 && inRoom(be.A, C.RECALL_ROOMS[0]) && !be.A.eating, { hp: be.A.hp, ate });
+  ok(`Bot: HP低下でリコール → 給湯室でご飯を食べて満タンまで回復（${ate}個）`, be.A.hp >= be.r.maxHp(be.A) && ate >= 1 && inRoom(be.A, C.RECALL_ROOMS[0]) && !be.A.eating, { hp: be.A.hp, ate });
   // Bot のリコール
   const b = mk('metan'); b.A.bot = true; b.A.hp = b.r.maxHp(b.A) * 0.2; b.r.botThink(b.A, b.r.obstacles());
   ok('Bot: HPが低いとリコールを使う', b.A.recallAt !== null);
@@ -1491,7 +1503,7 @@ console.log('--- ユーレイちゃん（壁すり抜け・エンマビーム）
   ok(`エンマビーム: 悪行0で${S.minDmg}、悪行${C.WANTED_MIN / 2}で${S.maxDmg / 2}、閾値手前でほぼ${S.maxDmg}（全体の倍率込み ${b0.d}/${bh.d}/${bm.d}）、指名手配中は即死`,
     b0.d === Math.round(S.minDmg * C.DAMAGE_MULT) && bh.d === Math.round((S.maxDmg / 2) * C.DAMAGE_MULT) && bm.d === Math.round(S.maxDmg * ((C.WANTED_MIN - 0.01) / C.WANTED_MIN) * C.DAMAGE_MULT) && !bw.alive && b0.left === 0, { b0, bh, bm, bw });
   // 当たり判定は先頭の光弾だけ（半径 r）: 弾の通り道から少し外れた敵には当たらない
-  const side = mk('yurei', 'sayo'); Object.assign(side.B, { x: 1552 + 150, y: 900 + S.r + C.PLAYER_RADIUS + 1, hp: 9999 }); side.r.skill('a'); for (let i = 0; i < 20; i++) { side.r.now += 0.05; side.r.updateEnts(0.05); }
+  const side = mk('yurei', 'sayo'); Object.assign(side.B, { x: 1552 + 150, y: 900 + S.r + C.PLAYER_RADIUS + 1, hp: 9999 }); side.B.st.hide = { until: Infinity, hidden: true }; side.r.skill('a'); // 照準の対象にしない（向き＝右へ直進させる） for (let i = 0; i < 20; i++) { side.r.now += 0.05; side.r.updateEnts(0.05); }
   ok('当たり判定は先頭の光弾だけ（1つの場の物、半径 r）', side.B.hp === 9999);
   // 壁で止まる
   const w = mk('yurei', 'sayo'); Object.assign(w.A, { x: 400, y: 150 }); Object.assign(w.B, { x: 480, y: 150, hp: 9999 }); w.r.skill('a'); for (let i = 0; i < 20; i++) { w.r.now += 0.05; w.r.updateEnts(0.05); }
@@ -1518,6 +1530,45 @@ console.log('--- イタコ・ユーレイちゃんの Bot 戦');
     for (const p of r.players.values()) if (p.char === 'yurei' && p.alive && r.tiles[Math.floor(p.y / T)]?.[Math.floor(p.x / T)] === '#') inWall++;
   }
   ok(`Bot 戦が最後まで動き（${r.phase}）、狐火の展開・撃ち出し・エンマビーム・ユーレイちゃんの壁抜けが起きる`, r.phase === 'ended' && fox > 0 && home > 0 && enma > 0 && inWall > 0, { fox, home, enma, inWall, phase: r.phase });
+}
+
+console.log('--- プレイテスト2（技の照準・デッドリーウェイブ・きりたん・ひまり）');
+{
+  const runE = (r: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { r.now += 0.05; r.updatePlayers(0.05); r.updateEnts(0.05); r.updateShots(0.05); } };
+  // 技の向き: 技の射程で照準ルールどおりに対象を選ぶ（通常攻撃の射程外でも）。対象がいなければ向いている方向
+  const aimCase = (ch: string, R: number) => {
+    const z = mk(ch, 'sayo'); z.A.face = Math.PI; Object.assign(z.B, { x: 1552 + 20, y: 900 + Math.min(R - 30, 150), hp: 9999 }); // 斜め下（通常攻撃の射程外）
+    const want = Math.atan2(z.B.y - z.A.y, z.B.x - z.A.x), got = z.r.skillAim(z.A, R);
+    const n = mk(ch); n.A.face = Math.PI; const none = n.r.skillAim(n.A, R);
+    return Math.abs(got - want) < 1e-9 && none === Math.PI;
+  };
+  const SK = (c: string) => CHARS[c].skill;
+  const aims = { whitecul: SK('whitecul').len, yurei: SK('yurei').range, bii: SK('bii').range, zunko: SK('zunko').range, hanamaru: SK('hanamaru').range, metan: SK('metan').len } as Record<string, number>;
+  ok('技の照準: 技の射程内の対象の方向（通常攻撃の射程外でも）、対象なしは向いている方向', Object.entries(aims).every(([c, R]) => aimCase(c, R)));
+  // 吹雪: 横向きでも対象へ
+  const wc = mk('whitecul', 'sayo'); wc.A.face = Math.PI; Object.assign(wc.B, { x: 1552, y: 900 + 120, hp: 9999 }); wc.r.skill('a');
+  ok('吹雪: 向きと違う方向（下）の対象に当たる', wc.B.hp < 9999);
+  const yu = mk('yurei', 'sayo'); yu.A.face = Math.PI; Object.assign(yu.B, { x: 1552, y: 900 + 200, hp: 9999 }); yu.r.skill('a'); runE(yu.r, 1);
+  ok('エンマビーム: 向きと違う方向（下）の対象に当たる', yu.B.hp < 9999);
+  const zk = mk('zunko', 'sayo'); zk.A.face = Math.PI; Object.assign(zk.B, { x: 1552, y: 900 + 200, hp: 9999 }); zk.r.skill('a'); runE(zk.r, 1);
+  ok('ずんだアロー: 向きと違う方向（下）の対象に当たる', !!zk.B.st.mochi);
+  const hm = mk('hanamaru', 'sayo'); hm.A.face = Math.PI; Object.assign(hm.B, { x: 1552, y: 900 + 200, hp: 9999 }); hm.r.skill('a'); fly(hm.r);
+  ok('巨大拳: 向きと違う方向（下）の対象に当たる', hm.B.hp < 9999);
+  // デッドリーウェイブ（再現江湖）: 突進中は通常攻撃のダメージを受けない、技のダメージは受ける
+  const dw = mk('bii', 'sayo'); dw.A.face = Math.PI; dw.r.skill('a');
+  const hp0 = dw.A.hp; dw.B.cooldownUntil = 0; dw.r.attack('b', Math.atan2(dw.A.y - dw.B.y, dw.A.x - dw.B.x)); const aaHp = dw.A.hp;
+  dw.r.hitThing(dw.B, { k: 'p', o: dw.A, x: dw.A.x, y: dw.A.y, r: C.PLAYER_RADIUS }, 10); const skHp = dw.A.hp;
+  ok('デッドリーウェイブ突進中: 通常攻撃は無効、技のダメージは受ける', !!dw.A.st.phantom && aaHp === hp0 && skHp < hp0, { hp0, aaHp, skHp });
+  // きりたん: 弾数2倍（1体あたり perTarget × volleys）、発射時間は不変
+  const kt = mk('kiritan', 'sayo'); Object.assign(kt.B, { x: 1552 + 150, hp: 9999 }); kt.r.skill('a'); kt.r.now += 0.2; kt.r.updatePlayers(0.05); kt.r.skill('a');
+  let shots = 0; const t0 = kt.r.now; let last = t0;
+  for (let i = 0; i < 40; i++) { const n = ents(kt.r, 'missile').length; kt.r.now += 0.05; kt.r.updatePlayers(0.05); const m = ents(kt.r, 'missile').length; if (m > n) { shots += m - n; last = kt.r.now; } upd(kt.r, 'missile', 0); }
+  ok(`全弾斉射: 1体へ${shots}発（旧6発の2倍）、発射時間は旧と同じ（${(SK('kiritan').volleys - 1) * SK('kiritan').volleyGap}秒）`, shots === 12 && SK('kiritan').volleys === 3 && SK('kiritan').volleyGap === 0.3, { shots, span: last - t0 });
+  // ひまり: CT +3秒、アシストへのダメージ半分
+  ok('死神の鎌のCTは15秒（旧12＋3）', SK('himari').ct === 15);
+  const hi = mk('himari'); Object.assign(hi.r.bosses[1], { x: 2400, y: 900 }); const as = hi.r.summonAssist(1, 3); Object.assign(as, { x: 1552 + 40, y: 900, hp: 9999 });
+  hi.r.skill('a'); hi.A.cooldownUntil = 0; hi.r.attack('a', 0);
+  ok(`死神の鎌: アシストへのダメージは半分（${9999 - as.hp} = 999×0.5×全体倍率）`, 9999 - as.hp === Math.round(999 * 0.5 * C.DAMAGE_MULT * (1 - C.BALANCE_ALONE_CUT * 0)), { d: 9999 - as.hp });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

@@ -89,13 +89,15 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
 
 const skill: Skill = {
   // 前方へ直進する拳を出す（命中・破壊は updateFist）
-  use(room, p, a) {
+  use(room, p) {
+    const a = p.sk.wallAim ?? room.skillAim(p, H.range); // Bot の壁破壊は壁の向き
+    p.sk.wallAim = undefined;
     room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r, body: null, a, left: H.range, hit: new Set(), broke: false });
   },
   afterMove(room, p, _dt, px, py, locked) {
     if (!locked && room.now >= p.stunUntil) pushWall(room, p, px, py);
   },
-  botUse: (room, p) => room.inRectAhead(p, room.aimOf(p), H.range, H.r * 2).some((t) => (t.k === 'p' || t.k === 'boss') && room.reach(p, t)), // 拳の進路に敵
+  botUse: (room, p) => room.inRectAhead(p, room.skillAim(p, H.range), H.range, H.r * 2).some((t) => (t.k === 'p' || t.k === 'boss') && room.reach(p, t)), // 拳の進路に敵
   // 壁を壊すと目的地への経路が大きく短くなるなら壁破壊（その方向を向いて使う）
   botMove(room, p, to: Pt, obs: Rect[]) {
     if (room.phase !== 'playing' || room.now < p.skillReadyAt || room.effect(p, 'noSkill') || room.now < (p.sk.wallCheckAt ?? 0)) return false;
@@ -113,8 +115,9 @@ const skill: Skill = {
       const rest = findPath({ x: bx * T + T / 2, y: by * T + T / 2 }, to, obs, room.walls).length;
       const len = rest && rest + k + H.d;
       if (len && (base - len) * C.GRID_CELL >= H.botSave) {
-        p.face = a; p.tgt = null; // 壁の方向へ使う
+        p.face = a; p.tgt = null; p.sk.wallAim = a; // 壁の方向へ使う
         room.skill(p.id);
+        p.sk.wallAim = undefined;
         return true;
       }
     }
