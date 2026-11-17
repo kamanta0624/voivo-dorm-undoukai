@@ -129,7 +129,8 @@ async function introNew(A: Tab) {
   const keys = seen.map((x) => x.key);
   const want = ['↓やっつけろ！', '↓まもれ！', '徳を積め！', 'なかよくしろ！', '準備してね', '3', '2', '1', '0'];
   check(`新開幕: ${want.join(' → ')} の順に出る`, JSON.stringify(keys.filter((k) => want.includes(k))) === JSON.stringify(want), keys);
-  const near = (x: any, p: any) => p && Math.hypot(x.cam[0] - p.x, x.cam[1] - (p.y - C.INTRO2.lift)) < 40; // 大将は少し下寄りに映す
+  const clampTo = (v: number, half: number, max: number) => Math.min(Math.max(v, half), max - half); // カメラはマップの外を映さない（端の部屋の大将は中心からずれる）
+  const near = (x: any, p: any) => p && Math.hypot(x.cam[0] - clampTo(p.x, x.view.width / 2, C.MAP_W), x.cam[1] - clampTo(p.y - C.INTRO2.lift, x.view.height / 2, C.MAP_H)) < 40; // 大将は少し下寄りに映す
   const hi = (await A.hist()).find((x) => x.phase === 'intro'); // 試合開始後は敵大将が見えないので、開幕中の位置を使う
   const foe = hi.bosses.find((b: any) => b.team === 1), own = hi.bosses.find((b: any) => b.team === 0), allies = hi.players.filter((p: any) => p.team === 0 && !p.assist); // カウント中は Bot が動くので開幕中の位置
   const at = (k: string) => seen.find((x) => x.key === k)!;
@@ -405,6 +406,7 @@ async function tokuCheck(A: Tab, B: Tab) {
 // コバコ: 巡回している（位置が変わる）。攻撃すると1発でKOし、荷物を落とす
 async function courierCheck(A: Tab) {
   await aliveOf(A);
+  await send(A, 'e2eCourierGuard', { on: true }); // 測っている間に Bot がコバコを倒さないように
   await send(A, 'e2eTeleport', LIBRARY); await sleep(150);
   let c0: any = null, c1: any = null;
   for (let i = 0; i < 3 && !(c0 && c1 && c0.id === c1.id); i++) { // 測っている間に巻き込まれて倒れたら出し直す
@@ -426,6 +428,7 @@ async function courierCheck(A: Tab) {
   }
   await A.shot('c2_courier_drop');
   await aimTo('nearest'); // 照準を「一番近い敵」に戻す
+  await send(A, 'e2eCourierGuard', { on: false });
   const moved = c0 && c1 ? Math.round(Math.hypot(c1.x - c0.x, c1.y - c0.y)) : 0;
   check('コバコ: 寮の中を巡回し、頭上に荷物のアイコン。攻撃すると1発でKOして荷物を落とす', moved > 20 && ko, { moved, ko });
 }
@@ -477,6 +480,7 @@ function pushSpot(broken: number[][]) {
 async function hanamaruCheck(A: Tab) {
   await aliveOf(A);
   const kitchen = { x: C.RECALL_ROOMS[0].x + C.RECALL_ROOMS[0].w / 2, y: C.RECALL_ROOMS[0].y + C.RECALL_ROOMS[0].h - 20 }; // 給湯室（まだ壁が壊れていない）から上へ撃つ
+  await send(A, 'e2eClearUlt'); // 前の確認で荷物を拾って変身していると技が封印される。変身を解き、落ちている箱も片付ける
   await send(A, 'e2eChar', { char: 'hanamaru' }); await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
   const b0 = (await A.snap()).broken.length;
   await A.page.keyboard.down('w'); await sleep(120); await A.page.keyboard.up('w'); await A.press('r');
@@ -596,8 +600,10 @@ async function verifySmooth(A: Tab) {
     const sc = window.game.scene.scenes[0], out = [], snaps = [];
     window.room.onMessage('s', (m) => snaps.push({ r: performance.now(), t: m.t, p: m.players.map((q) => [q.id, q.x, q.y]) }));
     function f() {
-      const sprites = sc.children.list.filter((o) => o.type === 'Sprite'); // ずんだ餅の間は絵を隠すので、隠したものも数える
-      out.push({ t: performance.now(), T: sc.interp.renderTime(performance.now()), n: sprites.length, uniq: new Set([...sc.units.values()].map((e) => e.s)).size, units: sc.units.size, u: [...sc.units].map(([id, e]) => [id, e.s.x, e.s.y]) });
+      const auras = new Set([...sc.units.values()].map((e) => e.aura)); // パワーアップ中の背後のドット（ユニット本体ではない）
+      const sprites = sc.children.list.filter((o) => o.type === 'Sprite' && !auras.has(o)); // ずんだ餅の間は絵を隠すので、隠したものも数える
+      const dying = new Set(window.snap.players.filter((p) => !p.alive).map((p) => p.id)); // 撃破の演出中（左右に揺れる）
+      out.push({ t: performance.now(), T: sc.interp.renderTime(performance.now()), n: sprites.length, uniq: new Set([...sc.units.values()].map((e) => e.s)).size, units: sc.units.size, u: [...sc.units].filter(([id]) => !dying.has(id)).map(([id, e]) => [id, e.s.x, e.s.y]) });
       if (out.length < 480) requestAnimationFrame(f); else res({ out, snaps });
     }
     requestAnimationFrame(f);
@@ -607,7 +613,7 @@ async function verifySmooth(A: Tab) {
   for (const f of out) { while (j < snaps.length && snaps[j].r <= f.t) j++; if (snaps[j - 1] && f.T > snaps[j - 1].t) ahead++; } // 届いていない時刻を描いた（推測した）フレーム
   const one = out.every((f: any) => f.n === f.units && f.uniq === f.units);
   const by: Record<string, any[]> = {};
-  out.forEach((f: any, i: number) => f.u.forEach(([id, x, y]: any) => (by[id] ??= []).push({ i, x, y })));
+  out.forEach((f: any, i: number) => f.u.forEach(([id, x, y]: any) => (by[id] ??= []).push({ i, x, y, dt: i ? f.t - out[i - 1].t : 1000 / 60 }))); // dt: フレーム間隔(ms)
   const rows: any[] = [];
   let bad = 0;
   for (const [id, a] of Object.entries(by)) {
@@ -616,14 +622,14 @@ async function verifySmooth(A: Tab) {
     for (let k = 1; k < a.length; k++) {
       if (a[k].i !== a[k - 1].i + 1) { pd = null; continue; }
       const d = [a[k].x - a[k - 1].x, a[k].y - a[k - 1].y], m = Math.hypot(d[0], d[1]);
-      if (m < C.NET_SNAP) maxStep = Math.max(maxStep, m); // NET_SNAP 以上は復活などの正当な移動
+      if (m < C.NET_SNAP) maxStep = Math.max(maxStep, m / Math.max(1, a[k].dt / (1000 / 60))); // NET_SNAP 以上は復活などの正当な移動。フレームが止まった分は割り引く（60fps の1フレームあたりに直す）
       if (m >= 3 && pd && d[0] * pd[0] + d[1] * pd[1] < 0) back++; // 3px 以上の後戻り
       if (m > 0) pd = d;
     }
     // サーバーの位置そのものの方向転換の回数（Botが本当に向きを変えた分は後戻りに数えてよい）
     let turn = 0, p: any = null, q: number[] | null = null, fast = 0; // fast: サーバーでの1tickの移動の最大（はじき・突撃など技の速い移動。NET_SNAP 未満）
     for (const sn of snaps) { const e = sn.p.find((x: any) => x[0] === id); if (!e) { p = null; continue; } if (p) { const d = [e[1] - p[1], e[2] - p[2]], m = Math.hypot(d[0], d[1]); if (m < C.NET_SNAP) fast = Math.max(fast, m); if (q && d[0] * q[0] + d[1] * q[1] < 0 && m >= 3) turn++; if (d[0] || d[1]) q = d; } p = e; }
-    if (back > turn + 2 || maxStep > Math.max(20, fast * 0.6)) bad++; // 歩きは1フレーム20px以下。技で速く動いた分はその速さまで
+    if (back > turn + 2 || maxStep > Math.max(20, fast * 0.6)) bad++; // 歩きは1フレーム（60fps 換算）20px以下。技で速く動いた分はその速さまで
     rows.push({ id, frames: a.length, maxStep: +maxStep.toFixed(1), fast: +fast.toFixed(1), back, turn });
   }
   log('  他キャラの描画（遅延100ms±50ms、480フレーム）', rows);

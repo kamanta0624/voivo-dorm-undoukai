@@ -121,6 +121,7 @@ export class GameRoom extends Room {
   speed = 1; // e2e の早送り倍率（E2E_HOOKS のときだけ変わる）
   reveal = new Set<string>(); // e2e: 視界の制限なしで送るクライアント（E2E_HOOKS のときだけ使う）
   bossGuard = false; // e2e: Bot の攻撃では大将が減らない（E2E_HOOKS のときだけ変わる）
+  courierGuard = false; // e2e: Bot の攻撃ではコバコが倒れない（E2E_HOOKS のときだけ変わる）
   slotChain: number = C.SLOT.chain; // 連チャンの確率（e2e で変えられる）
   lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
@@ -249,6 +250,9 @@ export class GameRoom extends Room {
       },
       // Bot の攻撃で大将が減らないようにする（人間の確認の途中で試合が決着しないように）
       e2eBossGuard: (_c: Client, m: { on: boolean }) => { this.bossGuard = m.on; },
+      e2eCourierGuard: (_c: Client, m: { on: boolean }) => { this.courierGuard = m.on; },
+      // 自キャラの変身（パワーアップ）を解き、落ちている荷物の箱を片付ける
+      e2eClearUlt: (c: Client) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.ult) this.endUlt(p); this.items = this.items.filter((it) => !it.kind.startsWith('box_')); },
       // スロットの自然な回転を外れに固定する（e2eSlot で結果を決める回転は別）
       e2eSlotMiss: (_c: Client, m: { on: boolean }) => { this.slotMiss = m.on; },
       // 敵大将に、拠点移動が起きるだけのダメージを与える（拠点移動・第2形態の確認用）
@@ -917,6 +921,7 @@ export class GameRoom extends Room {
   hitThing(p: Player, t: Thing, base: number, aa = false) {
     if (this.phase !== 'playing') return; // 結果画面の技は見た目だけ
     if (this.now < p.weakUntil) base *= C.SLOT.penalty.weak; // スロットの罰の攻撃力低下
+    if (t.k === 'c' && this.courierGuard && p.bot) return; // e2e: Bot の攻撃ではコバコが倒れない
     if (t.k === 'c') { this.addToku(p.team, p, 'courier'); this.cm.courier(p); return this.koCourier(t.o); } // コバコは1発でKO
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
@@ -1359,7 +1364,8 @@ export class GameRoom extends Room {
       p.path = findPath(p, to, moveWalls(p.char, obs), moveWalls(p.char, this.walls));
       p.pathAt = this.now;
     }
-    while (p.path.length && Math.hypot(p.path[0].x - p.x, p.path[0].y - p.y) < 6) p.path.shift();
+    const reach = Math.max(6, this.speedOf(p) / C.TICK_HZ); // 6px 以内、または1tick の移動量以内なら着いた（速いキャラが経由点を行き過ぎて往復しないように）
+    while (p.path.length && Math.hypot(p.path[0].x - p.x, p.path[0].y - p.y) < reach) p.path.shift();
     const n = p.path[0];
     if (n) this.setInput(p.id, n.x - p.x, n.y - p.y);
     else this.setInput(p.id, 0, 0);
