@@ -28,6 +28,8 @@ const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
 const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
 const TITLE = 'ブイブイ運動会';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
+// 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
+const CARD_W = 56, TACHIE_BROWSE_H = 80;
 const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty: '#ffffff26', ok: '#66ff99', pending: '#bbbbbb' };
 const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサーバーへ送る間隔の下限（カーソルを動かすたびに送らない）
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
@@ -47,7 +49,7 @@ const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040,
 const views = (p: any) => Object.keys(STATUS_VIEW).filter((k) => p?.st?.[k]).map((k) => STATUS_VIEW[k]); // 有効な状態の描画（client/skills）
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
 
-type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; flashUntil: number; aura?: Phaser.GameObjects.Sprite }; // aura: パワーアップ中の背後の拡大したドット
+type Unit = { s: Phaser.GameObjects.Sprite; char: string; tx: number; ty: number; blinkAt: number; hp?: number; flashUntil: number; shakeUntil?: number; aura?: Phaser.GameObjects.Sprite }; // aura: パワーアップ中の背後の拡大したドット、shakeUntil: 大ダメージの揺れの終わり
 type SkillFx = { kind: string; t0: number; [k: string]: any };
 
 // 立ち絵の層（DOM）。ドットとは別に高解像度で表示する
@@ -72,7 +74,7 @@ css.textContent = `
 @keyframes cutfade{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
 @keyframes hop{0%{transform:translateX(-50%) translateX(-40%)}10%{transform:translateX(-50%)}18%{transform:translateX(-50%) translateX(10%)}26%{transform:translateX(-50%)}34%{transform:translateX(-50%) translateX(10%)}42%{transform:translateX(-50%)}50%{transform:translateX(-50%) translateX(10%)}58%,100%{transform:translateX(-50%)}}
 @keyframes push{0%,45%{transform:translateX(-50%);filter:none}65%,100%{transform:translateX(-50%) translateX(30%);filter:grayscale(1) brightness(.8)}}
-#fx .down{position:absolute;left:2%;bottom:22%;height:62%;display:none;overflow:hidden}
+#fx .down{position:absolute;left:${50 - C.KO_CUTIN_GAP / 2}%;transform:translateX(-50%);bottom:22%;height:62%;display:none;overflow:hidden}
 #fx .down img{height:100%;transform-origin:50% 100%}
 #fx .down img.fall{animation:fall var(--d) ease-in forwards}
 @keyframes fall{0%{transform:none}100%{transform:rotate(-14deg) translateY(28%)}}
@@ -98,19 +100,25 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby .pwa{position:absolute;left:50%;transform:translateX(-50%);top:6px;z-index:3;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
 #lobby .pwa button{border:0;background:none;font:bold 14px/1 sans-serif;padding:0 6px;color:#000}
 #fx #lobby{position:absolute;inset:0;display:none;overflow:clip;pointer-events:auto;background:radial-gradient(ellipse at 70% 40%,#3a2f5a,#111 70%);color:#fff;font:calc(var(--z) * 6.5px) sans-serif}
-#lobby .tachie{position:absolute;bottom:0;right:3%;height:96%;pointer-events:none;transition:right .35s,transform .35s,height .35s}
-#lobby:not(.browse) .tachie{right:50%;transform:translateX(50%);height:100%}
+#lobby .tachie{position:absolute;bottom:0;right:50%;transform:translateX(50%);height:${TACHIE_BROWSE_H}%;pointer-events:none;transition:height .35s}
+#lobby:not(.browse) .tachie{height:100%}
 #lobby .ttl{position:absolute;left:2%;top:2%;font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 3px) #000}
 #lobby .info{position:absolute;left:2%;top:11%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 3px) calc(var(--z) * 5px)}
 #lobby .info .nm{font:900 calc(var(--z) * 11px) sans-serif}
 #lobby .info .role{color:#ddd;margin-bottom:calc(var(--z) * 2px)}
+#lobby .info{width:calc(var(--z) * 136px)}
+#lobby .sk{margin-top:calc(var(--z) * 2px);line-height:1.35;white-space:normal}
+#lobby .sk b{color:#ffe066}
+#lobby .sk p{margin:0}
+#lobby .sk .pv{color:#9fe8ff}
 #lobby .st{display:flex;align-items:center;gap:calc(var(--z) * 3px);height:calc(var(--z) * 8px)}
 #lobby .st b{width:calc(var(--z) * 54px);font-weight:bold;white-space:nowrap;overflow:hidden}
 #lobby .st i{display:inline-block;width:calc(var(--z) * 11px);height:calc(var(--z) * 4px);margin-right:1px;background:var(--c);border-radius:1px}
 #lobby .selbar{position:absolute;left:0;right:0;bottom:0;height:46%;background:linear-gradient(transparent,#000d 18%);transition:transform .35s;z-index:1}
 #lobby:not(.browse) .selbar{transform:translateY(105%)}
-#lobby .cards{display:flex;gap:calc(var(--z) * 2px);height:100%;box-sizing:border-box;padding:calc(var(--z) * 10px) calc(var(--z) * 4px) calc(var(--z) * 4px)}
-#lobby .card{flex:1 1 0;min-width:0;display:flex;flex-direction:column;cursor:pointer;border:calc(var(--z) * 1px) solid #fff4;border-radius:calc(var(--z) * 2px);background:#fff1;text-align:center;font-size:calc(var(--z) * 5.5px);white-space:nowrap;overflow:hidden}
+#lobby .cards{display:flex;gap:calc(var(--z) * 2px);height:100%;box-sizing:border-box;padding:calc(var(--z) * 10px) calc(var(--z) * 4px) calc(var(--z) * 4px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;cursor:grab}
+#lobby .cards::-webkit-scrollbar{display:none}
+#lobby .card{flex:0 0 calc(var(--z) * ${CARD_W}px);min-width:0;display:flex;flex-direction:column;cursor:pointer;border:calc(var(--z) * 1px) solid #fff4;border-radius:calc(var(--z) * 2px);background:#fff1;text-align:center;font-size:calc(var(--z) * 5.5px);white-space:nowrap;overflow:hidden}
 #lobby .card img{flex:1 1 0;min-height:0;width:100%;object-fit:cover;object-position:top}
 #lobby .card.mine{border-color:#ffd700;background:#ffd70033}
 #lobby #roster{position:absolute;right:2%;top:2%;width:32%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 2px) calc(var(--z) * 4px);line-height:1.35;z-index:2}
@@ -142,7 +150,7 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .skill{width:calc(var(--z) * 42px);height:calc(var(--z) * 42px);font-size:max(9px,calc(var(--z) * 7px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 84px);transform:none;pointer-events:auto;touch-action:none;cursor:pointer}
 #fx .tb{font-size:max(12px,calc(var(--z) * 9px));background:#1a2a5a;text-shadow:0 1px 2px #000}
 #fx .mm{position:absolute;right:calc(var(--z) * 4px);bottom:calc(var(--z) * 4px);width:calc(var(--z) * ${MAP.width * MINI}px);height:calc(var(--z) * ${MAP.height * MINI}px);pointer-events:auto;touch-action:none}
-#fx .killer{position:absolute;right:2%;bottom:22%;height:62%;display:none}
+#fx .killer{position:absolute;left:${50 + C.KO_CUTIN_GAP / 2}%;transform:translateX(-50%);bottom:22%;height:62%;display:none}
 #fx .killer img{height:100%}
 #fx .killer div,#fx .cut .how{position:absolute;right:0;top:4%;white-space:nowrap;color:#fff;font:900 calc(var(--z) * 14px) sans-serif;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .cut .how{right:auto;left:50%;top:auto;bottom:16%;transform:translateX(-50%);text-align:center;color:#ffe066}
@@ -272,6 +280,7 @@ class GameScene extends Phaser.Scene {
   mmHeld = false; // 直前のフレームでミニマップの視点だった（離したら即座に自キャラへ戻す）
   koedBy: { kc: string | null; how: string } | null = null; // 自分を倒した相手と手段
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
+  hits: { x: number; y: number; ratio: number; big: boolean; t0: number; seed: number }[] = []; // 被ダメージの着弾エフェクト（中・大）
   labels = new Map<string, HTMLElement>();
   slotHtml = ['', ''];
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
@@ -357,7 +366,7 @@ class GameScene extends Phaser.Scene {
     // 待機画面（キャラ選択）: 背後に選んだキャラの立ち絵・名前・ロール・ステータス、下半分に選択バー、右上に味方の選択状況
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
-    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div></div><div id="roster"></div>`
+    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div id="roster"></div>`
       + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
@@ -365,11 +374,25 @@ class GameScene extends Phaser.Scene {
     cmBtn.onclick = () => { commentary.setOn(!commentary.on); cmShow(); };
     cmShow();
     lobby.querySelector('.cards')!.innerHTML = PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('');
+    // 選択バーのスクロール: 指・マウスで左右にドラッグ、ホイール（縦・横どちらも横送り）。ドラッグした時はカードを押した扱いにしない
+    const cards = lobby.querySelector<HTMLElement>('.cards')!;
+    let drag: { x: number; left: number; moved: boolean; id: number } | null = null, dragged = false;
+    cards.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, left: cards.scrollLeft, moved: false, id: e.pointerId }; dragged = false; });
+    cards.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      if (Math.abs(e.clientX - drag.x) > 6) drag.moved = true;
+      if (drag.moved) cards.scrollLeft = drag.left - (e.clientX - drag.x);
+    });
+    const end = () => { if (drag?.moved) dragged = true; drag = null; };
+    cards.addEventListener('pointerup', end);
+    cards.addEventListener('pointercancel', end);
+    cards.addEventListener('pointerleave', end);
+    cards.addEventListener('wheel', (e) => { e.preventDefault(); cards.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; }, { passive: false });
     // 選択バー: カーソルを乗せる（PC）か1回タップで表示を切り替え、表示中のキャラをもう一度クリック／タップで OK?
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => {
       const k = el.dataset.k!;
-      el.onpointerenter = (e) => { if (e.pointerType === 'mouse') this.showChar(k); };
-      el.onclick = () => { if (this.selMode !== 'browse') return; if (this.selChar === k) { this.selMode = 'confirm'; this.lobbyRender(); } else this.showChar(k); };
+      el.onpointerenter = (e) => { if (e.pointerType === 'mouse' && !drag?.moved) this.showChar(k); };
+      el.onclick = () => { if (dragged) { dragged = false; return; } if (this.selMode !== 'browse') return; if (this.selChar === k) { this.selMode = 'confirm'; this.lobbyRender(); } else this.showChar(k); };
     });
     document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン → 出撃済み
       if (this.selMode === 'confirm') this.selMode = 'sortie';
@@ -609,12 +632,13 @@ class GameScene extends Phaser.Scene {
     return `<span class="ic${dead ? ' dead' : ''}" style="background-image:url(${DOT(char)});--c:${css16(teamColor(team))}"></span>`;
   }
 
-  // キルログ: 倒した側 → 倒された側。KILL_LOG_MAX 件を超えたら古い順に消える
+  // キルログ: 倒した側 → 倒された側。1行ずつ KILL_LOG_SEC 秒で消え、KILL_LOG_MAX 件を超えたら古い順に消える
   killLog(kc: string, kt: number, vc: string, vt: number) {
     const el = document.createElement('div');
     el.innerHTML = `${this.icon(kc, kt)}<span style="color:${css16(TEAM_COLOR[kt])}">▶</span>${this.icon(vc, vt)}`;
     const box = $('.kills');
     box.appendChild(el);
+    setTimeout(() => el.remove(), C.KILL_LOG_SEC * 1000);
     while (box.children.length > C.KILL_LOG_MAX) box.firstElementChild!.remove();
   }
 
@@ -835,6 +859,9 @@ class GameScene extends Phaser.Scene {
       + line('速度', st.speed, LOBBY_COLOR.stat)
       + st.aa.map((m) => line(`射程（${m.name}）`, m.range, modeColor(m.kind))).join('')
       + line('技CT', st.ct, LOBBY_COLOR.stat);
+    // 技名（技の定義の name）と説明文・パッシブ（chars.ts の desc・passive）
+    const d = DEFS[k], esc = (t: string) => t.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    lobby.querySelector('.sk')!.innerHTML = `<b>技: ${esc(d.skill.name)}</b><p>${esc(d.desc)}</p>${d.passive ? `<p class="pv">パッシブ: ${esc(d.passive)}</p>` : ''}`;
   }
 
   // 1点からの視界ポリゴン（壁タイルで遮る）。結果は「4px刻みの判定点を手前から全部調べて最初に壁に入った点」と同一
@@ -906,7 +933,7 @@ class GameScene extends Phaser.Scene {
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
       this.room.send('input', this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move));
     }
-    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; commentary.clear(); } // 連戦は選択バーから。実況は打ち切る
+    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 
@@ -981,13 +1008,17 @@ class GameScene extends Phaser.Scene {
       if (p && !p.alive) return;
       if (!bare) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
       if (alpha === 1 && !bare) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
-      // 被弾: 白く点滅してダメージ数値
+      // 被弾: 点滅（全段階）とダメージ数値。被弾側の最大HP比で 小=点滅だけ、中=ダメージ量に比例した着弾エフェクト、大=派手な着弾エフェクト＋揺れ（HIT_FX）
       if (e.hp !== undefined && hp < e.hp) {
+        const ratio = (e.hp - hp) / maxHp;
         e.flashUntil = time + C.HIT_FLASH_MS;
         this.popup(String(Math.round(e.hp - hp)), cx, cy - h - 6, 'dmg');
+        if (ratio >= C.HIT_FX.mid) this.hits.push({ x: cx, y: cy - h / 2, ratio, big: ratio >= C.HIT_FX.big, t0: time, seed: Math.random() * 6.283 });
+        if (ratio >= C.HIT_FX.big) { e.shakeUntil = time + C.HIT_FX.shakeMs; if (isMe) this.cameras.main.shake(C.HIT_FX.shakeMs, C.HIT_FX.cam); }
       }
       e.hp = hp;
-      if (time < e.flashUntil) sp.setTintFill(0xffffff); // 被弾は白く点滅（状態による点滅は状態の目印で上書き）
+      if (e.shakeUntil && time < e.shakeUntil) sp.x += Math.round(C.HIT_FX.amp * ((e.shakeUntil - time) / C.HIT_FX.shakeMs) * Math.sin(time * 0.09)); // 大ダメージ: 左右に揺れて収まる
+      if (time < e.flashUntil && Math.floor((e.flashUntil - time) / C.HIT_BLINK_MS) % 2 === 0) sp.setTintFill(0xffffff); // 被弾は白く点滅（状態による点滅は状態の目印で上書き）
       else sp.clearTint();
       if (!p || bare) return;
       // 指名手配: 頭上に手配マーク
@@ -1118,6 +1149,19 @@ class GameScene extends Phaser.Scene {
         fxG.fillStyle(0xff3010, 0.85 * (1 - k)).fillEllipse(d.x, cy, W * (0.5 + 0.5 * e), H * (0.5 + 0.5 * e));
         fxG.fillStyle(0xffa020, 0.9 * (1 - k)).fillEllipse(d.x, cy, W * 0.75 * (0.4 + 0.6 * e), H * 0.75 * (0.4 + 0.6 * e));
         fxG.fillStyle(0xffffff, 1 - k).fillEllipse(d.x, cy, W * 0.4 * (1 - k), H * 0.4 * (1 - k));
+      }
+    }
+    // 被ダメージの着弾エフェクト: 撃破の小爆発と同じ橙・黄の円が広がって消え、火花が飛び散る。大きさ・火花の数はダメージ量（最大HP比）に比例。大は白い閃光の輪と大きな火花を足す
+    const HF = C.HIT_FX;
+    this.hits = this.hits.filter((h) => time - h.t0 < (h.big ? HF.bigMs : HF.ms));
+    for (const h of this.hits) {
+      const k = (time - h.t0) / (h.big ? HF.bigMs : HF.ms), e = 1 - (1 - k) ** 3, r = (HF.r0 + HF.r * Math.min(1, h.ratio)) * (h.big ? HF.bigScale : 1);
+      fxG.fillStyle(0xff6020, 0.85 * (1 - k)).fillCircle(h.x, h.y, r * (0.4 + 0.6 * e)).fillStyle(0xffe066, 1 - k).fillCircle(h.x, h.y, r * 0.55 * (1 - k * 0.5));
+      if (h.big) fxG.lineStyle(3, 0xffffff, 1 - k).strokeCircle(h.x, h.y, r * (0.6 + 1.2 * e));
+      const n = h.big ? HF.bigSparks : Math.round(HF.sparks + HF.sparksPer * h.ratio);
+      for (let i = 0; i < n; i++) {
+        const a = h.seed + (i / n) * Math.PI * 2 + Math.sin(i * 7.7) * 0.4, d0 = r * (0.5 + e * (1.3 + 0.5 * Math.sin(i * 3.1))), d1 = d0 + r * 0.45 * (1 - k);
+        fxG.lineStyle(h.big ? 2.5 : 1.5, i % 2 ? 0xffe066 : 0xffffff, 1 - k).lineBetween(h.x + Math.cos(a) * d0, h.y + Math.sin(a) * d0, h.x + Math.cos(a) * d1, h.y + Math.sin(a) * d1);
       }
     }
     // アシストの範囲攻撃・大将の広範囲攻撃の予告: 赤い円が満ちていく

@@ -11,6 +11,7 @@ import MAP from '../shared/map.json';
 import { Director } from './commentary';
 
 const T = C.TILE;
+const BAD_DECAY = (-C.TOKU.courier * C.BAD_MULT.courier) / C.BAD_DECAY_SEC; // 反省中に毎秒減る悪行ポイント（config の BAD_DECAY_SEC）
 // マップ外周の壁（外 ' ' か地図の端に接する壁）は壊せない
 export const PERIMETER = MAP.tiles.map((row, y) => [...row].map((c, x) => c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '))));
 
@@ -45,7 +46,7 @@ type Ult = { form: string; tier: number; until: number; pending: boolean }; // p
 export type Player = {
   id: string; team: number; char: string; x: number; y: number; hp: number; alive: boolean;
   dx: number; dy: number; face: number; // face: 向き(ラジアン)
-  rage: number; bad: number; // bad: 悪行ポイント（徳を下げた量の累計。倒されると0）
+  rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
   bot: boolean; role: 'gather' | 'raid'; path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
@@ -234,7 +235,7 @@ export class GameRoom extends Room {
         if (m.ready) a.skillReadyAt = this.now; // 技をすぐ使える
       },
       // 自分の悪行ポイントを v にする（指名手配の確認用）
-      e2eBad: (c: Client, m: { v: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) p.bad = m.v; },
+      e2eBad: (c: Client, m: { v: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.bad = m.v; p.wantedHold = false; } },
       // 自キャラを (x, y) へ移す
       e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) Object.assign(p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles()), { dx: 0, dy: 0 }); },
       // 自キャラのキャラを変える（花丸の確認用）
@@ -344,7 +345,7 @@ export class GameRoom extends Room {
     const s = C.SPAWNS[team];
     const p: Player = {
       id, team, char: pick(PICKABLE), x: s.x, y: s.y + (idx - 1.5) * 40, hp: C.PLAYER_HP, alive: true,
-      dx: 0, dy: 0, face: team === 0 ? 0 : Math.PI, rage: 0, bad: 0,
+      dx: 0, dy: 0, face: team === 0 ? 0 : Math.PI, rage: 0, bad: 0, wantedHold: false,
       cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(),
       bot, role: 'gather', path: [], pathAt: -Infinity, raidBase: -1, visited: [],
       aim: bot ? C.BOT_AIM : C.AIM_MODES[0], tgt: null, inputs: [], ack: 0,
@@ -624,6 +625,7 @@ export class GameRoom extends Room {
     for (const p of this.players.values()) {
       if (!p.alive) {
         while (p.inputs.length) p.ack = p.inputs.shift()!.seq; // 倒れている間の入力は捨てる
+        p.bad = Math.max(0, p.bad - BAD_DECAY * dt); // 反省中は悪行ポイントが減る（0で止まる）
         if (this.now >= p.respawnAt) this.respawn(p);
         continue;
       }
@@ -701,8 +703,9 @@ export class GameRoom extends Room {
     const d = key === 'slot' ? C.SLOT.winToku : C.TOKU[key];
     this.teams[team].toku = this.clampToku(this.teams[team].toku + d);
     if (!p) return;
-    this.cm.tokuBy(p, d);
-    if (d < 0) p.bad -= d;
+    const bad = d < 0 ? -d * (C.BAD_MULT[key] ?? 1) : 0;
+    this.cm.tokuBy(p, d, bad);
+    if (bad) { p.bad += bad; if (p.alive) p.wantedHold = false; }
     this.addFx(p, 'toku', { text, d, hi: key === 'materialBack' || key === 'materialBig' });
   }
 
@@ -961,7 +964,7 @@ export class GameRoom extends Room {
     if (killer) killer.rage += C.RAGE_KILL;
     // 徳: 相手をKOすると下がる。指名手配中の相手なら上がる（アシストを倒したときは数えない）
     if (killer && !v.assist) this.addToku(killer.team, killer, this.teams[v.team].wanted === v.id ? 'wantedKo' : 'ko');
-    v.bad = 0; // 倒されると悪行ポイントは0、指名手配も外れる
+    v.wantedHold = true; // 倒されると指名手配が外れ、復帰後に悪行が増えるまで手配しない（悪行ポイントは反省中に減る）
     if (this.teams[v.team].wanted === v.id) this.teams[v.team].wanted = null;
     for (const [aid, t] of v.lastHitBy) {
       const a = this.players.get(aid);
@@ -1047,7 +1050,7 @@ export class GameRoom extends Room {
   // 指名手配: 陣営ごとに、悪行ポイントがしきい値以上で一番多い人1人（アシストは除く）
   updateWanted() {
     this.teams.forEach((t, team) => {
-      const top = [...this.players.values()].filter((p) => p.team === team && !p.assist && p.bad >= C.WANTED_MIN).sort((u, v) => v.bad - u.bad)[0];
+      const top = [...this.players.values()].filter((p) => p.team === team && !p.assist && !p.wantedHold && p.bad >= C.WANTED_MIN).sort((u, v) => v.bad - u.bad)[0];
       t.wanted = top?.id ?? null;
     });
   }

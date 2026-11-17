@@ -52,11 +52,12 @@ export class Commentary {
   // 止めて待ち行列を空にする（オフ・連戦で待機画面に戻ったとき）
   clear() { this.stop(); this.queue = []; }
 
-  // 発話を受け取る: 再生中なら言い切ってから順に。遅れ（再生中の残り＋待っている分）が lagSkip 秒を超えたら、待っているつなぎを飛ばす
+  // 発話を受け取る: 再生中なら言い切ってから順に。遅れ（届いた発話が言い始めるまでの待ち＝再生中の残り＋先に待っている分）が lagSkip 秒を超えたら、待っているつなぎを飛ばす
+  // （届いた発話自身の長さは遅れに数えない。数えると、前の発話の言い終わりと少し重なっただけで長めのつなぎが捨てられ、サーバーが喋っている扱いの間ずっと無音になっていた）
   receive(u: Utter) {
     if (!this.on || !this.buf || !this.ctx) return;
     this.queue.push(u);
-    const lag = () => (this.cur ? Math.max(0, this.cur.end - this.ctx!.currentTime) : 0) + this.queue.reduce((a, x) => a + this.length(x), 0);
+    const lag = () => (this.cur ? Math.max(0, this.cur.end - this.ctx!.currentTime) : 0) + this.queue.slice(0, -1).reduce((a, x) => a + this.length(x), 0);
     while (lag() > C.CM.lagSkip) { const i = this.queue.findIndex((x) => x.fill); if (i < 0) break; this.queue.splice(i, 1); }
     if (!this.cur) this.next();
   }

@@ -503,7 +503,7 @@ console.log('--- 徳（各行動の増減・範囲・頭上の表示）');
   const k = mk('sayo', 'metan'); k.r.damagePlayer(k.B, 999, 'a');
   ok(`相手をKO: ${C.TOKU.ko}`, tk(k.r) === C.TOKU_INIT + C.TOKU.ko);
   const wk = mk('sayo', 'metan'); wk.B.bad = C.WANTED_MIN; wk.r.updateWanted(); const was = wk.r.teams[1].wanted; wk.r.damagePlayer(wk.B, 999, 'a');
-  ok(`指名手配中の敵をKO: +${C.TOKU.wantedKo}（KOの${C.TOKU.ko}はない）。倒された側の悪行ポイントは0、手配が外れる`, was === 'b' && tk(wk.r) === C.TOKU_INIT + C.TOKU.wantedKo && wk.B.bad === 0 && wk.r.teams[1].wanted === null);
+  ok(`指名手配中の敵をKO: +${C.TOKU.wantedKo}（KOの${C.TOKU.ko}はない）。倒された側の悪行ポイントは残り、手配が外れる`, was === 'b' && tk(wk.r) === C.TOKU_INIT + C.TOKU.wantedKo && wk.B.bad === C.WANTED_MIN && wk.r.teams[1].wanted === null);
   const ak = mk('sayo'); const ea = ak.r.summonAssist(1, 1); ak.r.damagePlayer(ea, 1e9, 'a');
   ok('敵のアシストを倒しても KO では下がらない', tk(ak.r) === C.TOKU_INIT);
   const wb = mk('hanamaru'); Object.assign(wb.A, { x: 200, y: 400, face: Math.PI / 2 }); wb.A.tgt = null; wb.r.skill('a'); fly(wb.r);
@@ -546,6 +546,32 @@ console.log('--- 資材（マップのあちこち・再出現・部屋ごとの
   ok(`裏側の資材は徳+${C.TOKU.materialBack}（通常+${C.TOKU.material}）、頭上の表示も高ポイントの印付き`, Math.abs(t1 - 5 - C.TOKU.materialBack) < 1e-9 && Math.abs(g.r.teams[0].toku - t1 - C.TOKU.material) < 1e-9 && fx1.hi === true && fx2.hi === false);
 }
 
+console.log('--- 悪行ポイント（倍率・反省中の減少）');
+{
+  const per = -C.TOKU.courier * C.BAD_MULT.courier; // コバコ撃破1回分
+  const c = mk('sayo'); c.r.spawnCourier(); Object.assign(c.r.couriers[0], { x: c.A.x + 30, y: c.A.y }); c.A.aim = 'courier'; c.r.attack('a');
+  ok(`コバコ撃破の悪行: ${per}（徳の${C.TOKU.courier}の${C.BAD_MULT.courier}倍。徳は${C.TOKU.courier}のまま）`, Math.abs(c.A.bad - 4.5) < 1e-9 && Math.abs(c.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.courier)) < 1e-9, { bad: c.A.bad });
+  const w = mk('bii'); w.r.addToku(0, w.A, 'wall');
+  ok(`壁破壊の悪行: ${-C.TOKU.wall * C.BAD_MULT.wall}（徳の${C.TOKU.wall}の${C.BAD_MULT.wall}倍。徳は${C.TOKU.wall}のまま）`, Math.abs(w.A.bad - 1.8) < 1e-9 && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, { bad: w.A.bad });
+  const h = mk('sayo', 'metan'); h.r.attack('a');
+  ok('倍率のない行動（攻撃）は今までどおり徳の減少量', Math.abs(h.A.bad - -C.TOKU.hit) < 1e-9);
+  // 反省中: コバコ撃破1回分が BAD_DECAY_SEC 秒で0。0未満にならない。復帰後は減らない
+  const d = mk('sayo', 'metan'); d.A.bad = per; d.A.rage = 1e6; d.r.damagePlayer(d.A, 1e9, 'b'); // 反省時間を長く（RESPAWN_MAX）
+  const step = (sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { d.r.now += 0.05; d.r.updatePlayers(0.05); } };
+  step(C.BAD_DECAY_SEC / 2); const half = d.A.bad;
+  step(C.BAD_DECAY_SEC / 2); const zero = d.A.bad;
+  step(1); const after = d.A.bad;
+  ok(`反省中はコバコ撃破1回分（${per}）が${C.BAD_DECAY_SEC}秒で0になる（半分の時点で${half.toFixed(3)}、${C.BAD_DECAY_SEC}秒で${zero.toFixed(6)}）、0未満にならない`, !d.A.alive && Math.abs(half - per / 2) < 1e-6 && Math.abs(zero) < 1e-6 && after === 0 && zero >= 0, { half, zero, after });
+  const e = mk('sayo', 'metan'); e.A.bad = per; e.r.damagePlayer(e.A, 1e9, 'b'); let n = 0;
+  while (!e.A.alive && n++ < 1000) { e.r.now += 0.05; e.r.updatePlayers(0.05); }
+  const atRespawn = e.A.bad; for (let i = 0; i < 100; i++) { e.r.now += 0.05; e.r.updatePlayers(0.05); }
+  ok(`復帰後は減らない（復帰時${atRespawn.toFixed(3)} → 5秒後${e.A.bad.toFixed(3)}）`, e.A.alive && atRespawn > 0 && e.A.bad === atRespawn);
+  // 指名手配: 撃破で外れ、反省中・復帰直後は悪行が残っていても手配しない。復帰後に悪行が増えたら再び手配
+  e.r.updateWanted(); const held = e.r.teams[0].wanted;
+  e.r.addToku(0, e.A, 'hit'); e.r.updateWanted();
+  ok(`撃破で手配が外れ、復帰後に新しい悪行が付くまで手配しない（悪行${atRespawn.toFixed(2)}が残っていても）。付いたら再び手配`, atRespawn >= C.WANTED_MIN && held === null && e.r.teams[0].wanted === 'a', { held, now: e.r.teams[0].wanted });
+}
+
 console.log('--- 指名手配');
 {
   const { r, A, B } = mk('sayo', 'metan'); r.addPlayer('c', 0, false); const Cc = r.players.get('c');
@@ -555,8 +581,8 @@ console.log('--- 指名手配');
   ok('しきい値以上で一番多い人1人に手配（陣営ごと）', r.teams[0].wanted === 'c' && r.teams[1].wanted === null);
   A.bad = 0; Cc.bad = 0; for (let i = 0; i < 50; i++) { r.attack('a'); r.now += C.ATTACK_COOLDOWN_MELEE; B.hp = 9999; } r.updateWanted();
   ok(`悪行ポイントは徳を下げた量の累計（攻撃50回で${A.bad.toFixed(2)}）`, Math.abs(A.bad - 50 * -C.TOKU.hit) < 1e-9 && r.teams[0].wanted === 'a');
-  r.damagePlayer(A, 1e9, 'b'); r.updateWanted();
-  ok('倒されると悪行ポイントは0、手配が外れる', A.bad === 0 && r.teams[0].wanted === null);
+  const bad0 = A.bad; r.damagePlayer(A, 1e9, 'b'); r.updateWanted();
+  ok('倒されると悪行ポイントは残り、手配が外れる', A.bad === bad0 && r.teams[0].wanted === null);
   // 敵の視界外でもミニマップに位置を送る
   const v: any = new (GameRoom as any)(); v.setSimulationInterval = () => {}; v.lock = () => {}; const last: any = {};
   Object.defineProperty(v, 'clients', { value: ['c0', 'c1'].map((id) => ({ sessionId: id, send: (t: string, m: any) => { if (t === 's') last[id] = m; } })) });

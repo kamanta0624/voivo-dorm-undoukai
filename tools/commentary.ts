@@ -42,7 +42,7 @@ const engineQuery = (q: any, mid: boolean) => {
 function midTexts() {
   const P = SCRIPT.parts as any, vals = (n: string): string[] => {
     const y = (o: any) => Object.values(o).map((v: any) => v.yomi);
-    return n === '[A]' || n === '[B]' || n === '[C]' ? [...y(P.char), ...y(P.assist)] : n === '[助っ人]' ? y(P.assist) : n === '[大将]' ? y(P.boss) : n === '[技]' ? y(P.skill) : n === '[組]' ? Object.values(P.team) as string[] : [];
+    return n === '[A]' || n === '[B]' || n === '[C]' ? [...y(P.char), ...y(P.assist)] : n === '[助っ人]' ? y(P.assist) : n === '[大将]' ? y(P.boss) : n === '[技]' ? y(P.skill) : n === '[組]' ? Object.values(P.team) as string[] : n === '[n分]' ? Object.values(P.min) as string[] : [];
   };
   const mid = new Set<string>(), fin = new Set<string>();
   for (const k of Object.keys(SCRIPT.lines)) for (const pat of patterns(k)) {

@@ -90,7 +90,8 @@ export const CONFIG = {
   SITUATION_MS: 2000, // 形勢カットインの長さ
   END_WARN_AT: [30, 10], // 試合終了前に残り秒数を知らせる
   END_COUNT: 3, // 終了直前のカウント（3・2・1）
-  KILL_LOG_MAX: 4, // キルログの件数。超えたら古い順に消える
+  KILL_LOG_MAX: 3, // キルログの件数。超えたら古い順に消える
+  KILL_LOG_SEC: 3, // キルログの1行の寿命(秒)
   INTRO_GAP: 40, // 開始演出で study に横並びにする間隔(px)
   INTRO_ZOOM: 2.5, // 開始演出のカメラの拡大率
   INTRO_CAM_MS: 600 / INTRO_SPEED, // 開始演出のカメラの寄り・戻りの時間
@@ -170,7 +171,9 @@ export const CONFIG = {
   TOKU_INIT: 5,
   TOKU: { material: 0.2, materialBack: 0.4, materialBig: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
-  WANTED_MIN: 3, // 悪行ポイント（徳を下げた量の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
+  WANTED_MIN: 3, // 悪行ポイント（徳を下げた量 × BAD_MULT の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
+  BAD_MULT: { courier: 3, wall: 2 } as Record<string, number>, // 悪行ポイントの倍率（TOKU の key ごと。ないものは1）。徳の増減は変えない
+  BAD_DECAY_SEC: 10, // 反省中の悪行ポイントの減る速さ: コバコ撃破1回分（-TOKU.courier × BAD_MULT.courier）をこの秒数で減らす
 
   // スロット（陣営ごと）。徳で当たる確率が決まる
   SLOT: {
@@ -260,7 +263,8 @@ export const CONFIG = {
     bossNearR: 300, bossNearCd: 30, // 大将に接近: 敵大将からこの半径内で大将側の視界に入った。同じキャラは bossNearCd 秒に1回
     spotCd: 30, // 敵を視界に捉える: 同じキャラは spotCd 秒に1回
     prefixWait: 1.2, // 前置きの後に続くセリフをこの秒数まで待つ（来なければ前置きだけ）
-    fill: { silence: 0.5, board: 0.5, short: 2.5 }, // つなぎ: この秒数黙ったら1つ。フォーカスなしで盤面コメントを選ぶ割合（残りは雑談）。フォーカス中は short 秒以下の盤面コメントだけ
+    fill: { silence: 1, board: 0.5, short: 2.5 }, // つなぎ: この秒数黙ったら1つ。フォーカスなしで盤面コメントを選ぶ割合（残りは雑談）。フォーカス中は short 秒以下の盤面コメントだけ
+    topicCd: 5, // 話題のクールタイム(秒): 同じ話題カテゴリ（shared/commentary.ts の topicOf）は言い始めてからこの秒数出さない（決着・試合後は対象外）。クールタイム中のセリフは捨てる
     drop: 3, // 待たされたセリフを捨てる秒数（決着・全員反省中・大将HP・撃破系・試合後は捨てない）
     lagSkip: 2, // クライアント: 再生の遅れがこの秒数を超えたら、待っているつなぎを飛ばす
     charSec: 0.13, // 音声のない部品の長さの見積もり（1文字あたり秒）
@@ -289,7 +293,11 @@ export const CONFIG = {
   RANGE_ALPHA: 0.25, // 自キャラの射程円の不透明度
   SLASH_MS: 200, // 斬撃エフェクトの長さ
   SWEAT_MS: 500, // 通常攻撃が当たった側の汗のエフェクトの長さ
-  HIT_FLASH_MS: 120, // 被弾時の白点滅の長さ
+  HIT_FLASH_MS: 300, // 被弾時の白点滅の長さ（全段階共通）
+  HIT_BLINK_MS: 60, // 被弾時の点滅の間隔（白とふつうを交互）
+  // 被ダメージの表示の段階（被弾側の最大HP比）: mid 未満=点滅だけ、mid 以上=ダメージ量に比例した着弾エフェクト、big 以上=派手な着弾エフェクト＋揺れ
+  // 見た目: ms/bigMs=長さ、r0+r×比=半径(px)、bigScale=大の半径の倍率、火花の数 sparks+sparksPer×比（大は bigSparks）、揺れ shakeMs・キャラの振れ幅 amp(px)・自キャラ被弾時の画面の揺れ cam（Phaser の強さ）
+  HIT_FX: { mid: 0.1, big: 0.3, ms: 320, bigMs: 560, r0: 4, r: 30, bigScale: 1.5, sparks: 3, sparksPer: 20, bigSparks: 16, shakeMs: 260, amp: 3, cam: 0.006 },
   POPUP_MS: 900, // ダメージ数値・+1・注意表示の長さ
   NOTIFY_MS: 3000, // 画面中央の通知の長さ
   SKILL_FX_MS: 450, // 技の範囲エフェクトの長さ

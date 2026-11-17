@@ -31,6 +31,18 @@ export const priority = (k: string): number => {
 // 待たされても捨てないセリフ（決着・全員反省中・大将HP・撃破系（単発・連続・まとめ）・試合後）。ほかは発生から CM.drop 秒で捨てる
 export const keep = (k: string) => /^(end_|rev_|mvp_|close|alldown|boss\d|kill_|add_|multi|sum)/.test(k);
 
+// 話題カテゴリ（同じ話題のクールタイム CM.topicCd の単位）。イベントキーの先頭一致で決める。null は対象外（決着・試合後）
+const TOPICS: [string, RegExp][] = [
+  ['pre', /^pre_(start|move)$/], ['match', /^pre_match$/], ['engage', /^(engage_|join$)/], ['chase', /^chase_/],
+  ['kill', /^(kill_|add_)/], ['streak', /^multi$/], ['sum', /^sum/], ['board', /^board_/],
+  ['dodge', /^play_dodge$/], ['funnel', /^play_funnel$/], ['courier', /^(play_courier|play_box_|idle_courier)/], ['steal', /^play_steal$/], ['bossNear', /^play_boss_near$/],
+  ['assist', /^(play_assist_|play_rampage|idle_assist)/], ['reflect', /^(alldown|idle_reflect)$/], ['bossHp', /^(boss\d|boss_warn|idle_bosshp)/], ['bossForm', /^(boss_form2|boss_move|idle_form)$/],
+  ['slot', /^(slot_|pen_|idle_slot)/], ['flow', /^(reverse|idle_flow)$/], ['time', /^(start|sit_|left\d|idle_time)/],
+  ['toku', /^idle_toku/], ['power', /^idle_power$/], ['wanted', /^idle_wanted$/], ['wall', /^idle_wall$/], ['loot', /^idle_loot$/],
+  ['killer', /^idle_killer$/], ['bossDmg', /^idle_bossdmg$/], ['bad', /^idle_bad$/], ['chat', /^chat:/],
+];
+export const topicOf = (k: string): string | null => (/^(end_|rev_|mvp_|close)/.test(k) ? null : TOPICS.find(([, re]) => re.test(k))?.[0] ?? k);
+
 // 読みの指定 {字幕|読み}: 字幕は左、音声は右
 const READ = /\{([^|{}]*)\|([^{}]*)\}/g;
 export const reading = (t: string) => t.replace(READ, '$2');
@@ -65,7 +77,7 @@ const place = (id: string): Clip[] => {
   const g = gumi(ROOM_TEAM[m[2]]);
   return [{ text: g.text + P.side + text, sub: g.sub + P.side + text }];
 };
-const NAME = /^\[(A|B|C|組|大将|助っ人|技|場所|n|m)\]$/;
+const NAME = /^\[(A|B|C|組|大将|助っ人|技|場所|n|m|n分)\]$/;
 // 名前類の部品が取りうるすべての値（音声生成用）
 function nameValues(t: string): string[] {
   const y = (o: any) => Object.values(o).map((v: any) => v.yomi);
@@ -75,6 +87,7 @@ function nameValues(t: string): string[] {
   if (t === '[技]') return y(P.skill);
   if (t === '[組]') return Object.values(P.team) as string[];
   if (t === '[場所]') return [...new Set(MAP.rooms.map((r) => r.id))].flatMap((id) => place(id).map((c) => c.text));
+  if (t === '[n分]') return Object.values(P.min) as string[];
   return [...Array(21).keys()].map(String);
 }
 // パターン → 部品の並び（名前類は token、定型文は読み・字幕）。名前類の直後の助詞は名前の部品へ移す（particle）
@@ -106,6 +119,7 @@ export function clips(s: Say): Clip[] {
     else if (t === '[助っ人]') c.push(...who(s.a.助っ人 ?? ''));
     else if (t === '[技]') { const k = s.a.技 ?? ''; c.push({ text: P.skill[k]?.yomi ?? '', sub: CHARS[k]?.skill.name ?? '' }); }
     else if (t === '[場所]') c.push(...place(s.a.場所 ?? ''));
+    else if (t === '[n分]') { const v = num(s.a.n ?? 0); c.push({ text: P.min[v] ?? `${v}分`, sub: `${v}分` }); } // 分数は読みを固定（min）
     else { const v = num((t === '[n]' ? s.a.n : s.a.m) ?? 0); c.push({ text: v, sub: v }); }
     if (!c.length) { if (g.particle) out.push({ text: g.particle, sub: g.particle }); continue; }
     out.push(...c.map((x, i) => (i === c.length - 1 ? { text: x.text + g.particle, sub: x.sub + g.particle } : x)));

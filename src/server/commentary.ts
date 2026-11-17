@@ -6,7 +6,7 @@ import { PERIMETER } from './GameRoom';
 import { CONFIG as C } from '../shared/config';
 import { CHARS } from '../shared/chars';
 import { inDashShape } from '../shared/geom';
-import { Args, Say, Utter, priority, patterns, keep, clips } from '../shared/commentary';
+import { Args, Say, Utter, priority, patterns, keep, clips, topicOf } from '../shared/commentary';
 import MAP from '../shared/map.json';
 
 const M = C.CM;
@@ -173,7 +173,8 @@ export class Director {
   boardAt = -Infinity; behind: number | null = null; alldown = [false, false];
   walls: number[] = [0, 0]; // 陣営側ごとの壊せる壁タイル数（壁の壊れ方の話題）
   // タイムライン（実況の時計。試合前後も進む）
-  clock = 0; busyUntil = 0; speaking = false; q: Q[] = []; seq = 0; noFill = false;
+  clock = 0; busyUntil = 0; speaking = false; q: Q[] = []; seq = 0; noFill = false; noFillAt = 0;
+  topicAt = new Map<string, number>(); // 話題カテゴリ（topicOf）→ 最後に言い始めた時刻（実況の時計）。CM.topicCd 秒は同じ話題を出さない
   durOf = durOf; // 発話の長さ（秒）
   // つなぎ: 使ったパターン（k:p）、雑談の使用済み、直前の話題と話題ごとの前回の値、盤面と雑談の交互
   used = new Set<string>(); chatUsed = new Set<string>(); topic: string | null = null; topicSig = new Map<string, string>();
@@ -204,8 +205,14 @@ export class Director {
     this.q.push({ u: { pr: Math.max(...s.map((x) => priority(x.k))), s }, at: this.clock, seq: this.seq++, keep: s.some((x) => keep(x.k)), bt: o.bt });
     this.pump();
   }
-  // 言い始める: 全員に送り、言い終わる時刻を決める
+  // 話題のクールタイム中か（決着・試合後は対象外）
+  private cool = (k: string) => { const t = topicOf(k); return t !== null && this.clock - (this.topicAt.get(t) ?? -Infinity) < M.topicCd; };
+  // 発話の本体（前置き以外）の話題がクールタイム中か。前置きだけの発話は前置きの話題で見る
+  private coolU(u: Utter) { const main = u.s.filter((x) => topicOf(x.k) !== 'pre'); return (main.length ? main : u.s).some((x) => this.cool(x.k)); }
+  // 言い始める: 全員に送り、言い終わる時刻を決める。クールタイム中の前置きは外す
   private send(u: Utter) {
+    if (u.s.length > 1) { const s = u.s.filter((x) => topicOf(x.k) !== 'pre' || !this.cool(x.k)); if (s.length) u = { ...u, s }; }
+    for (const x of u.s) { const t = topicOf(x.k); if (t !== null) this.topicAt.set(t, this.clock); }
     const d = this.durOf(u.s);
     for (const c of this.room.clients) c.send('cm', u);
     this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), end: +(this.clock + d).toFixed(2), focus: this.focus && this.char(this.focus), attn: this.focus ? Math.round(this.attn.get(this.focus) ?? 0) : null, keys: u.s.map((x) => x.k), ps: u.s.map((x) => x.p), ...(u.fill ? { as: u.s.map((x) => x.a) } : {}), ...(u.fill ? { fill: true } : {}) }));
@@ -217,15 +224,15 @@ export class Director {
   private pump() {
     if (this.clock < this.busyUntil) return;
     if (this.speaking) { this.speaking = false; this.evalFocus(); }
-    this.q = this.q.filter((x) => x.keep || this.clock - x.at < M.drop);
+    this.q = this.q.filter((x) => (x.keep || this.clock - x.at < M.drop) && !this.coolU(x.u)); // 同じ話題がクールタイム中のものは捨てる（種類によらず）
     const best = this.q.reduce<Q | null>((a, x) => (!a || x.u.pr > a.u.pr || (x.u.pr === a.u.pr && x.seq < a.seq) ? x : a), null);
     if (best) { this.q = this.q.filter((x) => x !== best); return this.send(best.u); }
     if (this.room.phase !== 'playing' || this.clock - this.busyUntil < M.fill.silence) return;
-    if (this.prefix) { const p = this.prefix; this.prefix = null; return this.send({ pr: priority(p.k), s: [this.say(p.k, { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
-    if (this.noFill) return;
+    if (this.prefix) { const p = this.prefix; this.prefix = null; if (!this.cool(p.k)) return this.send({ pr: priority(p.k), s: [this.say(p.k, { 場所: p.place })!] }); } // 続くセリフが来ないまま黙ったら前置きだけ（つなぎの代わり）
+    if (this.noFill && this.clock - this.noFillAt < M.every) return; // 候補がなければ CM.every 秒おきに探し直す
     const f = this.filler();
     if (f) this.send({ pr: priority(f.k), s: [f], fill: true });
-    else { this.noFill = true; this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), fillNone: true })); }
+    else { this.noFill = true; this.noFillAt = this.clock; this.log?.push(JSON.stringify({ t: +this.now.toFixed(1), c: +this.clock.toFixed(2), fillNone: true })); }
   }
   // 実況の時計を進める（試合前後も毎tick。GameRoom から）
   flow(dt: number) { this.clock += dt; this.pump(); }
@@ -564,10 +571,10 @@ export class Director {
 
   // 統計: キャラごとの大将へのダメージ（助っ人は数えない）
   bossDmgBy(p: Player, dmg: number) { if (!p.assist) this.bossDmg.set(p.id, (this.bossDmg.get(p.id) ?? 0) + dmg); }
-  // 統計: 徳の増減（獲得量・悪行の累計）
-  tokuBy(p: Player, d: number) {
+  // 統計: 徳の増減（獲得量）・悪行の累計（bad: 悪行ポイントの増分、BAD_MULT 込み）
+  tokuBy(p: Player, d: number, bad: number) {
     if (d > 0) this.toku.set(p.id, (this.toku.get(p.id) ?? 0) + d);
-    else this.bad.set(p.id, (this.bad.get(p.id) ?? 0) - d);
+    else this.bad.set(p.id, (this.bad.get(p.id) ?? 0) + bad);
   }
 
   // ---- 4章 つなぎ ----
@@ -579,6 +586,7 @@ export class Director {
   }
   // 雑談: 出場中のキャラ（助っ人を除く）から1人、まだ言っていない1本。同じ試合で繰り返さない
   private chatFill(): Say | null {
+    if (this.cool('chat:')) return null;
     const chars = [...new Set([...this.room.players.values()].filter((p) => !p.assist).map((p) => p.char))];
     const cand = chars.flatMap((c) => patterns(`chat:${c}`).map((_, i) => ({ c, i })).filter(({ c, i }) => !this.chatUsed.has(`${c}:${i}`)));
     if (!cand.length) return null;
@@ -590,7 +598,7 @@ export class Director {
   private boardFill(short: boolean): Say | null {
     const ok = (x: Say) => !short || this.durOf([x]) <= M.fill.short;
     const cands = this.topics().map((t) => {
-      let says = t.says.filter(ok);
+      let says = t.says.filter((x) => ok(x) && !this.cool(x.k));
       const fresh = says.filter((x) => !this.used.has(`${x.k}:${x.p}`));
       if (!fresh.length && says.length) for (const x of patterns(says[0].k).keys()) this.used.delete(`${says[0].k}:${x}`);
       else says = fresh;

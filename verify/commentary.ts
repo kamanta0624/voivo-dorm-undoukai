@@ -3,7 +3,7 @@ import { GameRoom } from '../src/server/GameRoom';
 import { CONFIG as C } from '../src/shared/config';
 import { CHARS } from '../src/shared/chars';
 import { bump, decay, nextFocus, engageKind, situation, killAddon, KillCtx, summary, board, pickBoard, flow, review, leaders, evaded, pickPattern, roomAt } from '../src/server/commentary';
-import { clips, allTexts, nameDrift, priority, keep, tokens, SCRIPT, CHATTER, patterns } from '../src/shared/commentary';
+import { clips, allTexts, nameDrift, priority, keep, tokens, SCRIPT, CHATTER, patterns, topicOf } from '../src/shared/commentary';
 import MAP from '../src/shared/map.json';
 
 let fails = 0;
@@ -32,6 +32,7 @@ function mk(a: string, b?: string) {
   got.length = 0; // 試合前・試合開始のセリフは捨てる
   r.cm.log = [];
   r.cm.durOf = () => 0; r.cm.busyUntil = 0; r.cm.q = []; // 判定のテストは喋る長さ0（出来事のたびにすぐ送る）。タイムラインは別に確かめる
+  r.cm.coolOrig = r.cm.cool; r.cm.cool = () => false; // 判定のテストは話題のクールタイムなし（クールタイムは「D. 話題のクールタイム」で確かめる）
   return { r, A, B, got, keys: () => got.flatMap((u) => u.s.map((s: any) => s.k)) };
 }
 const run = (r: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) r.cm.tick(0.05), (r.now += 0.05); };
@@ -324,7 +325,7 @@ console.log('--- 4-1. 盤面コメントの各行');
   r.cm.kills.set('a', 2); r.cm.toku.set('a', 1); r.cm.bad.set('b', 3); r.damageBoss(r.bosses[1], 50, A); m = say();
   ok('キルリーダー・大将へのダメージ・徳を稼いだ人・悪行（試合累計）', has(m, 'idle_killer', 0) && has(m, 'idle_killer', 1) && has(m, 'idle_bossdmg', 0) && has(m, 'idle_toku_top', 1) && has(m, 'idle_bad', 1) && r.cm.bossDmg.get('a') === 50, [...m]);
   B.bad = 5; r.damagePlayer(B, 1e9, 'a', false, '通常攻撃');
-  ok('悪行の試合累計は撃破で0に戻らない（既存の bad は0）', B.bad === 0 && r.cm.bad.get('b') === 3);
+  ok('悪行の試合累計は撃破で0に戻らない（悪行ポイントも撃破では0にしない）', B.bad === 5 && r.cm.bad.get('b') === 3);
 }
 console.log('--- 2. 個別プレー');
 {
@@ -494,6 +495,33 @@ console.log('--- A・B・C. タイムライン（言い切る・切れ目で選�
   for (let i = 0; i < 40; i++) z.r.cm.flow(0.5);
   const order = z.got.map((u: any) => u.s[0].k);
   ok('試合後: 決着→総評→活躍キャラ（キル・大将ダメージ・徳・悪行）→締めの順で最後まで（待っていたものは捨てる）', JSON.stringify(order.slice(1)) === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']) || JSON.stringify(order.slice(1)).replace('rev_onesided', 'rev_good') === JSON.stringify(['end_boss', 'rev_good', 'mvp_kill', 'mvp_boss', 'mvp_toku', 'mvp_bad', 'close']), order);
+}
+console.log('--- D. 話題のクールタイム');
+{
+  const cd = (o: { dur?: number } = {}) => { const z = mk('sayo', 'metan'); z.r.cm.cool = z.r.cm.coolOrig; z.r.cm.durOf = () => o.dur ?? 1; return z; };
+  const ks = (z: any) => z.got.map((u: any) => u.s.map((s: any) => s.k).join('+'));
+  ok('話題カテゴリ: スロットの出目・罰・盤面のスロットは同じ、全員反省中と反省中の盤面は同じ、撃破と付け足しは同じ、決着・試合後は対象外', ['slot_reach', 'slot_ult', 'slot_chain', 'pen_dmg', 'idle_slot'].every((k) => topicOf(k) === 'slot') && topicOf('alldown') === topicOf('idle_reflect') && topicOf('kill_normal') === topicOf('add_duel') && ['end_boss', 'rev_good', 'mvp_kill', 'close'].every((k) => topicOf(k) === null));
+  ok('台本の全イベントキーに話題カテゴリがある（キーそのままの話題はない）', Object.keys(SCRIPT.lines).every((k) => topicOf(k) === null || topicOf(k) !== k));
+  const a = cd(); a.r.cm.filler = () => null; a.r.cm.emit([{ k: 'slot_reach', p: 0, a: { 組: [0] } }]); a.r.cm.flow(1);
+  a.r.cm.emit([{ k: 'slot_ult', p: 0, a: { 組: [0] } }]); a.r.cm.flow(M.topicCd - 1.1);
+  a.r.cm.emit([{ k: 'pen_dmg', p: 0, a: { 組: [1] } }]); a.r.cm.flow(0.2);
+  a.r.cm.emit([{ k: 'slot_chain', p: 0, a: { 組: [0] } }]); a.r.cm.flow(1);
+  ok(`同じ話題（スロット）は言い始めから${M.topicCd}秒は出さない（来たものは捨てる）。過ぎたらまた出す`, JSON.stringify(ks(a).filter((k: string) => topicOf(k) === 'slot')) === JSON.stringify(['slot_reach', 'slot_chain']), ks(a));
+  const b = cd(); b.r.cm.emit([{ k: 'alldown', p: 0, a: { 組: [0] } }]); b.r.cm.flow(1); b.r.cm.emit([{ k: 'alldown', p: 0, a: { 組: [1] } }]); b.r.cm.flow(1);
+  ok('捨てない種類（全員反省中）もクールタイム中は捨てる', ks(b).filter((k: string) => k === 'alldown').length === 1, ks(b));
+  const c = cd(); c.r.cm.emit([{ k: 'kill_normal', p: 0, a: { A: 'sayo', B: 'metan' } }]); c.r.cm.flow(1); c.r.cm.emit([{ k: 'kill_skill', p: 0, a: { A: 'metan', B: 'sayo', 技: 'metan' } }]); c.r.cm.flow(1);
+  ok('撃破も5秒以内の2件目は捨てる', ks(c).filter((k: string) => k.startsWith('kill')).length === 1, ks(c));
+  const d = cd(); d.r.cm.emit([{ k: 'end_time', p: 0, a: { 組: [0] } }]); d.r.cm.flow(1); d.r.cm.emit([{ k: 'end_time', p: 0, a: { 組: [0] } }]); d.r.cm.flow(1);
+  ok('決着はクールタイムの対象外', ks(d).filter((k: string) => k === 'end_time').length === 2, ks(d));
+  const e = cd(); e.r.cm.emit([{ k: 'pre_move', p: 0, a: { 場所: 'hall' } }]); e.r.cm.flow(1); e.r.cm.emit([{ k: 'pre_move', p: 1, a: { 場所: 'hall' } }, { k: 'play_dodge', p: 0, a: { B: 'sayo' } }]); e.r.cm.flow(1);
+  ok('前置きがクールタイム中なら前置きだけ外して本体は言う', ks(e).at(-1) === 'play_dodge', ks(e));
+  // つなぎもクールタイム中の話題を選ばない
+  const f = cd(); f.r.cm.topics = () => [{ topic: 'toku', sig: '1', says: [0, 1, 2].map((p) => ({ k: 'idle_toku', p, a: {} })) }, { topic: 'time', sig: '2', says: [{ k: 'idle_time', p: 0, a: {} }] }];
+  f.r.cm.chatFill = () => null;
+  for (let i = 0; i < 40; i++) f.r.cm.flow(0.25);
+  const fk = f.got.map((u: any) => ({ k: u.s[0].k, c: 0 })); const L = f.r.cm.log.map((x: string) => JSON.parse(x)).filter((x: any) => x.keys);
+  const bad = L.filter((x: any, i: number) => L.slice(0, i).some((y: any) => topicOf(y.keys[0]) === topicOf(x.keys[0]) && x.c - y.c < M.topicCd)).length;
+  ok(`つなぎもクールタイム中の話題は選ばない（候補が尽きたら${M.every}秒おきに探し直す）`, fk.length >= 3 && bad === 0, L.map((x: any) => `${x.c}:${x.keys[0]}`));
 }
 console.log('--- 7-1. 総評（優先順）');
 {
