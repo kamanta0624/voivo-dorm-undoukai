@@ -40,6 +40,9 @@ const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 const isWall = (x: number, y: number) => tiles[Math.floor(y / T)]?.[Math.floor(x / T)] === '#';
+const wallTile = (tx: number, ty: number) => tiles[ty]?.[tx] === '#';
+let wallVer = 0; // 壁が変わるたびに増やす（視界の使い回しの判定）
+const RAY_COS = Array.from({ length: 360 }, (_, i) => Math.cos((i / 360) * Math.PI * 2)), RAY_SIN = Array.from({ length: 360 }, (_, i) => Math.sin((i / 360) * Math.PI * 2)); // 視界のレイの向き
 const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, ...SKILL_COLORS }; // 技ごとの色は client/skills
 const views = (p: any) => Object.keys(STATUS_VIEW).filter((k) => p?.st?.[k]).map((k) => STATUS_VIEW[k]); // 有効な状態の描画（client/skills）
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
@@ -227,6 +230,7 @@ const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
+const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
 const commentary = new Commentary(fx);
 commentary.load();
@@ -275,6 +279,10 @@ class GameScene extends Phaser.Scene {
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
   stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置、画面のpx）
   hiddenAt = 0; // バックグラウンドに入った時刻(ms)
+  visCache = new Map<string, Phaser.Math.Vector2[]>(); // 視界の使い回し（前フレームの分）
+  visUsed = new Map<string, Phaser.Math.Vector2[]>(); // このフレームで使った分
+  visPool: Phaser.Math.Vector2[][] = []; // 使わなくなった点の配列（作り直さずに再利用）
+  visVer = -1;
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
   fxQueue: any[] = []; // 受信した技のエフェクト（スナップショットごとに届く）
@@ -446,6 +454,7 @@ class GameScene extends Phaser.Scene {
   // 連戦: 待機画面に戻ったら、壊れた壁・自宅の色・キルログなどを最初の状態に戻す
   resetMatch() {
     MAP.tiles.forEach((row, y) => (tiles[y] = row));
+    wallVer++;
     this.tileKinds.forEach((row, y) => row.forEach((v, x) => this.layer.putTileAt(v, x, y)));
     this.paintMini();
     Object.assign(this, { walls: C.WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
@@ -828,16 +837,37 @@ class GameScene extends Phaser.Scene {
       + line('技CT', st.ct, LOBBY_COLOR.stat);
   }
 
-  // 1点からの視界ポリゴン（壁タイルで遮る）
+  // 1点からの視界ポリゴン（壁タイルで遮る）。結果は「4px刻みの判定点を手前から全部調べて最初に壁に入った点」と同一
+  // レイが通るタイルを順にたどり（DDA）、判定点は壁タイルの中とタイルの境目付近だけ実際に調べる。床タイルの内側の点は床と分かっているので飛ばす
+  // 目の位置・半径・壁が前回と同じなら前回の点をそのまま返す
   visPoly(ex: number, ey: number, R: number) {
-    const pts: Phaser.Math.Vector2[] = [];
+    const key = `${ex},${ey},${R}`;
+    if (this.visVer !== wallVer) { this.visVer = wallVer; for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v); this.visCache.clear(); }
+    const hit = this.visCache.get(key);
+    if (hit) { this.visUsed.set(key, hit); return hit; }
+    const pts = this.visPool.pop() ?? Array.from({ length: 360 }, () => new Phaser.Math.Vector2());
+    const K = Math.ceil(R / 4) - 1, E = 1e-6; // K: R 未満で最後の判定点の番号。E: 境目付近とみなす幅（丸め誤差より十分大きい）
     for (let i = 0; i < 360; i++) {
-      const a = (i / 360) * Math.PI * 2, cx = Math.cos(a), cy = Math.sin(a);
-      let d = 0;
-      while (d < R && !isWall(ex + cx * d, ey + cy * d)) d += 4;
+      const cx = RAY_COS[i], cy = RAY_SIN[i];
+      let d = (K + 1) * 4; // 壁がなければ R 以上で最初の判定点
+      if (Math.abs(cx) < 1e-3 || Math.abs(cy) < 1e-3) { d = 0; while (d < R && !isWall(ex + cx * d, ey + cy * d)) d += 4; } // 軸に沿うレイは丸め誤差で格子線の上を這うので全点を調べる
+      else {
+        let tx = Math.floor(ex / T), ty = Math.floor(ey / T), t0 = 0;
+        const sx = cx > 0 ? 1 : -1, sy = cy > 0 ? 1 : -1, dx = T / Math.abs(cx), dy = T / Math.abs(cy);
+        let mx = ((cx > 0 ? tx + 1 : tx) * T - ex) / cx, my = ((cy > 0 ? ty + 1 : ty) * T - ey) / cy; // 次の縦・横の境目までの距離
+        scan: for (;;) {
+          const t1 = Math.min(mx, my);
+          const lo = wallTile(tx, ty) ? t0 - E : t1 - E; // 壁タイルは中の点すべて、床タイルは出口の境目付近だけ
+          for (let k = Math.max(0, Math.ceil(lo / 4)), hi = Math.min(K, Math.floor((t1 + E) / 4)); k <= hi; k++) { const dk = k * 4; if (isWall(ex + cx * dk, ey + cy * dk)) { d = dk; break scan; } }
+          if (t1 + E >= K * 4) break;
+          if (mx < my) { tx += sx; t0 = mx; mx += dx; } else { ty += sy; t0 = my; my += dy; }
+        }
+      }
       for (let w = 0; w < T && d < R && isWall(ex + cx * d, ey + cy * d); w += 2) d += 2; // 壁の厚みまで見せる
-      pts.push(new Phaser.Math.Vector2(ex + cx * d, ey + cy * d));
+      pts[i].set(ex + cx * d, ey + cy * d);
     }
+    this.visCache.set(key, pts);
+    this.visUsed.set(key, pts);
     return pts;
   }
 
@@ -885,6 +915,7 @@ class GameScene extends Phaser.Scene {
     if (s.broken.length > this.brokenN) {
       for (const [x, y] of s.broken.slice(this.brokenN)) {
         tiles[y] = tiles[y].slice(0, x) + '.' + tiles[y].slice(x + 1);
+        wallVer++;
         this.layer.putTileAt(1, x, y);
         this.miniTex.context.fillStyle = '#8a8478';
         this.miniTex.context.fillRect(x * MINI, y * MINI, MINI + 0.2, MINI + 0.2);
@@ -1127,12 +1158,14 @@ class GameScene extends Phaser.Scene {
       if (boss) eyes.push(boss);
       const t0 = performance.now();
       for (const e of eyes) vg.fillPoints(this.visPoly(e.x, e.y, visionRadius(e.char)), true);
+      for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
+      [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
     }
 
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
-    $('.timer').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    setText($('.timer'), `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
     [0, 1].forEach((t) => { const el = $(`.b${t} i`); el.style.width = `${s.teams[t].bossHpRatio * 100}%`; el.style.background = css16(TEAM_COLOR[t]); }); // 左＝陣営0、右＝陣営1
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;
@@ -1150,8 +1183,8 @@ class GameScene extends Phaser.Scene {
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
-      $('.skill .sn').textContent = sk.name;
-      $('.skill b').textContent = hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK';
+      setText($('.skill .sn'), sk.name);
+      setText($('.skill b'), hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK');
       $('.skill i').style.setProperty('--p', `${(cd / sk.ct) * 360}deg`);
       skEl.style.borderColor = cd > 0 || hud ? '#888' : '#ffe066';
     }
@@ -1211,7 +1244,7 @@ class GameScene extends Phaser.Scene {
     } else { down.style.display = 'none'; killer.style.display = 'none'; }
 
     const result = s.winner === 2 ? '引き分け' : s.winner >= 0 ? `${TEAM_NAME[s.winner]}の勝ち` : '';
-    $('#info').textContent = [
+    setText($('#info'), [
       `あなた: ${mine ? TEAM_NAME[myTeam] : '観戦中'}  状態: ${s.phase}  残り ${Math.ceil(s.timeLeft)}秒 ${result}`,
       `自キャラ座標: ${mine ? `${Math.round(mine.x)}, ${Math.round(mine.y)}` : '-'}`,
       ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
@@ -1219,7 +1252,7 @@ class GameScene extends Phaser.Scene {
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
       `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
       ...(TOUCH ? [] : ['WASD移動 / 通常攻撃は自動 / Q長押しで帰還 / R技 / Tab照準 / ミニマップ右クリック長押しで視点']), // タッチ端末にはPCのキー操作を出さない
-    ].join('\n');
+    ].join('\n'));
   }
 }
 
