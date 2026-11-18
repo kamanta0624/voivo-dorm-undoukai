@@ -8,3 +8,9 @@ verify/evidence/
 .env.*
 certs/
 .DS_Store
+*.log
+nohup.out
+# cloudflared の認証情報・設定
+.cloudflared/
+cert.pem
+*.pem
