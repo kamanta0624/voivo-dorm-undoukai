@@ -1,7 +1,8 @@
 # Moiky氏の立ち絵を src/shared/chars.json の対応表どおりにコピーする。出力: <OUT>/<key>/{select,ko,koed}.png（git 管理外）
 import json, os, shutil, sys, unicodedata as u
 
-SRC = os.path.expanduser('<MOIKY_DIR>')
+if not os.environ.get('MOIKY_DIR'): sys.exit('MOIKY_DIR が未設定。Moiky氏の立ち絵フォルダを指定する: export MOIKY_DIR=<立ち絵フォルダ>')
+SRC = os.path.expanduser(os.environ['MOIKY_DIR'])
 D = os.path.dirname(os.path.abspath(__file__))
 OUT = sys.argv[1]
 N = lambda s: u.normalize('NFC', s)
