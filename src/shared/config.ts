@@ -222,7 +222,10 @@ export const CONFIG = {
   },
   RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）。溜め中に移動・攻撃（通常攻撃・技）・被弾で中断（溜めは0に戻る）
   RECALL_HEAL: 0.5, // リコール完了時の回復量（最大HPに対する割合。最大HPで頭打ち）
-  BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール
+  BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール（脅威ありの間は始めず、溜め中に脅威ありになったら中断）
+  BOT_RECALL_SAFE: 1.5, // Bot: 直近この秒数以内に被弾していたら脅威あり（射程外・視界外からの攻撃）
+  BOT_FLEE_RATIO: 1.0, // Bot: 低HPで脅威ありのとき、狙う敵の残りHP ≤ 自分の残りHP × これなら攻撃、それ以外は給湯室へ逃亡
+  BOT_FLEE_COMMIT: 1, // Bot: 攻撃・逃亡を一度決めたらこの秒数は維持
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する
   HEAL_ITEM_AMOUNT: 60, // 回復アイテムの回復量
   HEAL_RESPAWN: 20, // 回復アイテムが欠けた置き場所（HEAL_SPOTS）に再出現するまでの秒数
@@ -233,7 +236,7 @@ export const CONFIG = {
   RAGE_BOSS_DMG_COEF: 0.1,
   ASSIST_WINDOW: 5,
   RESPAWN_BASE: 3,
-  KO_FX: { shake: 1.6, boom: 0.6, amp: 4, hz: 6, pop: 0.12, popLife: 0.3 }, // 撃破の演出(秒): その場で揺れる（左右の振れ幅 amp px・hz 回/秒、pop 秒ごとに popLife 秒の小爆発）→大爆発（ここでキャラが消える。ここまで本人の視界を残す）→残り（RESPAWN_BASE − shake − boom）で本人の画面の視界を絞って暗転
+  KO_FX: { shake: 1.6, boom: 0.6, amp: 4, hz: 6, pop: 0.12, popLife: 0.3 }, // 撃破の演出(秒): その場で揺れる（左右の振れ幅 amp px・hz 回/秒、pop 秒ごとに popLife 秒の小爆発）→大爆発（ここでキャラが消える。ここまで本人の視界を残す）→残り（RESPAWN_BASE − shake − boom）で倒されたキャラの視界半径を0へ縮める（陣営の共有視界。eyeRadius）
   RESPAWN_COEF: 0.1,
   RESPAWN_MAX: 15,
 

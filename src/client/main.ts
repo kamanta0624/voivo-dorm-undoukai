@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { Client, Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
-import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, walkOf, charStats, moveWalls } from '../shared/chars';
+import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
@@ -158,7 +158,6 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .kohow{right:auto;left:50%;top:auto;bottom:${62 * 0.16}%;transform:translateX(-50%);white-space:pre;text-align:center;display:none} /* KOされた時の文字: 自分が撃破した時（.cut .how）と同じ画面中央の位置（立ち絵の下端より下） */
 #fx .cut .how b{display:block;font-size:calc(var(--z) * 22px);color:#ff5040}
 #fx .cut .how span{display:block}
-#fx .iris{position:absolute;inset:0;display:none}
 #fx.finale > :not(.fin):not(.cmsub){display:none!important}
 #fx .fin{position:absolute;inset:0;display:none;pointer-events:none}
 #fx.finale .fin{display:block}
@@ -236,9 +235,6 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #lobby #cmbtn.off{color:#fff8}
 `;
 document.head.appendChild(css);
-const iris = document.createElement('div'); // 撃破された本人の画面: 消えた後に視界を同心円状に絞って暗転（立ち絵の奥）
-iris.className = 'iris';
-fx.appendChild(iris);
 const down = document.createElement('div');
 down.className = 'down';
 down.innerHTML = '<img><div></div>';
@@ -610,6 +606,13 @@ class GameScene extends Phaser.Scene {
       : '';
   }
 
+  // 自陣営の視界（位置と半径）: 味方（自キャラは予測位置）と大将。倒された味方は大爆発の後に縮む（eyeRadius、サーバーの visibleTo と同じ）
+  eyes(s: any, myTeam: number, sinceSnap: number) {
+    const out = s.players.filter((p: any) => p.team === myTeam).map((p: any) => ({ ...(p.id === s.me ? this.me : p), r: eyeRadius(p.char, p.alive ? null : p.ko === null ? Infinity : p.ko + sinceSnap, p.assist) })).filter((e: any) => e.r > 0) as { x: number; y: number; r: number }[];
+    for (const b of s.bosses) if (b.team === myTeam) out.push({ x: b.x, y: b.y, r: visionRadius() });
+    return out;
+  }
+
   // 撃破の演出の爆発（KO_FX）: ko=撃破からの秒数。揺れの間は小爆発、その後に大爆発。s: 大きさの倍率、seed: 小爆発の位置の擬似乱数の種
   koBoom(fxG: Phaser.GameObjects.Graphics, d: { x: number; y: number }, ko: number, seed: number, s: number) {
     const K = C.KO_FX;
@@ -791,7 +794,7 @@ class GameScene extends Phaser.Scene {
     const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
       const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
       return `<div class="mem" style="--c:${c}">${this.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}</div>`;
-    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}</div>`).join(''); // アシスト（撃破されたら消える）
+    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.alive && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}</div>`).join(''); // アシスト（撃破されたら消える）
     const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => this.icon(r.char, 1 - myTeam, !r.alive)).join('') + '</div>';
     const html = myTeam === 0 ? [allies, foes] : [foes, allies];
     html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
@@ -1217,7 +1220,7 @@ class GameScene extends Phaser.Scene {
       if (f.kind === 'arc') fxG.fillStyle(col, al * 1.4).slice(f.x, f.y, f.r, f.a - f.arc / 2, f.a + f.arc / 2).fillPath();
     }
     // 撃破の演出: 揺れている間はあちこちで小爆発、揺れが収まると大爆発（横2キャラ・縦1.5キャラ分）
-    for (const d of dying) this.koBoom(fxG, d, d.ko, d.p.id.length, 1);
+    for (const d of dying) this.koBoom(fxG, d, d.ko, d.p.id.length, d.p.assist ? C.ASSIST.scale : 1); // アシストは表示倍率（DOT_SCALE × ASSIST.scale と DOT_SCALE の比）
     // 決着演出: 倒された大将の爆発（撃破の演出 KO_FX の時間を FINALE.boom 秒に伸ばし、大きさを bossScale 倍）
     if (fin?.stage === 'boss' && fin.boss) { const t = fin.t + sinceSnap - F.cam; if (t >= 0) this.koBoom(fxG, fin.boss, (t / F.boom) * (K.shake + K.boom), 7, F.bossScale); }
     // 被ダメージの着弾エフェクト: 撃破の小爆発と同じ橙・黄の円が広がって消え、火花が飛び散る。大きさ・火花の数はダメージ量（最大HP比）に比例。大は白い閃光の輪と大きな火花を足す
@@ -1266,11 +1269,9 @@ class GameScene extends Phaser.Scene {
     const vg = this.visG.clear().fillStyle(0xffffff);
     this.fog.setVisible(!!mine && !this.introCam && s.phase !== 'finale');
     if (mine) {
-      const eyes = s.players.filter((p: any) => p.team === myTeam && (p.alive || (p.ko !== null && p.ko + sinceSnap < K.shake + K.boom))).map((p: any) => (p.id === s.me ? { ...this.me, char: p.char } : p)); // 撃破の演出中も消えるまでは見える
-      const boss = s.bosses.find((b: any) => b.team === myTeam);
-      if (boss) eyes.push(boss);
+      const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
-      for (const e of eyes) vg.fillPoints(this.visPoly(e.x, e.y, visionRadius(e.char)), true);
+      for (const e of eyes) vg.fillPoints(this.visPoly(e.x, e.y, e.r), true);
       for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
       [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
@@ -1316,10 +1317,10 @@ class GameScene extends Phaser.Scene {
     // 指名手配中のキャラ: 敵の視界外でも位置を出す（赤い枠）
     for (const w of s.wanted) ui.lineStyle(1.5, 0xff3030).strokeRect(mx + w.x * ms - 3, my + w.y * ms - 3, 7, 7);
     // 資材: 味方の視界内にあるもの（観戦者はすべて）
-    const eyes = [...s.players.filter((p: any) => p.team === myTeam && (p.alive || (p.ko !== null && p.ko + sinceSnap < K.shake + K.boom))), ...s.bosses.filter((b: any) => b.team === myTeam)];
+    const eyes = this.eyes(s, myTeam, sinceSnap);
     const seeObs = this.walls;
     for (const m of s.materials) {
-      if (mine && !eyes.some((e: any) => Math.hypot(e.x - m.x, e.y - m.y) <= visionRadius(e.char) && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
+      if (mine && !eyes.some((e) => Math.hypot(e.x - m.x, e.y - m.y) <= e.r && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
       if (m.big) ui.fillStyle(0x7fe8ff).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高性能の徳は水色で大きく
       else if (m.hi) ui.fillStyle(0xff7ad9).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高ポイントはピンクで大きく
       else ui.fillStyle(0xffd700).fillRect(mx + m.x * ms - 1, my + m.y * ms - 1, 2.5, 2.5);
@@ -1330,13 +1331,6 @@ class GameScene extends Phaser.Scene {
     this.pops = this.pops.filter((p) => (now < p.until ? (Object.assign(p.el.style, this.toScreen(p.x, p.y)), true) : (p.el.remove(), false)));
     for (const [key, el] of this.labels) if (!labelSeen.has(key)) { el.remove(); this.labels.delete(key); }
 
-    // 撃破された本人: 消えた直後から、視界を自キャラの位置へ同心円状に絞って暗転。絞り切ったら反省中の表示へ
-    const irisT = mine && !mine.alive && s.phase === 'playing' && mine.ko !== null ? (mine.ko + sinceSnap - K.shake - K.boom) / (C.RESPAWN_BASE - K.shake - K.boom) : -1;
-    if (irisT >= 0 && irisT < 1) {
-      const p = this.toScreen(this.me.x, this.me.y - 18), b = fx.getBoundingClientRect(), R = Math.hypot(b.width, b.height) * (1 - irisT) ** 2;
-      iris.style.background = `radial-gradient(circle at ${p.left} ${p.top}, transparent ${R}px, #000 ${R + 1}px)`;
-      iris.style.display = 'block';
-    } else iris.style.display = 'none';
     // KOされた時: やられ顔と復活までの残り時間
     if (mine && !mine.alive && s.phase === 'playing') {
       const img = down.querySelector('img')!, koed = CHARS[mine.char].koed;

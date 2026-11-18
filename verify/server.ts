@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery } from '../src/server/GameRoom';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
-import { CHARS, visionRadius, moveWalls, charAtk } from '../src/shared/chars';
+import { CHARS, visionRadius, eyeRadius, moveWalls, charAtk } from '../src/shared/chars';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
 import { stepPlayer } from '../src/shared/netcode';
@@ -236,7 +236,8 @@ console.log('--- ウルト・アシスト・回復アイテム');
   ok('アシスト: 自陣の大将の所に現れ、攻めに行く', a && Math.hypot(a.x - 1300, a.y - 900) < 60 && a.bot && a.assist);
   s.r.items.push({ id: 9, kind: 'heal', team: -1, x: a.x, y: a.y }, { id: 10, kind: 'box_ult', team: -1, x: a.x, y: a.y }); s.r.materials.push({ id: 11, x: a.x, y: a.y }); a.hp = 10; s.r.updatePlayers(0.05);
   ok('アシスト: 回復アイテム・荷物・資材を拾わない', s.r.items.length === 2 && s.r.materials.length === 1 && s.r.teams[0].toku === C.TOKU_INIT);
-  s.r.damagePlayer(a, 9999, 'a'); ok('アシスト: 撃破されると復活しない（消える）', !s.r.players.has(a.id));
+  s.r.damagePlayer(a, 9999, 'a'); s.r.now += C.KO_FX.shake + C.KO_FX.boom; s.r.updatePlayers(0.05); s.r.now += 10; s.r.updatePlayers(0.05);
+  ok('アシスト: 撃破されると復活しない（撃破の演出の後に消える）', !s.r.players.has(a.id));
   // 回復アイテム: 触れると回復（最大HPまで）。部屋の中に出る
   const h = mk('sayo'); h.A.hp = 20; h.r.items.push({ id: 1, kind: 'heal', team: -1, x: h.A.x + 3, y: h.A.y }); h.r.updatePlayers(0.05);
   ok(`回復アイテム: 触れると${C.HEAL_ITEM_AMOUNT}回復`, h.A.hp === 20 + C.HEAL_ITEM_AMOUNT && h.r.items.length === 0);
@@ -533,9 +534,9 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
     const obs = r.obstacles();
     for (const id of ['c0', 'c1']) {
       const team = r.players.get(r.owners.get(id)).team, s = last[id];
-      const eyes = [...[...r.players.values()].filter((p: any) => p.team === team && (p.alive || r.dying(p))), r.bosses[team]]; // 撃破の演出中（消えるまで）も視界を持つ
+      const eyes = [...[...r.players.values()].filter((p: any) => p.team === team).map((p: any) => ({ x: p.x, y: p.y, r: eyeRadius(p.char, p.alive ? null : r.now - p.koAt, p.assist) })).filter((e: any) => e.r > 0), { ...r.bosses[team], r: visionRadius() }]; // 倒されたキャラは大爆発の後に縮む視界を持つ
       for (const u of [...r.players.values()].filter((p: any) => p.team !== team && (p.alive || r.dying(p)))) {
-        const ds = eyes.map((e: any) => ({ d: Math.hypot(e.x - u.x, e.y - u.y), r: visionRadius(e.char) }));
+        const ds = eyes.map((e: any) => ({ d: Math.hypot(e.x - u.x, e.y - u.y), r: e.r }));
         if (ds.some((x) => Math.abs(x.d - x.r) < 1)) continue; // 視界の境目ちょうどは除く
         const vis = eyes.some((e: any, k: number) => ds[k].d <= ds[k].r && lineOfSight(e.x, e.y, u.x, u.y, obs));
         const sent = s.players.some((p: any) => p.id === u.id);
@@ -1419,7 +1420,7 @@ console.log('--- 撃破の演出（視界の維持・敵への送信）');
   v.now += C.KO_FX.shake + C.KO_FX.boom - 0.05; v.sendSnapshots(); const seen1 = last.c0.players.some((p: any) => p.id === 'c1'), foeSees1 = !!last.c1.players.find((p: any) => p.id === 'c0');
   v.now += 0.1; v.sendSnapshots(); const seen2 = last.c0.players.some((p: any) => p.id === 'c1'), foeSees2 = !!last.c1.players.find((p: any) => p.id === 'c0');
   v.now = me.koAt + C.RESPAWN_BASE + 0.05; v.sendSnapshots(); const seen3 = last.c0.players.some((p: any) => p.id === 'c1');
-  ok(`撃破の演出中（揺れ${C.KO_FX.shake}秒＋大爆発${C.KO_FX.boom}秒で消えるまで）は、倒された側の視界で敵が見える。消えた後・演出後（RESPAWN_BASE ${C.RESPAWN_BASE}秒）は見えない`, seen0 && seen1 && !seen2 && !seen3, { seen0, seen1, seen2, seen3 });
+  ok(`撃破の演出中（揺れ${C.KO_FX.shake}秒＋大爆発${C.KO_FX.boom}秒で消えるまで）は、倒された側の視界で敵が見える。大爆発の直後は縮み始めた視界の内側（150px）なのでまだ見え、演出後（RESPAWN_BASE ${C.RESPAWN_BASE}秒）は見えない`, seen0 && seen1 && seen2 && !seen3, { seen0, seen1, seen2, seen3 });
   ok('倒された本人へ撃破からの秒数を送り、敵にも消えるまで（視界内なら）送る。復活の時刻は変えない', mine0?.ko === 0 && !mine0.alive && foeSees?.ko === 0 && foeSees1 && !foeSees2 && Math.abs(me.respawnAt - me.koAt - C.RESPAWN_BASE) < 1e-9);
   ok(`演出の内訳（揺れ＋大爆発＋絞り）は RESPAWN_BASE（${C.RESPAWN_BASE}秒）に収まる`, C.KO_FX.shake + C.KO_FX.boom < C.RESPAWN_BASE);
   // リコール: 元いた場所に瞬間移動の跡
@@ -1569,6 +1570,79 @@ console.log('--- プレイテスト2（技の照準・デッドリーウェイ�
   const hi = mk('himari'); Object.assign(hi.r.bosses[1], { x: 2400, y: 900 }); const as = hi.r.summonAssist(1, 3); Object.assign(as, { x: 1552 + 40, y: 900, hp: 9999 });
   hi.r.skill('a'); hi.A.cooldownUntil = 0; hi.r.attack('a', 0);
   ok(`死神の鎌: アシストへのダメージは半分（${9999 - as.hp} = 999×0.5×全体倍率）`, 9999 - as.hp === Math.round(999 * 0.5 * C.DAMAGE_MULT * (1 - C.BALANCE_ALONE_CUT * 0)), { d: 9999 - as.hp });
+}
+
+console.log('--- プレイテスト3（Botのリコール判断・撃破後の視界の絞り・アシストの撃破演出）');
+{
+  // 低HPのBot（陣営0、ホール）と敵（陣営1）。敵は人間（動かない）
+  const lowBot = (foeHp: number, foeAt: number | null = 150) => {
+    const z = mk('sayo', 'sayo'); z.A.bot = true; z.A.role = 'gather'; z.A.hp = Math.round(z.r.maxHp(z.A) * 0.2);
+    if (foeAt === null) Object.assign(z.B, { x: -999, y: -999 }); else Object.assign(z.B, { x: 1552 + foeAt, y: 900 });
+    z.B.hp = foeHp; return z;
+  };
+  const think = (z: any) => z.r.botThink(z.A, z.r.obstacles());
+  const run = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; think(z); z.r.updatePlayers(0.05); } };
+  // 1. 視界内に敵がいる間はリコールを始めない。溜め中に敵が見えたら中断
+  const r1 = lowBot(999); think(r1); const noStart = r1.A.recallAt === null;
+  Object.assign(r1.B, { x: -999, y: -999 }); think(r1); const started = r1.A.recallAt !== null;
+  r1.r.now += 1; Object.assign(r1.B, { x: r1.A.x + 150, y: r1.A.y }); think(r1); const canceled = r1.A.recallAt === null;
+  ok('低HPのBot: 視界内に敵がいる間はリコールを始めない／敵がいなくなれば始める／溜め中に敵が見えたら中断', noStart && started && canceled, { noStart, started, canceled });
+  // 2. 残りHPの多い敵からは給湯室方向へ離れ、少ない敵には攻撃する
+  const K0 = C.RECALL_ROOMS[0], kc = { x: K0.x + K0.w / 2, y: K0.y + K0.h / 2 }, dd = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
+  const f = lowBot(999); const fk0 = dd(f.A, kc), fb0 = dd(f.A, f.B); run(f, 1);
+  const flee = { kitchen: Math.round(fk0 - dd(f.A, kc)), away: Math.round(dd(f.A, f.B) - fb0), recall: f.A.recallAt };
+  ok(`低HPのBot: 自分より残りHPの多い敵からは離れ、給湯室へ向かう（リコールは敵が ${C.BOT_AGGRO_RANGE}px より離れて脅威なしになってから）`, flee.kitchen > 50 && flee.away > 50 && (flee.recall === null || dd(f.A, f.B) > C.BOT_AGGRO_RANGE) && !f.A.lowFight, flee);
+  const g = lowBot(1); g.B.st.test = NOAUTO(); delete g.A.st.test; const gb0 = dd(g.A, g.B); run(g, 1);
+  ok('低HPのBot: 自分より残りHPの少ない敵には攻撃する（離れない・倒す）', g.A.lowFight && (!g.B.alive || dd(g.A, g.B) <= gb0), { fight: g.A.lowFight, foeAlive: g.B.alive, d: Math.round(dd(g.A, g.B)) });
+  // 決定は BOT_FLEE_COMMIT 秒維持
+  const cm = lowBot(999); think(cm); cm.B.hp = 1; cm.r.now += C.BOT_FLEE_COMMIT - 0.1; think(cm); const kept = !cm.A.lowFight; cm.r.now += 0.2; think(cm);
+  ok(`低HPのBot: 攻撃・逃亡の決定は ${C.BOT_FLEE_COMMIT} 秒維持し、その後に選び直す`, kept && cm.A.lowFight);
+  // 3. 直近 BOT_RECALL_SAFE 秒以内に被弾していたら始めない。経過後、脅威なしなら始める
+  const h = lowBot(999, null); h.r.damagePlayer(h.A, 1, null); think(h); const hit0 = h.A.recallAt === null;
+  h.r.now += C.BOT_RECALL_SAFE - 0.1; think(h); const hit1 = h.A.recallAt === null;
+  h.r.now += 0.2; think(h); const hit2 = h.A.recallAt !== null;
+  ok(`低HPのBot: 直近 ${C.BOT_RECALL_SAFE} 秒以内に被弾したらリコールを始めない。経過後、脅威なしなら始める`, hit0 && hit1 && hit2, { hit0, hit1, hit2 });
+  const hr = lowBot(999, null); think(hr); hr.r.now += 1; hr.r.damagePlayer(hr.A, 1, null); const hrc = hr.A.recallAt === null; think(hr);
+  ok('低HPのBot: 被弾で中断した直後に溜め直さない', hrc && hr.A.recallAt === null);
+
+  // 4. 倒されたキャラの視界半径: 大爆発後に縮み RESPAWN_BASE で0。縮み中は縮んだ半径の内側の敵だけが見える
+  const KF = C.KO_FX, end = KF.shake + KF.boom, R = visionRadius('sayo');
+  const radii = [0, end - 0.01, end, (end + C.RESPAWN_BASE) / 2, C.RESPAWN_BASE].map((t) => eyeRadius('sayo', t));
+  const mid = (end + C.RESPAWN_BASE) / 2, rMid = R * 0.5 ** 2;
+  ok(`撃破後の視界半径: 大爆発（${end}秒）までは ${R}、その後 (1−t)^2 で縮み RESPAWN_BASE（${C.RESPAWN_BASE}秒）で0`, radii[0] === R && radii[1] === R && radii[2] === R && Math.abs(radii[3] - rMid) < 1e-9 && radii[4] === 0 && eyeRadius('sayo', null) === R, radii);
+  const v = mk('sayo'); const me = v.A; v.r.addPlayer('f1', 1, false); v.r.addPlayer('f2', 1, false);
+  const near = v.r.players.get('f1'), far = v.r.players.get('f2');
+  me.rage = 0; v.r.damagePlayer(me, 1e9, null); v.r.now = me.koAt + mid;
+  Object.assign(near, { x: me.x + rMid * 0.8, y: me.y, koAt: 0 }); Object.assign(far, { x: me.x + rMid * 1.2, y: me.y, koAt: 0 });
+  const obs = v.r.obstacles(), inS = v.r.visibleTo(0, near.x, near.y, obs), outS = v.r.visibleTo(0, far.x, far.y, obs);
+  v.r.now = me.koAt + C.RESPAWN_BASE; const after = v.r.visibleTo(0, me.x + 10, me.y, obs);
+  ok(`縮み中（半径 ${Math.round(rMid)}）は内側の敵だけが見え、RESPAWN_BASE で何も見えない`, inS && !outS && !after, { inS, outS, after });
+  // 5. 味方が近くにいれば、絞り中・絞り切り後も味方の視界内の敵は見え続ける
+  const w = mk('sayo'); w.r.addPlayer('ally', 0, false); w.r.addPlayer('foe', 1, false);
+  const ally = w.r.players.get('ally'), foe = w.r.players.get('foe');
+  Object.assign(ally, { x: w.A.x - 100, y: w.A.y }); Object.assign(foe, { x: w.A.x + 150, y: w.A.y });
+  w.A.rage = 0; w.r.damagePlayer(w.A, 1e9, null); const wobs = w.r.obstacles();
+  const seen = [end + 0.3, C.RESPAWN_BASE - 0.01, C.RESPAWN_BASE + 0.5].map((t) => { w.r.now = w.A.koAt + t; return w.r.visibleTo(0, foe.x, foe.y, wobs); });
+  ally.alive = false; ally.koAt = -99; w.r.now = w.A.koAt + C.RESPAWN_BASE; const alone = w.r.visibleTo(0, foe.x, foe.y, wobs);
+  ok('味方が近くにいれば、倒されたキャラの絞り中・絞り切り後も味方の視界内の敵は見え続ける（味方がいなければ見えない）', seen.every(Boolean) && !alone, { seen, alone });
+
+  // 6. 倒れたアシスト: 大爆発まで players に残り（alive=false）、その後消える。演出中は攻撃・技の対象にならず、召喚数に数えない
+  const as = mk('sayo', 'whitecul'); Object.assign(as.r.bosses[1], { x: 2400, y: 900 }); const A1 = as.r.summonAssist(1, 1);
+  Object.assign(A1, { x: 1552 + 40, y: 900 }); as.r.damagePlayer(A1, 1e9, 'a');
+  const kept0 = as.r.players.get(A1.id) === A1 && !A1.alive;
+  as.r.now += end - 0.05; as.r.updatePlayers(0.05); const kept1 = as.r.players.has(A1.id);
+  Object.assign(as.B, { x: -999, y: -999 }); const tgt = as.r.pickTarget(as.A); delete as.A.st.test; as.A.cooldownUntil = 0; as.r.attack('a', 0); const hp1 = A1.hp;
+  as.A.skillReadyAt = 0; as.r.skill('a'); as.r.updatePlayers(0.01); const hp2 = A1.hp; // 技（サヨの技）も対象外
+  const n0 = [...as.r.players.values()].filter((q: any) => q.assist && q.team === 1).length;
+  const A2 = as.r.summonAssist(1, 1); const fresh = A2 !== A1 && A2.alive && A1.tier === 1;
+  as.r.now += 0.1; as.r.updatePlayers(0.05); const gone = !as.r.players.has(A1.id) && as.r.players.has(A2.id);
+  ok('倒れたアシスト: 大爆発まで players に残り（alive=false）、その後消える', kept0 && kept1 && gone, { kept0, kept1, gone });
+  ok('倒れたアシスト: 演出中は攻撃・技の対象にならず、召喚数に数えない（新しく召喚され、レベルアップにならない）', tgt === null && hp1 === 0 && hp2 === 0 && n0 === 1 && fresh, { tgt: !!tgt, hp1, hp2, n0, fresh });
+  // 弾: 倒れたアシストの撃った弾は消える
+  const sh = mk('sayo'); Object.assign(sh.r.bosses[1], { x: 2400, y: 900 }); const A3 = sh.r.summonAssist(1, 1);
+  sh.r.shots.push({ id: 99, kind: 'bullet', team: 1, owner: A3.id, x: 1552 + 200, y: 900, vx: -300, vy: 0, sp: 300, left: 400, dmg: 10, aa: true });
+  sh.r.damagePlayer(A3, 1e9, 'a'); sh.r.updateShots(0.05);
+  ok('倒れたアシストの弾は消える（いないものとして扱う）', !sh.r.shots.some((x: any) => x.id === 99));
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

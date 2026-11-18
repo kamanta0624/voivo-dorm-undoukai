@@ -2,7 +2,7 @@ import { Room, Client } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
-import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, eyeRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
 import { findPath } from './pathfind';
@@ -62,6 +62,8 @@ export type Player = {
   ok: boolean; // 待機画面で出撃済み
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
   koAt: number; // 撃破された時刻（撃破の演出 KO_FX）
+  hitAt: number; // 最後に被弾した時刻（Bot のリコール判断の「脅威あり」）
+  lowFight: boolean; lowUntil: number; // Bot: 低HPで脅威ありのときの攻撃(true)／逃亡(false)と、その決定を維持する時刻
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻
@@ -361,6 +363,7 @@ export class GameRoom extends Room {
       assist: false, tier: 1, ult: null,
       goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
       boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false, koAt: 0,
+      hitAt: -Infinity, lowFight: false, lowUntil: -Infinity,
     };
     this.players.set(id, p);
     return p;
@@ -616,7 +619,8 @@ export class GameRoom extends Room {
     this.winner = winner;
     this.writeLog(kind);
     this.cm.end(winner, kind);
-    // 各陣営の全員を、自陣の大将が最後にいた部屋に集める（倒れていた人も戻す）
+    // 各陣営の全員を、自陣の大将が最後にいた部屋に集める（倒れていた人も戻す。撃破の演出中のアシストは消す）
+    for (const p of [...this.players.values()]) if (p.assist && !p.alive) this.players.delete(p.id);
     for (const t of [0, 1]) {
       const r = this.cageOf({ team: t } as Player)!, list = [...this.players.values()].filter((p) => p.team === t);
       list.forEach((p, i) => {
@@ -669,7 +673,8 @@ export class GameRoom extends Room {
       if (!p.alive) {
         while (p.inputs.length) p.ack = p.inputs.shift()!.seq; // 倒れている間の入力は捨てる
         p.bad = Math.max(0, p.bad - BAD_DECAY * dt); // 反省中は悪行ポイントが減る（0で止まる）
-        if (this.now >= p.respawnAt) this.respawn(p);
+        if (p.assist) { if (!this.dying(p)) this.players.delete(p.id); } // 倒れたアシストは大爆発の後に消える
+        else if (this.now >= p.respawnAt) this.respawn(p);
         continue;
       }
       const locked = this.effect(p, 'lock'); // 移動不可の状態では通常の移動をしない
@@ -997,6 +1002,7 @@ export class GameRoom extends Room {
     if (role === 'balance' && ![...this.players.values()].some((a) => a !== v && a.team === v.team && a.alive && Math.hypot(a.x - v.x, a.y - v.y) <= C.BALANCE_ALONE_RADIUS)) dmg *= 1 - C.BALANCE_ALONE_CUT;
     if (v.ult && !v.ult.pending && !raw) dmg *= C.ULT_FORMS[v.ult.form].def;
     v.hp -= Math.round(dmg);
+    v.hitAt = this.now;
     this.cancelRecall(v); // 被弾でリコール中断
     if (attacker) v.lastHitBy.set(attacker, this.now);
     this.cm.damage(v, attacker ? this.players.get(attacker) ?? null : null, dmg, how);
@@ -1022,7 +1028,7 @@ export class GameRoom extends Room {
       const a = this.players.get(aid);
       if (a && aid !== attacker && this.now - t <= C.ASSIST_WINDOW) a.rage += C.RAGE_ASSIST;
     }
-    if (v.assist) { this.players.delete(v.id); return; } // アシストは復活しない
+    if (v.assist) return; // アシストは復活しない（撃破の演出の大爆発の後に消す: updatePlayers）
     v.respawnTotal = Math.min(C.RESPAWN_MAX, C.RESPAWN_BASE + C.RESPAWN_COEF * v.rage);
     v.respawnAt = this.now + v.respawnTotal;
   }
@@ -1198,7 +1204,7 @@ export class GameRoom extends Room {
   updateShots(dt: number) {
     for (const s of [...this.shots]) {
       const owner = this.players.get(s.owner);
-      let step = Math.min(s.sp * dt, s.left), done = !owner && !s.boom;
+      let step = Math.min(s.sp * dt, s.left), done = (!owner || (owner.assist && !owner.alive)) && !s.boom; // 持ち主がいない（倒れたアシストを含む）弾は消える
       while (step > 0 && !done) {
         const d = Math.min(8, step);
         s.x += (s.vx / s.sp) * d; s.y += (s.vy / s.sp) * d; s.left -= d; step -= d;
@@ -1348,17 +1354,24 @@ export class GameRoom extends Room {
       return list[0]?.x;
     };
     const go = (to: Pt, key: string) => { p.goal = key; this.botGoto(p, to, obs); };
-    // リコール: HPが低いとき（給湯室にいるときは使わない）。給湯室に着いたら、HPが満タンになるまでご飯を食べる
-    if (p.recallAt === null && !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP) p.recallAt = this.now;
+    const foes = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && dist(e) <= C.BOT_AGGRO_RANGE && this.visibleTo(p.team, e.x, e.y, obs));
+    // リコール: HPが低いとき（給湯室にいるときは使わない）。脅威あり（近くに見える敵／直近の被弾）の間は始めず、溜め中なら中断。給湯室に着いたら、HPが満タンになるまでご飯を食べる
+    const low = !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP, threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
+    if (threat) { if (p.recallAt !== null) this.cancelRecall(p); }
+    else if (low && p.recallAt === null) p.recallAt = this.now;
     if (p.recallAt !== null) { this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
     if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && this.botSkillUseful(p)) this.skill(p.id);
     // 1. 近くの敵を攻撃（指名手配中の敵を優先）
-    const foes = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && dist(e) <= C.BOT_AGGRO_RANGE && this.visibleTo(p.team, e.x, e.y, obs));
     const wanted = foes.find((e) => e.id === this.teams[1 - p.team].wanted);
     const enemy = wanted ?? best(foes, (e) => `p:${e.id}`);
     this.botStuck(p, !!enemy || !!p.tgt);
+    // 低HPで脅威あり: 狙う敵の残りHPが自分以下なら攻撃、それ以外（見える敵がいない被弾を含む）は自陣の給湯室へ逃亡（射程内の敵には通常攻撃が自動で出る）。決定は BOT_FLEE_COMMIT 秒維持
+    if (low && threat) {
+      if (this.now >= p.lowUntil) { p.lowFight = !!enemy && enemy.hp <= p.hp * C.BOT_FLEE_RATIO; p.lowUntil = this.now + C.BOT_FLEE_COMMIT; }
+      if (!p.lowFight || !enemy) { const r = C.RECALL_ROOMS[p.team]; return go({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, 'flee'); }
+    }
     if (enemy) return this.botFight(p, enemy, C.PLAYER_RADIUS, obs);
     if (p.eating) { const f = best(this.items.filter((i) => i.kind === 'heal' && inRect(i.x, i.y, C.RECALL_ROOMS[p.team])), (i) => `item:${i.id}`); if (f) return go(f, `item:${f.id}`); }
     // 2. コバコ: 落とした荷物をすぐ拾える位置にいるときだけ攻撃する
@@ -1429,14 +1442,15 @@ export class GameRoom extends Room {
 
   // 撃破の演出中で、まだ消えていない（爆発まで。視界を残し、敵にも送る）
   dying(p: Player) {
-    return !p.alive && !p.assist && this.now < p.koAt + C.KO_FX.shake + C.KO_FX.boom;
+    return !p.alive && this.now < p.koAt + C.KO_FX.shake + C.KO_FX.boom;
   }
 
-  // 陣営 team から見えるか（自陣営のプレイヤー（撃破の演出中で消えるまでを含む）・大将の視界、壁で遮断）
+  // 陣営 team から見えるか（自陣営のプレイヤー・大将の視界、壁で遮断）。倒されたキャラは大爆発の後に視界が縮む（eyeRadius）
   visibleTo(team: number, x: number, y: number, obs: Rect[]): boolean {
-    const eyes = [...this.players.values()].filter((p) => p.team === team && (p.alive || this.dying(p))) as { x: number; y: number; char?: string }[];
-    eyes.push(this.bosses[team]);
-    return eyes.some((e) => Math.hypot(e.x - x, e.y - y) <= visionRadius(e.char) && lineOfSight(e.x, e.y, x, y, obs));
+    const eyes = [...this.players.values()].filter((p) => p.team === team).map((p) => ({ x: p.x, y: p.y, r: eyeRadius(p.char, p.alive ? null : this.now - p.koAt, p.assist) }));
+    const b = this.bosses[team];
+    eyes.push({ x: b.x, y: b.y, r: visionRadius() });
+    return eyes.some((e) => e.r > 0 && Math.hypot(e.x - x, e.y - y) <= e.r && lineOfSight(e.x, e.y, x, y, obs));
   }
 
   // 「戻る」を押した人数（Botは押した扱い）／全人数
