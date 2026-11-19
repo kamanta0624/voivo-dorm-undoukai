@@ -1,11 +1,12 @@
 # 32dot立ち絵PSDからボイボ寮4vs4用のドットを書き出す。PSDは読むだけ。画素は加工しない（重ねて等倍縮小するだけ）
-# 手本: ~/Projects/tsuina_onitaiji/game/assets/ui/_gen/make_dot.py
+# 手本: <TSUINA_PROJECT>/game/assets/ui/_gen/make_dot.py
 # 出力: out/<key>/{idle,walk1,walk2,half,close,banzai}.png（32x42）。out/ は素材の二次配布防止のため git 管理外にする
 import os, sys, unicodedata as u
 from psd_tools import PSDImage
 from PIL import Image
 
-PSD = os.path.expanduser('~/Projects/tsuina_onitaiji/assets_src/images/32dot_ver16.3/32dot_tachie.psd')
+if not os.environ.get('DOT_PSD'): sys.exit('DOT_PSD が未設定。32dot立ち絵のPSDを指定する: export DOT_PSD=<32dot_tachie.psd のパス>')
+PSD = os.path.expanduser(os.environ['DOT_PSD'])
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 CHARS = {  # key: (PSDの名前の頭, 脚（None は足なし）, 固有差分)
     'hanamaru': ('満別花丸', 'shoes01', None),
