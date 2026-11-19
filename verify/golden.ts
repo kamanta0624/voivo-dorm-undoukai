@@ -12,6 +12,7 @@ const MATCHES = [
   { seed: 1, teams: [['hanamaru', 'whitecul', 'sayo', 'metan'], ['mochiko', 'aru', 'bii', 'ierutan']] },
   { seed: 2, teams: [['zunko', 'kiritan', 'himari', 'aru'], ['hanamaru', 'whitecul', 'sayo', 'metan']] },
   { seed: 3, teams: [['itako', 'yurei', 'mochiko', 'bii'], ['ierutan', 'zunko', 'itako', 'yurei']] }, // イタコ・ユーレイちゃん（2026-11-17 追加）
+  { seed: 4, teams: [['sora', 'hanamaru', 'bii', 'kiritan'], ['himari', 'yurei', 'sora', 'metan']] }, // 九州そら（2026-11-19 追加）。技を変えた花丸・ビィ・ユーレイちゃん・きりたん・ひまりも
 ];
 
 // mulberry32

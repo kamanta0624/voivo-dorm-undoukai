@@ -1,4 +1,4 @@
-// ユーレイちゃん: エンマビーム（螺旋を描く光弾が直進。当たり判定は先頭の光弾だけ。ダメージは当たった敵の悪行量に比例、指名手配中は即死）
+// ユーレイちゃん: ジャッジメント（螺旋を描く光弾が直進。当たり判定は先頭の光弾だけ。ダメージは当たった敵の悪行量に比例、指名手配中は即死）
 import type { GameRoom, Ent, Thing } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C } from '../../shared/config';

@@ -463,7 +463,7 @@ async function assistCheck(A: Tab, B: Tab) {
   check('アシスト同士: 両陣営のアシストが互いを最優先で交戦（予告 → 発動、両方が被弾。白上は大将しか攻撃しない）', ids.length >= 2 && ids.every((id: string) => dmg(id) || foeOf(id)?.char === 'shirakami'), { ids, warned, chars: as.map((p: any) => p.char) });
 }
 
-// 花丸: 巨大拳（半透明の拳が直進し、壁を壊して貫通）とパッシブ（壁へ押し込み続けると壊す）
+// 花丸: 花丸パンチ（タメて離すと半透明の拳が直進し、壁を壊して貫通。タメで大きくなる）とパッシブ（壁へ押し込み続けると壊す）
 // 花丸のパッシブを確かめる場所: 立つマス (x,y) と上下が床、西隣の縦3マスが壊れていない壁（外周以外）、東隣も床。自陣側（マップの左半分）で図書室に一番近いもの
 function pushSpot(broken: number[][]) {
   const tile = (x: number, y: number) => (broken.some(([bx, by]) => bx === x && by === y) ? '.' : MAP.tiles[y]?.[x] ?? ' ');
@@ -479,16 +479,38 @@ function pushSpot(broken: number[][]) {
 
 async function hanamaruCheck(A: Tab) {
   await aliveOf(A);
-  const kitchen = { x: C.RECALL_ROOMS[0].x + C.RECALL_ROOMS[0].w / 2, y: C.RECALL_ROOMS[0].y + C.RECALL_ROOMS[0].h - 20 }; // 給湯室（まだ壁が壊れていない）から上へ撃つ
+  const kitchen = { x: C.RECALL_ROOMS[0].x + C.RECALL_ROOMS[0].w / 2, y: C.RECALL_ROOMS[0].y + C.RECALL_ROOMS[0].h - 20 }; // 給湯室から、壁が壊れていない方（上か下）へ撃つ
   await send(A, 'e2eClearUlt'); // 前の確認で荷物を拾って変身していると技が封印される。変身を解き、落ちている箱も片付ける
   await send(A, 'e2eChar', { char: 'hanamaru' }); await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
-  const b0 = (await A.snap()).broken.length;
-  await A.page.keyboard.down('w'); await sleep(120); await A.page.keyboard.up('w'); await A.press('r');
+  const snap0 = await A.snap(), b0 = snap0.broken.length;
+  // 撃つ向き: 上下のうち、射程内の最初の壁が壊れていない（外周以外の）方（前の確認や Bot が壊していることがある）
+  const intact = (dy: number) => {
+    const tx = Math.floor(kitchen.x / 16);
+    for (let ty = Math.floor(kitchen.y / 16) + dy; Math.abs(ty * 16 - kitchen.y) <= DEFS.hanamaru.skill.range; ty += dy) {
+      const c = snap0.broken.some(([bx, by]: number[]) => bx === tx && by === ty) ? '.' : MAP.tiles[ty]?.[tx] ?? ' ';
+      if (c !== '.') return c === '#' && ![-1, 0, 1].some((ey) => [-1, 0, 1].some((ex) => (MAP.tiles[ty + ey]?.[tx + ex] ?? ' ') === ' '));
+    }
+    return false;
+  };
+  const key = intact(-1) ? 'w' : 's';
+  await A.page.keyboard.down(key); await sleep(120); await A.page.keyboard.up(key); await A.press('r');
   const flying = await A.until((x) => x.ents.some((e: any) => e.kind === 'fist'), 1500); await sleep(250);
   const drawn = await A.page.evaluate(() => (window as any).snap.ents.filter((e: any) => e.kind === 'fist').length); await A.shot('h1_fist');
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
-  check('花丸の巨大拳: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
+  check('花丸パンチ（タメなし）: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
+  // タメ: R を押し続けて離すと最大レベル（キーボード）、技ボタンを押し続けて離すとレベル2（スマホと同じ pointer の操作。離すと自動照準で発射）
+  const H = DEFS.hanamaru.skill, fistR = (lv: number) => (x: any) => x.ents.some((e: any) => e.kind === 'fist' && Math.abs(e.r - H.r * H.lv[lv].size) < 1e-6);
+  await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
+  await A.page.keyboard.down('r'); await sleep(H.lv[2].t * 1000 + 300);
+  const charging = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st?.fistCharge, 500); await A.shot('h1b_charge_max');
+  await A.page.keyboard.up('r'); const big = await A.until(fistR(2), 1500); await A.shot('h1c_fist_max');
+  await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000);
+  await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
+  const bb = (await A.page.locator('#fx .skill').boundingBox())!;
+  await A.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await A.page.mouse.down(); await sleep(H.lv[1].t * 1000 + 300); await A.page.mouse.up();
+  const mid = await A.until(fistR(1), 1500);
+  check(`花丸パンチのタメ: R を${H.lv[2].t}秒押して離すと最大レベル（半径×${H.lv[2].size}）、技ボタンを${H.lv[1].t}秒押して離すとレベル2（半径×${H.lv[1].size}）。タメ中は状態を送る`, charging && big && mid, { charging, big, mid });
   // パッシブ: 自陣側で、今も壊れていない壁（外周以外、縦3マス）へ西向きに押し込む。前の確認や Bot が壊した壁は避ける（図書室に一番近い場所）
   const spot = pushSpot((await A.snap()).broken);
   await aliveOf(A); await send(A, 'e2eTeleport', { x: spot.x * 16 + 11, y: spot.y * 16 + 8 }); await sleep(150);

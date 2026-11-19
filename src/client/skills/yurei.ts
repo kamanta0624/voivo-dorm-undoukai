@@ -1,4 +1,4 @@
-// ユーレイちゃん: エンマビーム（先頭の光弾と、螺旋を描きながら後ろに続く光弾）
+// ユーレイちゃん: ジャッジメント（先頭の光弾と、螺旋を描きながら後ろに続く光弾）
 import type { ClientSkill } from './index';
 import { CHARS } from '../../shared/chars';
 

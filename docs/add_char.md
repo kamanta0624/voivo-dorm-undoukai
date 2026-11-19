@@ -40,6 +40,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 | 呼び口 | いつ | 必須 |
 |---|---|---|
 | `use(room, p, a)` | R で発動（`a` は技の向き）。CT は共通処理が入れる。`false` を返すと入れない（2段階の技などで、技処理が後で `p.skillReadyAt` を入れる） | ○ |
+| `release(room, p)` | R・技ボタンを離した（押している間タメる技。クライアントは離すと `skillUp` を送る。例: 花丸パンチ） | |
 | `botUse(room, p)` | Bot が今使う価値があるか | ○ |
 | `afterMove(room, p, dt, px, py, locked)` | 毎tick、移動の直後 | |
 | `tick(room, p, dt)` | 毎tick、ウルトの時間切れ・状態の回復の後、オートアタックの前 | |
@@ -75,6 +76,13 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - 更新は `ents.<kind>.update`（種類ごと、index の順）。`fog: true` なら敵の視界の外では送らない
 - 狙った敵を追う物は id（`thingId`）で持ち、毎tick `enemyThings` から引き直す（倒れた・対象にならない状態になったら外れる。client/skills/kiritan.ts のホーミング弾）
 - 描画: client/skills の `ents.<kind>` に `{ layer: 'ground' | 'fx', draw(g, e, time, 陣営色) }`
+- スナップショットで送るのは id・kind・team・x・y・r・body・hp・a と `v`（描画用の値。技処理が `e.v` に入れる。例: ビィの予約の位置）。大きさは `r` を描画に使う（花丸パンチのタメのレベル）
+- ドットの画像を ent で描くときは `draw` の中で `g.scene.add.image` を作って id で持ち、client/skills の `frame` で見えなくなったものを消す（client/skills/bii.ts の残像）
+
+## 技が共通処理に影響するとき（chars3 で足したもの）
+- 大将の拠点移動を止める: `Boss.holdUntil` に時刻を入れると、その時刻まで拠点移動（予告・無敵）を始めない（そらのビーム）
+- はじかれない相手: `room.heavy(t)`（アシストの `heavy`）。`room.push` は効かない。はじく技で逆にはじかれる動きは技処理で書く（めたんのドリル）
+- アシストごとの倍率: config の `ASSIST.units.<key>` の `hpMult`・`speedMult`。アシストの技は GameRoom.ts の `updateAssists`（予告に `push`・`color` を付けられる）
 
 ## 新しい状態の効果・呼び口が要るとき
 
@@ -93,3 +101,6 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - 実況: 台本（src/shared/commentary_script.json）の `parts.char`・`parts.skill` に名前と読みを足し、`npm run cm:vvproj`（VOICEVOX エンジンを起動しておく）。音声（cm:audio）は調声の後。音声のない部品は字幕だけ出る
 - `npm run share` で公開中は 2567・5173 を使わない。`GAME_PORT=2568 CLIENT_PORT=5174 E2E_HOOKS=1 npm run dev` で別ポートに起動し、e2e・スクショも `GAME_PORT=2568 CLIENT_PORT=5174 npx tsx verify/e2e.ts`（verify/lib.ts が同じ変数に従う）。止めるのは自分が起動したプロセスだけ
 - 技の判定を変えるとき: 変更前に、そのキャラを含まない編成の golden を取っておき、変更後も一致することを確かめてから verify/golden.txt を取り直す
+- アシストを足すと召喚の抽選（`ASSIST.units` からランダム）が変わり、アシストが出る試合の golden は変わる。足したアシストを抽選から外すと一致することで確かめる
+- 時刻の比較: テストは `now += 0.05` を重ねるので、「n 秒たったら」の判定は `>= t - 1e-9` にする（誤差で1tick遅れる）
+- 検証の行に `//` のコメントを書くと、同じ行のあとの文が消える（1行に複数の文を書いているので、コメントは行末に）

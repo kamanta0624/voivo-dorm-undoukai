@@ -66,19 +66,19 @@ export type Player = {
   lowFight: boolean; lowUntil: number; // Bot: 低HPで脅威ありのときの攻撃(true)／逃亡(false)と、その決定を維持する時刻
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
-type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻
+export type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number; holdUntil: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻、holdUntil: この時刻までは拠点移動を始めない（技が止める）
 type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number }; // start: 回転の開始時刻、reels: この回転の結果（陣営のキャラの添字。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）
 // 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
 type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
 type Team = { toku: number; wanted: string | null; slot: Slot }; // toku: 徳、wanted: 指名手配中のプレイヤーid
-type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）
+type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean; push?: number; color?: string }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）。push: 発動で外向きにはじく距離、color: 発動の円の色（なければ赤い輪）
 type Material = { id: number; x: number; y: number; hi: boolean; big?: boolean }; // hi: 裏側に出た高ポイントの資材、big: コバコが置いた高性能の徳
 type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?: boolean }; // kind: heal（回復アイテム）/ box_ult / box_assist（コバコの荷物）。team は常に -1。e2e: テスト用の仕掛けで置いたもの
 type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void; aa?: boolean; courier?: boolean }; // boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）、aa: 通常攻撃の弾、courier: コバコに当たる（通常攻撃の弾はコバコを狙うときだけ）
 // 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、cancel: KO・試合終了で消える、hidden: 敵の対象にならない、fragile: 被弾で即死、noAuto: オートアタックしない
 // at: 付与した時刻（技処理が使う）、view: スナップショットで送る描画用の値
 export type Status = { until: number; at?: number; speed?: number; regen?: number; noSkill?: boolean; lock?: boolean; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; noAaDmg?: boolean; view?: () => any };
-// 場の物（技が出す物）。kind: 種類（server/skills の ENTS）、body: unit=ユニット扱い（自動照準の優先・はじき可）、null=攻撃対象にならない。ほかの項目は種類ごとの持ち物
+// 場の物（技が出す物）。kind: 種類（server/skills の ENTS）、body: unit=ユニット扱い（自動照準の優先・はじき可）、null=攻撃対象にならない。ほかの項目は種類ごとの持ち物。v: スナップショットで送る描画用の値（あれば）
 export type Ent = { id: number; kind: string; team: number; owner: string; x: number; y: number; r: number; hp?: number; body: 'unit' | null; [k: string]: any };
 type Fx = { id: number; kind: string; team: number; x: number; y: number; [k: string]: any };
 // 攻撃・技の対象（敵プレイヤー・大将・場の物・コバコ）
@@ -164,6 +164,10 @@ export class GameRoom extends Room {
     skill: (client: Client) => {
       const id = this.owners.get(client.sessionId);
       if (id) this.skill(id);
+    },
+    skillUp: (client: Client) => {
+      const id = this.owners.get(client.sessionId);
+      if (id) this.skillUp(id);
     },
     aim: (client: Client, m: { mode: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
@@ -315,7 +319,7 @@ export class GameRoom extends Room {
     for (let t = 0; t < 2; t++) {
       const base = Math.floor(Math.random() * this.bases[t].length); // 候補部屋からランダムに出現
       const b = this.bases[t][base];
-      this.bosses.push({ team: t, base, x: b.x, y: b.y, hp: C.BOSS_HP, dmgAtBase: 0, target: null, cooldownUntil: 0, moved: false, moving: false, shotAt: 0 });
+      this.bosses.push({ team: t, base, x: b.x, y: b.y, hp: C.BOSS_HP, dmgAtBase: 0, target: null, cooldownUntil: 0, moved: false, moving: false, shotAt: 0, holdUntil: 0 });
       this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [0, 1, 2], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0 } });
     }
   }
@@ -344,7 +348,7 @@ export class GameRoom extends Room {
 
   // 最大HP（ロール、ウルト中は変身先、アシストは強さの倍率）
   maxHp(p: Player) {
-    if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * C.POWER_MULT[p.tier];
+    if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * C.POWER_MULT[p.tier] * (C.ASSIST.units[p.char]?.hpMult ?? 1);
     let hp = charHp(p.char);
     if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * C.ULT_HP_MULT[p.ult.tier];
     return hp;
@@ -658,7 +662,7 @@ export class GameRoom extends Room {
   // 移動速度（ロール・技・ウルトの効果込み）
   speedOf(p: Player) {
     const slow = this.now < p.slowUntil ? C.SLOT.penalty.slow : 1; // スロットの罰
-    if (p.assist) return C.PLAYER_SPEED * C.ASSIST.speed * slow * (this.now < p.boostUntil ? C.ASSIST.units.shirakami.boost : 1);
+    if (p.assist) return C.PLAYER_SPEED * C.ASSIST.speed * (C.ASSIST.units[p.char]?.speedMult ?? 1) * slow * (this.now < p.boostUntil ? C.ASSIST.units.shirakami.boost : 1);
     let sp = charSpeed(p.char);
     if (this.now < p.boostUntil) sp *= C.ASSIST.units.shirakami.boost;
     sp *= slow;
@@ -782,7 +786,7 @@ export class GameRoom extends Room {
     else if (it.kind === 'box_assist') { this.summonAssist(p.team, lottery(C.POWER_WEIGHTS), undefined, true); this.cm.pickup(p, it.kind); } // 拾った陣営にアシスト
   }
 
-  // アシストを召喚: 3人からランダム。召喚した陣営の大将の所に現れ、敵大将へ向かう。両陣営に通知
+  // アシストを召喚: ASSIST.units からランダム。召喚した陣営の大将の所に現れ、敵大将へ向かう。両陣営に通知
   // quiet: 実況の「助っ人の登場」を出さない（荷物から呼んだときは荷物のセリフで兼ねる）
   summonAssist(team: number, tier: number, char = pick(Object.keys(C.ASSIST.units)), quiet = false) {
     // 同時に出せる数を超える召喚は、今のアシストの強化: 強さを1段階上げ（上限あり）、HPを新しい最大値まで回復
@@ -1043,7 +1047,7 @@ export class GameRoom extends Room {
     this.cm.bossDmgBy(p, dmg);
     if (boss.hp <= 0) return this.startFinale(1 - boss.team, 'boss', p); // 止めを刺したキャラ（大将は大将を攻撃しない）
     this.cm.bossHit(boss);
-    if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD) {
+    if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD && this.now >= boss.holdUntil) {
       this.cm.bossWarn(boss);
       // 無敵になり、予告のあと広範囲攻撃、それから移動（updateWarns）
       boss.moving = true;
@@ -1243,10 +1247,16 @@ export class GameRoom extends Room {
     });
   }
 
-  // はじき: 向き(ux,uy)へ dist 動かす。大将には効かない。壁で止まる
+  // 重いアシスト（はじかれない。config の ASSIST.units の heavy）
+  heavy(t: Thing) {
+    return t.k === 'p' && t.o.assist && !!C.ASSIST.units[t.o.char]?.heavy;
+  }
+
+  // はじき: 向き(ux,uy)へ dist 動かす。大将・重いアシストには効かない。壁で止まる
   push(t: Thing, ux: number, uy: number, dist: number) {
     if (t.k !== 'p' && !(t.k === 'e' && t.o.body === 'unit')) return;
     if (t.k === 'p' && this.effect(t.o, 'noPush')) return; // はじき無効の状態
+    if (this.heavy(t)) return;
     Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : t.o.r, this.obstacles(), false));
   }
 
@@ -1265,12 +1275,18 @@ export class GameRoom extends Room {
     if (this.phase === 'playing') this.cm.skill(p); // 実況: 回避の判定
   }
 
+  // 技ボタンを離した（押している間タメる技だけが使う）
+  skillUp(id: string) {
+    const p = this.players.get(id);
+    if (p?.alive) SKILLS[p.char]?.release?.(this, p);
+  }
+
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
   moveIntent(p: Player): [number, number] {
     return p.bot ? [p.dx, p.dy] : [p.inDx, p.inDy];
   }
 
-  // ---- アシスト（男性キャラ3人の専用ユニット） ----
+  // ---- アシスト（選べないキャラの専用ユニット） ----
 
   // 技: 一定時間ごと、条件がそろえば発動。強さの倍率を効果に掛ける
   updateAssists() {
@@ -1280,6 +1296,8 @@ export class GameRoom extends Room {
       const foes = this.enemyThings(p.team).filter((t) => (t.k === 'p' || t.k === 'boss') && this.targetable(t) && d(t) <= U.sense);
       if (p.char === 'kurono' && foes.length) {
         this.warns.push({ id: this.nextId++, team: p.team, owner: p.id, x: p.x, y: p.y, r: U.r, at: this.now + U.warn, dmg: U.dmg * k, follow: p.id }); // 自分中心（予告の間も付いていく）
+      } else if (p.char === 'ritsu' && foes.length) {
+        this.warns.push({ id: this.nextId++, team: p.team, owner: p.id, x: p.x, y: p.y, r: U.r, at: this.now + U.warn, dmg: U.dmg * k, follow: p.id, push: U.push, color: 'snow' }); // 自分中心の吹雪（予告の間も付いていく）。はじく距離は強さを掛けない
       } else if (p.char === 'aoyama' && foes.length) {
         const t = foes.find((u) => u.k === 'p' && u.o.assist) ?? [...foes].sort((u, v) => d(u) - d(v))[0]; // 相手のアシストを優先
         this.warns.push({ id: this.nextId++, team: p.team, owner: p.id, x: t.x, y: t.y, r: U.r, at: this.now + U.warn, dmg: U.dmg * k, follow: null }); // 位置は今の時点で固定
@@ -1308,8 +1326,12 @@ export class GameRoom extends Room {
       if (w.follow) { w.x = owner.x; w.y = owner.y; }
       if (this.now < w.at) continue;
       this.warns = this.warns.filter((x) => x !== w);
-      for (const t of this.enemyThings(w.team)) if (isUnit(t) && Math.hypot(t.x - w.x, t.y - w.y) <= w.r + t.r) this.hitThing(owner, t, w.dmg);
-      this.addFx(w, 'ring', { r: w.r, color: 'dash' });
+      for (const t of this.enemyThings(w.team)) {
+        if (!isUnit(t) || Math.hypot(t.x - w.x, t.y - w.y) > w.r + t.r) continue;
+        this.hitThing(owner, t, w.dmg);
+        if (w.push) { const d = Math.hypot(t.x - w.x, t.y - w.y) || 1; this.push(t, (t.x - w.x) / d, (t.y - w.y) / d, w.push); } // 外向きにはじく
+      }
+      this.addFx(w, w.color ? 'aura' : 'ring', { r: w.r, color: w.color ?? 'dash' });
     }
   }
 
@@ -1499,7 +1521,7 @@ export class GameRoom extends Room {
         })),
         bosses: v.bosses.map((b) => ({ team: b.team, x: b.x, y: b.y, hp: b.hp, base: b.base })),
         materials: this.materials.map((m) => ({ id: m.id, x: m.x, y: m.y, hi: m.hi, big: !!m.big })), items: this.items,
-        ents: v.ents.map((e) => ({ id: e.id, kind: e.kind, team: e.team, x: e.x, y: e.y, r: e.r, body: e.body, hp: e.hp, a: e.a })),
+        ents: v.ents.map((e) => ({ id: e.id, kind: e.kind, team: e.team, x: e.x, y: e.y, r: e.r, body: e.body, hp: e.hp, a: e.a, v: e.v })), // v: 技処理が渡す描画用の値
         couriers: this.couriers.map((c) => ({ id: c.id, team: c.team, x: c.x, y: c.y, box: c.box })), // コバコは両陣営に見せる（ミニマップ）
         warns: v.warns.map((w) => ({ id: w.id, team: w.team, x: w.x, y: w.y, r: w.r, left: w.at - this.now, boss: !!w.boss })),
         shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),

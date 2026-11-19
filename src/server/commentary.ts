@@ -558,15 +558,15 @@ export class Director {
         const start = foes(room.inRectAhead(p, room.aimOf(p), S.range, S.r * 2));
         let first = true;
         const fists = () => room.ents.filter((e) => e.kind === 'fist' && e.owner === p.id);
-        return { active: () => fists().length > 0, zone: () => { const out = first ? start : []; first = false; return [...out, ...fists().flatMap((f) => foes(room.enemyThings(p.team).filter((t) => Math.hypot(t.x - f.x, t.y - f.y) <= S.r + t.r + R)))]; } };
+        return { active: () => !!p.st.fistCharge || fists().length > 0, zone: () => { const out = first ? start : []; first = false; return [...out, ...fists().flatMap((f) => foes(room.enemyThings(p.team).filter((t) => Math.hypot(t.x - f.x, t.y - f.y) <= f.r + t.r + R)))]; } }; // タメ中から拳が消えるまで
       }
       case 'aru': return {
         active: () => !!(p.st.charge || room.stat(p, 'rush')),
         zone: () => p.st.charge ? foes(room.inRectAhead(p, p.sk.a, room.speedOf(p) * S.speed * S.dur, S.w)) : room.stat(p, 'rush') ? foes(room.enemyThings(p.team).filter((t) => inDashShape(S, t.x, t.y, p.x, p.y, p.sk.a, t.r))) : [],
       };
-      case 'bii': {
-        let first = true;
-        return { active: () => !!p.st.phantom, zone: () => { if (!first || !p.sk.phantom) return []; first = false; return foes(room.inRectAhead(p, p.sk.phantom.a, S.range, R * 2)); } };
+      case 'bii': { // オーバーロード: 予約した敵（終了まで被弾しなければ回避）
+        const ov = () => room.ents.find((e) => e.kind === 'overload' && e.owner === p.id);
+        return { active: () => !!ov(), zone: () => ((ov()?.marks ?? []) as { id: string }[]).filter((m) => m.id.startsWith('p:')).map((m) => m.id.slice(2)).filter((id) => !room.players.get(id)?.assist) };
       }
       case 'metan': return { active: () => !!room.stat(p, 'drill'), zone: () => (room.stat(p, 'drill') ? foes(room.inRectAhead(p, room.aimOf(p), S.len, S.w)) : []) };
       case 'sayo': return { active: () => !!room.stat(p, 'dance'), zone: () => (room.stat(p, 'dance') ? foes(room.inCircle(p, p.x, p.y, S.r)) : []) };

@@ -21,6 +21,7 @@ export class Controls {
   releaseStick() { this.stick = null; }
 
   skill() { this.send('skill'); }
+  skillUp() { this.send('skillUp'); } // 離した（押している間タメる技）
   qDown() { this.send('qdown'); } // 短押しで設置、長押しでリコール（判定はサーバー）
   qUp() { this.send('qup'); }
   // 照準モードを順に切り替え

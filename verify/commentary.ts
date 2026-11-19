@@ -663,7 +663,7 @@ console.log('--- 台本・部品');
 {
   ok('パターンの分解', JSON.stringify(tokens('[A]と[B]、接敵！')) === JSON.stringify(['[A]', 'と', '[B]', '、接敵！']));
   const c = clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } });
-  ok('読みは台本、字幕は chars.json の名前・chars.ts の技名。名前類の直後の助詞は名前の部品にくっつける', c.map((x) => x.text).join('|') === '花丸の|てんきょうけんが|めたんを|捉えた！' && c.map((x) => x.sub).join('') === '満別花丸の巨大拳飛ばしが四国めたんを捉えた！', c);
+  ok('読みは台本、字幕は chars.json の名前・chars.ts の技名。名前類の直後の助詞は名前の部品にくっつける', c.map((x) => x.text).join('|') === '花丸の|はなまるぱんちが|めたんを|捉えた！' && c.map((x) => x.sub).join('') === '満別花丸の花丸パンチが四国めたんを捉えた！', c);
   const old = CHARS.hanamaru.skill.name;
   CHARS.hanamaru.skill.name = 'テスト拳';
   ok('chars.ts の技名を変えると字幕が追従し、生成スクリプトは食い違いを警告', clips({ k: 'kill_skill', p: 0, a: { A: 'hanamaru', B: 'metan', 技: 'hanamaru' } }).some((x) => x.sub.startsWith('テスト拳')) && nameDrift().some((w) => w.includes('テスト拳')));

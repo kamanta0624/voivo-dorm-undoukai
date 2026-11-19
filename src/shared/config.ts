@@ -211,13 +211,14 @@ export const CONFIG = {
     area: { name: '近接範囲', hp: 1.6, def: 0.6, speed: 0.8, atk: 1.1, range: 80, arc: Math.PI * 2 },
   } as Record<string, { name: string; hp: number; def: number; speed: number; atk: number; range: number; arc: number; ranged?: boolean }>,
   COURIER: { speed: 0.6, respawn: 5, reach: 24, box: { ult: 50, assist: 50 } as Record<string, number> }, // ブイブイ・コバコ（中立、1発でKO）: 移動（プレイヤーの基本速度に対する倍率）、KOから復活までの秒数、巡回の地点に着いたとみなす距離(px)、荷物の抽選
-  // アシスト（男性キャラ3人の専用ユニット）。hp・speed はプレイヤーの基本値に対する倍率。強さ（POWER_MULT）はHP・攻撃・技の効果に掛ける
+  // アシスト（選べないキャラの専用ユニット）。hp・speed はプレイヤーの基本値に対する倍率（units の hpMult・speedMult があれば、さらに掛ける）。強さ（POWER_MULT）はHP・攻撃・技の効果に掛ける
   ASSIST: {
     hp: 5, speed: 0.5, scale: 2, max: 1, // scale: 表示倍率（DOT_SCALE に対する倍率。大将と同じ）、max: 各陣営で同時に出せる数（超える召喚は今のアシストの強化になる）
     units: {
       kurono: { name: '玄野武宏', sense: 200, every: 6, r: 128, warn: 1, dmg: 40 }, // 周囲に敵がいるとき、自分中心の範囲攻撃（warn 秒の予告のあと）
       shirakami: { name: '白上虎太郎', sense: 200, every: 6, heal: 30, boost: 1.3, dur: 4 }, // 周囲に味方がいるとき、周囲の味方と自分を回復＋移動速度上昇
       aoyama: { name: '青山龍星', sense: 250, every: 6, r: 64, warn: 1, dmg: 50 }, // 周囲に敵がいるとき、一番近い敵の位置に範囲攻撃（予告の位置は発動時点で固定）
+      ritsu: { name: '波音リツ', sense: 200, every: 6, r: 128, warn: 1, dmg: 30, push: 60, hpMult: 2, speedMult: 0.5, heavy: true }, // 周囲に敵がいるとき、自分中心の吹雪（warn 秒の予告のあと。ダメージ＋外向きに push はじく。はじく距離は強さを掛けない）。hpMult・speedMult: HP・移動速度の倍率（他のアシストに対する）。heavy: はじかれない（めたんのドリルは逆にめたんをはじく）
     } as Record<string, any>,
   },
   RECALL_HOLD: 3, // Q をこの秒数押し続けるとリコール（自陣の給湯室へワープ）。溜め中に移動・攻撃（通常攻撃・技）・被弾で中断（溜めは0に戻る）

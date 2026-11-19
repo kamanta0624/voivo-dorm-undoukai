@@ -15,7 +15,8 @@
       "kiritan": { "name": "東北きりたん", "yomi": "きりたん" },
       "himari": { "name": "冥鳴ひまり", "yomi": "ひまり" },
       "itako": { "name": "東北イタコ", "yomi": "イタコ" },
-      "yurei": { "name": "ユーレイちゃん", "yomi": "ユーレイちゃん" }
+      "yurei": { "name": "ユーレイちゃん", "yomi": "ユーレイちゃん" },
+      "sora": { "name": "九州そら", "yomi": "そら" }
     },
     "team": {
       "midori": "みどり組", "daidai": "だいだい組", "murasaki": "むらさき組", "shiro": "しろ組",
@@ -28,22 +29,24 @@
     "assist": {
       "kurono": { "name": "玄野武宏", "yomi": "玄野武宏" },
       "shirakami": { "name": "白上虎太郎", "yomi": "白上虎太郎" },
-      "aoyama": { "name": "青山龍星", "yomi": "青山龍星" }
+      "aoyama": { "name": "青山龍星", "yomi": "青山龍星" },
+      "ritsu": { "name": "波音リツ", "yomi": "なみねりつ" }
     },
     "skill": {
-      "hanamaru": { "name": "巨大拳飛ばし", "yomi": "てんきょうけん" },
+      "hanamaru": { "name": "花丸パンチ", "yomi": "はなまるぱんち" },
       "whitecul": { "name": "吹雪", "yomi": "ふぶき" },
       "sayo": { "name": "疾風乱舞", "yomi": "しっぷうらんぶ" },
       "metan": { "name": "ドリル", "yomi": "ドリル" },
       "mochiko": { "name": "ファンネル", "yomi": "ファンネル" },
       "aru": { "name": "突撃", "yomi": "でんえいだん" },
-      "bii": { "name": "再現江湖", "yomi": "でっどりーうぇいぶ" },
+      "bii": { "name": "オーバーロード", "yomi": "おーばーろーど" },
       "ierutan": { "name": "加速", "yomi": "かそく" },
       "zunko": { "name": "ずんだアロー", "yomi": "ずんだアロー" },
       "kiritan": { "name": "全弾斉射", "yomi": "ぜんだんせいしゃ" },
       "himari": { "name": "死神の鎌", "yomi": "しにがみのかま" },
       "itako": { "name": "狐火", "yomi": "きつねび" },
-      "yurei": { "name": "エンマビーム", "yomi": "えんまびーむ" }
+      "yurei": { "name": "ジャッジメント", "yomi": "じゃっじめんと" },
+      "sora": { "name": "ソーラーキャノン", "yomi": "そーらーきゃのん" }
     },
     "side": "側の",
     "min": { "1": "いっぷん", "2": "にふん", "3": "さんぷん", "4": "よんぷん", "5": "ごふん" },

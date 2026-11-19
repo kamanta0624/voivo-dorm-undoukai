@@ -1,4 +1,4 @@
-// 満別花丸: 巨大拳飛ばし（前方へ直進、キャラにダメージ・壁を壊して貫通）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
+// 満別花丸: 花丸パンチ（押している間タメ、離すと拳を発射。前方へ直進、キャラにダメージ・壁を壊して貫通。タメのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
 import type { GameRoom, Player, Ent } from '../GameRoom';
 import { PERIMETER, thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -32,16 +32,16 @@ function breakTiles(room: GameRoom, p: Pt, a: number, from?: number[]): number[]
   return out;
 }
 
-// 巨大拳: 直進し、キャラ（1体1回）にダメージ、壁は壊して貫通。射程を飛ぶか外周の壁に当たると消える。結果画面では壁を壊さない
+// 拳: 直進し（f.sp px/秒）、キャラ（1体1回）に f.dmg、壁は壊して貫通（半径 f.r）。射程を飛ぶか外周の壁に当たると消える。結果画面では壁を壊さない
 function updateFist(room: GameRoom, f: Ent, dt: number) {
   const owner = room.players.get(f.owner);
-  let step = Math.min(H.speed * dt, f.left), gone = !owner;
+  let step = Math.min(f.sp * dt, f.left), gone = !owner;
   while (step > 0 && !gone) {
     const d = Math.min(8, step);
     f.x += Math.cos(f.a) * d; f.y += Math.sin(f.a) * d; f.left -= d; step -= d;
     const tiles: number[][] = [];
-    for (let ty = Math.floor((f.y - H.r) / T); ty <= Math.floor((f.y + H.r) / T); ty++) for (let tx = Math.floor((f.x - H.r) / T); tx <= Math.floor((f.x + H.r) / T); tx++) {
-      if (room.tiles[ty]?.[tx] !== '#' || !circleRect(f.x, f.y, H.r, { x: tx * T, y: ty * T, w: T, h: T })) continue;
+    for (let ty = Math.floor((f.y - f.r) / T); ty <= Math.floor((f.y + f.r) / T); ty++) for (let tx = Math.floor((f.x - f.r) / T); tx <= Math.floor((f.x + f.r) / T); tx++) {
+      if (room.tiles[ty]?.[tx] !== '#' || !circleRect(f.x, f.y, f.r, { x: tx * T, y: ty * T, w: T, h: T })) continue;
       if (PERIMETER[ty]?.[tx] ?? true) gone = true; else tiles.push([tx, ty]);
     }
     if (gone) break;
@@ -51,9 +51,9 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
       if (!f.broke) { f.broke = true; room.addToku(f.team, owner!, 'wall'); } // 1回の技につき1回
     }
     for (const t of room.enemyThings(f.team)) {
-      if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || Math.hypot(t.x - f.x, t.y - f.y) > H.r + t.r) continue;
+      if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || Math.hypot(t.x - f.x, t.y - f.y) > f.r + t.r) continue;
       f.hit.add(thingId(t));
-      room.hitThing(owner!, t, H.dmg);
+      room.hitThing(owner!, t, f.dmg);
     }
   }
   if (gone || f.left <= 0) room.removeEnt(f);
@@ -87,12 +87,40 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   room.addFx(p, 'wall', { tiles, r: 0 });
 }
 
+// タメの秒数 → レベル（lv の添字）
+const fistLevel = (held: number) => H.lv.reduce((k: number, l: any, i: number) => (held >= l.t - 1e-9 ? i : k), 0); // 1e-9: 時刻の足し算の誤差
+
+// 拳を出す（命中・破壊は updateFist）。lv: タメのレベル（lv の添字）
+function fire(room: GameRoom, p: Player, lv: number) {
+  const a = p.sk.wallAim ?? room.skillAim(p, H.range), L = H.lv[lv]; // Bot の壁破壊は壁の向き
+  room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false });
+  p.skillReadyAt = room.now + H.ct;
+}
+// 離した: タメのレベルで発射（CT はここから）
+function release(room: GameRoom, p: Player) {
+  const c = p.st.fistCharge;
+  if (!c) return;
+  delete p.st.fistCharge;
+  fire(room, p, fistLevel(room.now - c.at!));
+}
+
 const skill: Skill = {
-  // 前方へ直進する拳を出す（命中・破壊は updateFist）
+  // 押した: タメ開始（CT はまだ）。Bot の壁破壊はタメなしで即発射
   use(room, p) {
-    const a = p.sk.wallAim ?? room.skillAim(p, H.range); // Bot の壁破壊は壁の向き
-    p.sk.wallAim = undefined;
-    room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r, body: null, a, left: H.range, hit: new Set(), broke: false });
+    if (p.sk.wallAim !== undefined) { fire(room, p, 0); p.sk.wallAim = undefined; return false; }
+    if (p.st.fistCharge) return false;
+    const at = room.now;
+    p.st.fistCharge = { until: Infinity, at, cancel: true, view: () => ({ t: room.now - at }) };
+    if (p.bot) p.sk.botRelease = at + H.botHold[Math.floor(Math.random() * H.botHold.length)];
+    return false;
+  },
+  release,
+  // Bot: 決めたタメの秒数で離す
+  tick(room, p) {
+    if (p.bot && p.st.fistCharge && room.now >= p.sk.botRelease) release(room, p);
+  },
+  ended(room, p) {
+    if (p.bot && p.st.fistCharge && room.now >= p.sk.botRelease) release(room, p);
   },
   afterMove(room, p, _dt, px, py, locked) {
     if (!locked && room.now >= p.stunUntil) pushWall(room, p, px, py);
@@ -100,7 +128,7 @@ const skill: Skill = {
   botUse: (room, p) => room.inRectAhead(p, room.skillAim(p, H.range), H.range, H.r * 2).some((t) => (t.k === 'p' || t.k === 'boss') && room.reach(p, t)), // 拳の進路に敵
   // 壁を壊すと目的地への経路が大きく短くなるなら壁破壊（その方向を向いて使う）
   botMove(room, p, to: Pt, obs: Rect[]) {
-    if (room.phase !== 'playing' || room.now < p.skillReadyAt || room.effect(p, 'noSkill') || room.now < (p.sk.wallCheckAt ?? 0)) return false;
+    if (room.phase !== 'playing' || room.now < p.skillReadyAt || p.st.fistCharge || room.effect(p, 'noSkill') || room.now < (p.sk.wallCheckAt ?? 0)) return false;
     p.sk.wallCheckAt = room.now + H.botCheck;
     const base = findPath(p, to, obs, room.walls).length;
     if (!base) return false;
@@ -115,7 +143,7 @@ const skill: Skill = {
       const rest = findPath({ x: bx * T + T / 2, y: by * T + T / 2 }, to, obs, room.walls).length;
       const len = rest && rest + k + H.d;
       if (len && (base - len) * C.GRID_CELL >= H.botSave) {
-        p.face = a; p.tgt = null; p.sk.wallAim = a; // 壁の方向へ使う
+        p.face = a; p.tgt = null; p.sk.wallAim = a; // 壁の方向へ使う（タメなし）
         room.skill(p.id);
         p.sk.wallAim = undefined;
         return true;
@@ -123,6 +151,7 @@ const skill: Skill = {
     }
     return false;
   },
+  statuses: ['fistCharge'],
   ents: { fist: { update: updateFist, fog: true } },
 };
 export default skill;

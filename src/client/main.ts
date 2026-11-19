@@ -46,7 +46,7 @@ const isWall = (x: number, y: number) => tiles[Math.floor(y / T)]?.[Math.floor(x
 const wallTile = (tx: number, ty: number) => tiles[ty]?.[tx] === '#';
 let wallVer = 0; // 壁が変わるたびに増やす（視界の使い回しの判定）
 const RAY_COS = Array.from({ length: 360 }, (_, i) => Math.cos((i / 360) * Math.PI * 2)), RAY_SIN = Array.from({ length: 360 }, (_, i) => Math.sin((i / 360) * Math.PI * 2)); // 視界のレイの向き
-const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, ...SKILL_COLORS }; // 技ごとの色は client/skills
+const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, snow: 0x9fe8ff, ...SKILL_COLORS }; // snow: 波音リツの吹雪（WhiteCUL の吹雪の色） // 技ごとの色は client/skills
 const views = (p: any) => Object.keys(STATUS_VIEW).filter((k) => p?.st?.[k]).map((k) => STATUS_VIEW[k]); // 有効な状態の描画（client/skills）
 const ULT_COLOR: Record<string, number> = { melee: 0xff5050, ranged: 0xffd040, area: 0xb070ff }; // 変身先ごとのエフェクトの色
 
@@ -376,6 +376,7 @@ class GameScene extends Phaser.Scene {
     this.keys.Q.on('down', () => this.ctl.qDown()); // 長押しでリコール（判定はサーバー）
     this.keys.Q.on('up', () => this.ctl.qUp());
     this.keys.R.on('down', () => this.ctl.skill());
+    this.keys.R.on('up', () => this.ctl.skillUp());
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
     this.buttons();
     if (TOUCH) this.touchControls();
@@ -535,7 +536,7 @@ class GameScene extends Phaser.Scene {
       el.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); el.setPointerCapture(e.pointerId); down(); });
       if (release) for (const t of ['pointerup', 'pointercancel']) el.addEventListener(t, release);
     };
-    btn('.skill', () => this.ctl.skill());
+    btn('.skill', () => this.ctl.skill(), () => this.ctl.skillUp());
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
     const mm = $('.mm');

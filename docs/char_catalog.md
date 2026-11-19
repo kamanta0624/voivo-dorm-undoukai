@@ -18,41 +18,43 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 
 | key | 名前 | role | 歩行 | 通常攻撃 | 近接補正 | 固有 | 技（CT秒） |
 |---|---|---|---|---|---|---|---|
-| `hanamaru` | 満別花丸 | balance | normal | 近接 | あり | ― | 巨大拳飛ばし（10） |
+| `hanamaru` | 満別花丸 | balance | normal | 近接 | あり | ― | 花丸パンチ（10） |
 | `whitecul` | WhiteCUL | speed | normal | 近接 | あり | ― | 吹雪（7.2） |
 | `sayo` | 小夜 | attacker | normal | 近接 | あり | ― | 疾風乱舞（8） |
 | `metan` | 四国めたん | defense | normal | 近接 | あり | ― | ドリル（4.8） |
 | `mochiko` | もち子 | defense | hover | 近接 | あり | ― | ファンネル（30） |
 | `aru` | 猫使アル | speed | normal | 近接 | あり | ― | 突撃（6） |
-| `bii` | 猫使ビィ | support | normal | 近接 | あり | ― | 再現江湖（10） |
+| `bii` | 猫使ビィ | support | normal | 近接 | あり | ― | オーバーロード（10） |
 | `ierutan` | あいえるたん | support | normal | 近接 | あり | ― | 加速（8） |
 | `zunko` | 東北ずん子 | attacker | normal | 遠距離（弾、射程200） | なし | ― | ずんだアロー（12） |
 | `kiritan` | 東北きりたん | なし | normal | 包丁（近接）／きりたん砲（弾、射程310、対象が60より遠いとき） | なし | 移動×0.8 | 全弾斉射（7.2） |
-| `himari` | 冥鳴ひまり | attacker | normal | 近接 | あり | ― | 死神の鎌（12） |
+| `himari` | 冥鳴ひまり | attacker | normal | 近接 | あり | ― | 死神の鎌（15） |
 | `itako` | 東北イタコ | balance | normal | 近接（キツネ。間隔½・1発½） | あり | ― | 狐火（8） |
-| `yurei` | ユーレイちゃん | support | hover | 近接（間隔×2） | あり | 壊せる壁をすり抜ける（ghost） | エンマビーム（10） |
+| `yurei` | ユーレイちゃん | support | hover | 近接（間隔×2） | あり | 壊せる壁をすり抜ける（ghost） | ジャッジメント（10） |
+| `sora` | 九州そら | attacker | hover | 近接（パンチ。ダメージ×0.85・間隔1.25秒） | あり | ― | ソーラーキャノン（5） |
 
 ## 技の組み立て
 呼び口は `use`・`botUse`（必須）以外に使っているもの。状態の括弧内は共通処理が見る効果。
 
 | key | 技の中身 | 呼び口 | 状態 | 場の物 | クライアント描画 |
 |---|---|---|---|---|---|
-| `hanamaru` | 直進する拳がキャラに1回ずつダメージ、壁を壊して貫通。パッシブ：壁へ押し込み続けると壊す | `afterMove`（押し込み）、`botMove`（壁破壊で近道） | ― | `fist`（対象外、視界外は送らない） | ents `fist` |
+| `hanamaru` | 押している間タメ、離すと拳を発射（タメのレベルで大きさ・威力・弾速）。直進する拳がキャラに1回ずつダメージ、壁を壊して貫通。パッシブ：壁へ押し込み続けると壊す | `release`（離して発射）、`tick`・`ended`（Bot が離す）、`afterMove`（押し込み）、`botMove`（壁破壊で近道。タメなし）。`use` が false を返してCTを自前で入れる | `fistCharge`（cancel） | `fist`（対象外、視界外は送らない） | status `fistCharge`（頭上のゲージとレベルの玉、技ボタンに「タメ」）、ents `fist`（大きさはサーバーの `r`） |
 | `whitecul` | 前方の長方形にダメージ＋はじき | ― | ― | ― | fx `blizzard`（長方形に雪の粒・白い筋） |
 | `sayo` | 一定時間、移動が速くなり自分中心の円に周期ダメージ | `tick`、`ended` | `dance`（speed） | ― | status `dance` の目印、fx `dance`（周期ごとの斬線・命中の印） |
 | `metan` | 一定時間、前方（移動・照準に追従）にドリルを出しっぱなし。触れた敵にダメージ＋はじき、同じ相手には一定間隔で再ヒット。ドリル中は通常攻撃しない | `afterMove`（ドリルの当たり） | `drill`（noAttack） | ― | status `drill`（回転するドリル・流れる縞・先端の火花） |
 | `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
 | `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
-| `bii` | 敵へ残像を残して高速移動。当たったら少し進んで爆発、壁も壊す。空振りは爆発なし | `afterMove`、`ended` | `phantom`（lock・noAttack・cancel） | ― | status `phantom`（残像）、色 `boom` |
+| `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の位置を `v` で送る）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
 | `ierutan` | 範囲内の味方と自分を加速＋毎秒回復 | ― | `accel`（speed・regen）を味方に付ける | ― | status `accel` の目印（足元の輪・上へ流れる矢印）、fx `accel`（広がる二重の輪・放射線） |
 | `zunko` | 矢を撃ち、当たった敵をずんだ餅に（減速・技不可） | ― | `mochi`（speed・noSkill）を敵に付ける | ―（矢は共通の弾） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾） |
-| `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
-| `himari` | 発動で透明化。透明化中の Space で鎌（即死級）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
+| `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射（総数12発を人数で分ける）。目標が倒れた弾は直進に切り替わる。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
+| `himari` | 発動で透明化。透明化中の Space で鎌（特大ダメージ。ディフェンス以外は一撃）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
 | `itako` | 自分の周りを時計回りに回る火の玉（接触ダメージ、消えない）。展開中に再発動で最寄りの敵を標的に、9時の位置から順に離れてホーミング、命中で消える。CT は再発動か時間切れから。通常攻撃の見た目はキツネ（`aa` の `fx`） | `tick`（時間切れのCT）。`use` が false を返してCTを自前で入れる | ― | `foxfire`（対象外、回転→待機→追尾） | ents `foxfire`（ヒトダマ風。キツネの絵の仮置き）、fx `kitsune`（通常攻撃） |
 | `yurei` | 螺旋を描く光弾が直進、判定は先頭だけ。ダメージは当たった敵の悪行に比例（0で1、手配中は即死）。壁で消える。パッシブ：壊せる壁をすり抜けて移動（`ghost`） | ― | ― | `enma`（対象外） | ents `enma`（先頭＋螺旋の光弾） |
+| `sora` | 試合開始から自動チャージ（撤退で0、発射で0）。発射でその場に止まり5秒ビーム照射（向きは少しだけ変えられる）。キャラ貫通・多段ヒット、壊せる壁を壊して外壁で止まる。チャージ10秒以上で、キャラ・壁の長方形ごと・射程の端に1照射1回の爆発。性能はチャージのキーフレームの補間。ビームが当たっている大将は拠点移動しない（`Boss.holdUntil`） | `tick`（チャージ・照射）、`ended`（照射） | `solar`（lock・noAttack・cancel）、`solarCharge`（光の見た目用。チャージ秒を送る） | ― | status `solar`（光の帯）・`solarCharge`（光1つ／たくさんちらつく）、色 `solar` |
 
-使用中の状態 key：`dance` `drill` `charge` `rush` `phantom` `accel` `mochi` `lockon` `cloak` `leap`
-使用中の場の物の種類：`fist` `funnel` `missile` `foxfire` `enma`
+使用中の状態 key：`fistCharge` `dance` `drill` `charge` `rush` `overload` `overloadPose` `accel` `mochi` `lockon` `cloak` `leap` `solar` `solarCharge`
+使用中の場の物の種類：`fist` `funnel` `overload` `biiDecoy` `missile` `foxfire` `enma`
 （どちらも全キャラで重ねない）
 
 ## 技の型と手本
@@ -64,10 +66,12 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | 味方へのバフ | `ierutan` |
 | 弾を撃ち、命中時に敵へ状態を付ける | `zunko` |
 | タメ→突進、無敵、壁破壊 | `aru` |
-| 高速移動→着弾点で爆発、壁破壊、残像の描画 | `bii` |
+| おとりの召喚物（自動照準の対象、触れると消える）、敵ごとの予約→時間差のダメージ、ent の描画用の値（`v`）、ドットの画像を ent で描く | `bii` |
 | 攻撃対象になる召喚物（HPあり、経路で追う） | `mochiko` |
 | 直進する貫通物、パッシブ、Botの移動中判定 | `hanamaru` |
 | 2段階発動、CTの自前管理、ロックオン、追尾する弾 | `kiritan` |
+| 押している間タメて離して撃つ（`release`） | `hanamaru` |
+| 時間で溜まる技、持続ビーム（多段ヒット・貫通・壁破壊）、爆発の1回制限、キーフレームの補間 | `sora` |
 | 透明化、通常攻撃の上書き、被弾即死、追加コマの表示 | `himari` |
 | 技の fx を技ごとに描く（fx の color を技固有にして描き分け） | `sayo`（斬線・命中の印）、`whitecul`（雪） |
 | 状態の描画を形で作る（コード描画のアニメーション） | `metan`（ドリル） |
@@ -98,15 +102,17 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | `himari` | 冥鳴ひまりv2 | 直立 / 怒り / ショック | 冥鳴ひまり | 02 | `eyes`（目レイヤー `*eye_R04` だけ） |
 | `itako` | 東北イタコ | 通常 / 狐サイン / なし | 東北イタコ | 02 | ― |
 | `yurei` | ユーレイちゃん | 通常 / 脅かす / 困り | ユーレイちゃん（脚なし `*dummy`） | 01 | ― |
+| `sora` | SORA | 普通 / ドヤ顔 / 泣き | 九州そら（脚 `socks01`） | 02 | ― |
 
 koed「なし」は選択画面の絵をグレー化してずり落とす。
 
 ## 選べないキャラ（chars.ts の対象外）
 - 大将：ankomon（あんこもん軍）、zundamon（ずんだもん軍）。chars.json に `boss` つきで登録。挙動は GameRoom.ts の大将処理、数値は config.ts の `BOSS_*`
 - ブイブイ・コバコ：kobako。ドットだけ（make_dot.py）。数値は config.ts の `COURIER`。巡回は中央3部屋（smoking ⇔ hall ⇔ entrance）の往復（`COURIER_ROUTE`）、着くたびに高性能の徳を置く（`COURIER_DROP`）
-- アシスト：kurono（玄野武宏）、shirakami（白上虎太郎）、aoyama（青山龍星）。ドットだけ。数値と挙動は config.ts の `ASSIST` と GameRoom.ts
+- アシスト：kurono（玄野武宏）、shirakami（白上虎太郎）、aoyama（青山龍星）、ritsu（波音リツ。PSD `波音リツ`、脚 `shoes01`・腰02。HP×2・移動×0.5、自分中心の吹雪、はじかれない `heavy`）。ドットだけ。数値と挙動は config.ts の `ASSIST` と GameRoom.ts（重い相手へのめたんのドリルは server/skills/metan.ts）
 
 ## 更新履歴
 - 2026-11-15：初版。雛形化（9794717）と、ひまり追加・きりたん全弾斉射・ビィ再現江湖・もち子ホバー・バリケード廃止（db81202）時点
 - 2026-11-15：技エフェクト強化（fx1）。めたんの技をドリル出しっぱなしに作り直し。小夜の斬撃、WhiteCUL・あいえるたん・ずん子・もち子の描画を強化（metan・sayo・whitecul・ierutan・zunko・mochiko）
 - 2026-11-17：キャラ追加2（chars2）。東北イタコ（狐火・キツネの通常攻撃）、ユーレイちゃん（エンマビーム・壁すり抜け）を追加（itako・yurei）
+- 2026-11-19：技変更・キャラ追加3（chars3）。花丸パンチ（タメ）、オーバーロード（残像のおとり・予約）、ジャッジメント（改名・弾速×1.25）、九州そら（ソーラーキャノン）を追加、アシストに波音リツ、ひまりの鎌160、きりたんの弾数分割・目標を失った弾の直進（hanamaru・bii・yurei・sora・himari・kiritan）

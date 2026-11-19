@@ -1,7 +1,8 @@
-// 四国めたん: ドリル（一定時間、前方にドリルを出しっぱなし。触れた敵にダメージ＋はじき。同じ相手には一定間隔で再ヒット）
+// 四国めたん: ドリル（一定時間、前方にドリルを出しっぱなし。触れた敵にダメージ＋はじき（重いアシストには逆にめたんがはじかれる）。同じ相手には一定間隔で再ヒット）
 import type { GameRoom, Player } from '../GameRoom';
 import { thingId } from '../GameRoom';
 import type { Skill } from './index';
+import { CONFIG as C } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
 
 const S = CHARS.metan.skill;
@@ -16,7 +17,8 @@ function drill(room: GameRoom, p: Player) {
     next[id] = room.now + S.rehit;
     room.hitThing(p, t, S.dmg);
     const d = Math.hypot(t.x - p.x, t.y - p.y) || 1;
-    room.push(t, (t.x - p.x) / d, (t.y - p.y) / d, S.push);
+    if (room.heavy(t)) room.push({ k: 'p', o: p, x: p.x, y: p.y, r: C.PLAYER_RADIUS }, (p.x - t.x) / d, (p.y - t.y) / d, S.push); // 重い相手: 逆にめたんが離れる向きへはじかれる
+    else room.push(t, (t.x - p.x) / d, (t.y - p.y) / d, S.push);
   }
 }
 

@@ -13,6 +13,7 @@
   "himari": { "name": "冥鳴ひまり", "dir": "冥鳴ひまりv2", "select": "直立", "ko": "怒り", "koed": "ショック" },
   "itako": { "name": "東北イタコ", "dir": "東北イタコ", "select": "通常", "ko": "狐サイン", "koed": null },
   "yurei": { "name": "ユーレイちゃん", "dir": "ユーレイちゃん", "select": "通常", "ko": "脅かす", "koed": "困り" },
+  "sora": { "name": "九州そら", "dir": "SORA", "select": "普通", "ko": "ドヤ顔", "koed": "泣き" },
   "ankomon": { "name": "あんこもん", "dir": "あんこもん", "select": "通常", "ko": "通常", "koed": null, "boss": 0 },
   "zundamon": { "name": "ずんだもん", "dir": "zundamon", "select": "普通", "ko": "得意", "koed": "泣き", "boss": 1 }
 }

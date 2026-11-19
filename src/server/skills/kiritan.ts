@@ -15,32 +15,39 @@ const candidates = (room: GameRoom, p: Player) => room.enemyThings(p.team)
   .sort((u, v) => Math.hypot(u.x - p.x, u.y - p.y) - Math.hypot(v.x - p.x, v.y - p.y));
 const find = (room: GameRoom, team: number, id: string) => room.enemyThings(team).find((t) => thingId(t) === id && room.targetable(t));
 
-// 1斉射: ロックした全員へ perTarget 発ずつ（弾道は3種を順に、左右も交互）
+// 1斉射（n 回目）: 総数 perTarget × volleys 発をロックした人数で均等に分け（余りはロック順に1発ずつ）、各自の分を volleys 回に分けて撃つ（弾道は各自の何発目かで3種を順に、左右も交互）
 function volley(room: GameRoom, p: Player, n: number) {
-  for (const id of p.sk.fireMarks as string[]) {
+  const marks = p.sk.fireMarks as string[], total = S.perTarget * S.volleys, V = S.volleys;
+  marks.forEach((id, i) => {
     const t = find(room, p.team, id);
-    if (!t) continue;
+    if (!t) return;
+    const c = Math.floor(total / marks.length) + (i < total % marks.length ? 1 : 0); // この敵への弾数
+    const k0 = n * Math.floor(c / V) + Math.min(n, c % V), cnt = Math.floor(c / V) + (n < c % V ? 1 : 0); // この斉射で撃つ分（k0: 何発目から）
     const a0 = Math.atan2(t.y - p.y, t.x - p.x);
-    for (let j = 0; j < S.perTarget; j++) {
-      const k = n * S.perTarget + j, pat = PATTERNS[k % PATTERNS.length], side = k % 2 ? -1 : 1;
-      room.ents.push({ id: room.nextId++, kind: 'missile', team: p.team, owner: p.id, x: p.x, y: p.y, r: S.r, body: null, tgt: id, pat, side, a0, a: a0, t: 0, vx: 0, vy: 0, lx: t.x, ly: t.y });
+    for (let j = 0; j < cnt; j++) {
+      const k = k0 + j, pat = PATTERNS[k % PATTERNS.length], side = k % 2 ? -1 : 1;
+      room.ents.push({ id: room.nextId++, kind: 'missile', team: p.team, owner: p.id, x: p.x, y: p.y, r: S.r, body: null, tgt: id, pat, side, a0, a: a0, t: 0, vx: 0, vy: 0 });
     }
-  }
+  });
 }
 
-// ホーミング弾: 弾道ごとの速度で進み、狙った敵に当たったらダメージ。壁・寿命で消える。狙った敵が消えたら最後に見た位置へ
+// ホーミング弾: 弾道ごとの速度で進み、狙った敵に当たったらダメージ。壁・寿命で消える
+// 狙った敵が着弾前に倒れた（対象にならなくなった）ら、その時点の進行方向へ直進に切り替え、寿命・壁・敵（コバコを含む。当たった敵にダメージ、コバコはKO）で消える
 function updateMissile(room: GameRoom, e: Ent, dt: number) {
-  const owner = room.players.get(e.owner), t = find(room, e.team, e.tgt);
+  const owner = room.players.get(e.owner), t = e.orphan ? undefined : find(room, e.team, e.tgt);
   e.t += dt;
   if (!owner || e.t > S.life) return room.removeEnt(e);
-  if (t) { e.lx = t.x; e.ly = t.y; }
-  const dx = e.lx - e.x, dy = e.ly - e.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+  if (!t) e.orphan = true;
   let vx: number, vy: number;
-  if (e.pat === 'spread' && e.t < S.spreadT) { const a = e.a0 + (e.side * Math.PI) / 2; vx = Math.cos(a) * S.spreadSpeed; vy = Math.sin(a) * S.spreadSpeed; } // 左右へゆっくり展開
-  else if (e.pat === 'spread') { const sp = Math.min(S.maxSpeed, S.spreadSpeed + S.accel * (e.t - S.spreadT)); vx = ux * sp; vy = uy * sp; } // 徐々に加速して目標へ
-  else if (e.pat === 'brake' && e.t < S.leadT) { const a = e.a0 + (e.side > 0 ? 0 : Math.PI) + e.side * S.leadAngle; vx = Math.cos(a) * S.leadSpeed; vy = Math.sin(a) * S.leadSpeed; } // 前方／後方へ偏差的に
-  else if (e.pat === 'brake' && e.t < S.leadT + S.brakeT) { vx = e.vx * 0.5; vy = e.vy * 0.5; } // 急制動
-  else { const sp = e.pat === 'straight' ? S.straightSpeed : S.maxSpeed; vx = ux * sp; vy = uy * sp; }
+  if (e.orphan) { vx = Math.cos(e.a) * S.orphanSpeed; vy = Math.sin(e.a) * S.orphanSpeed; } // 直進
+  else {
+    const dx = t!.x - e.x, dy = t!.y - e.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+    if (e.pat === 'spread' && e.t < S.spreadT) { const a = e.a0 + (e.side * Math.PI) / 2; vx = Math.cos(a) * S.spreadSpeed; vy = Math.sin(a) * S.spreadSpeed; } // 左右へゆっくり展開
+    else if (e.pat === 'spread') { const sp = Math.min(S.maxSpeed, S.spreadSpeed + S.accel * (e.t - S.spreadT)); vx = ux * sp; vy = uy * sp; } // 徐々に加速して目標へ
+    else if (e.pat === 'brake' && e.t < S.leadT) { const a = e.a0 + (e.side > 0 ? 0 : Math.PI) + e.side * S.leadAngle; vx = Math.cos(a) * S.leadSpeed; vy = Math.sin(a) * S.leadSpeed; } // 前方／後方へ偏差的に
+    else if (e.pat === 'brake' && e.t < S.leadT + S.brakeT) { vx = e.vx * 0.5; vy = e.vy * 0.5; } // 急制動
+    else { const sp = e.pat === 'straight' ? S.straightSpeed : S.maxSpeed; vx = ux * sp; vy = uy * sp; }
+  }
   e.vx = vx; e.vy = vy; e.a = Math.atan2(vy, vx);
   let step = Math.hypot(vx, vy) * dt;
   const sx = vx / (Math.hypot(vx, vy) || 1), sy = vy / (Math.hypot(vx, vy) || 1);
@@ -48,9 +55,9 @@ function updateMissile(room: GameRoom, e: Ent, dt: number) {
     const m = Math.min(8, step);
     e.x += sx * m; e.y += sy * m; step -= m;
     if (room.walls.some((w) => inRect(e.x, e.y, w))) return room.removeEnt(e);
-    if (t && Math.hypot(t.x - e.x, t.y - e.y) <= t.r + e.r) { room.hitThing(owner, t, S.dmg); return room.removeEnt(e); }
+    const hit = e.orphan ? room.enemyThings(e.team).find((u) => Math.hypot(u.x - e.x, u.y - e.y) <= u.r + e.r) : t && Math.hypot(t.x - e.x, t.y - e.y) <= t.r + e.r ? t : undefined;
+    if (hit) { room.hitThing(owner, hit, S.dmg); return room.removeEnt(e); }
   }
-  if (!t && Math.hypot(e.lx - e.x, e.ly - e.y) < 8) room.removeEnt(e); // 狙った敵が消えた: 最後に見た位置で消える
 }
 
 const marksView = (room: GameRoom, p: Player) => (p.sk.marks as string[]).map((id) => find(room, p.team, id)).filter((t): t is Thing => !!t).map((t) => ({ x: t.x, y: t.y }));

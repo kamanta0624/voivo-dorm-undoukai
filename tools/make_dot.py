@@ -22,16 +22,18 @@ CHARS = {  # key: (PSDの名前の頭, 脚（None は足なし）, 固有差分)
     'himari': ('冥鳴ひまり', 'shoes01', None),
     'itako': ('東北イタコ', 'shoes01', None),
     'yurei': ('ユーレイちゃん', None, None),  # 足なし（脚は空レイヤー *dummy）
+    'sora': ('九州そら', 'socks01', None),
     'ankomon': ('あんこもん', 'shoes01', None),
     'zundamon': ('ずんだもん', 'shoes01', None),
     'kobako': ('ブイブイ・コバコ', 'shoes01', None),  # ブイブイ・コバコ（選べるキャラではない）
     'kurono': ('玄野武宏(新規デザイン', 'pants02', None),  # アシスト（選べるキャラではない）
     'shirakami': ('白上虎太郎(新規デザイン', 'pants02', None),
     'aoyama': ('青山龍星(新規デザイン', 'pants02', None),
+    'ritsu': ('波音リツ', 'shoes01', None),  # アシスト（選べるキャラではない）
 }
 # 腰（スカート）: 服の色に合うほう。01=青、02=灰。腰がないと正座に見える
 WAIST = {'hanamaru': '02', 'whitecul': '01', 'sayo': '02', 'metan': '02', 'mochiko': '02', 'aru': '02', 'bii': '02',
-         'ierutan': '02', 'zunko': '02', 'kiritan': '01', 'himari': '02', 'itako': '02', 'yurei': '01', 'ankomon': '02', 'zundamon': '02', 'kobako': '02',
+         'ierutan': '02', 'zunko': '02', 'kiritan': '01', 'himari': '02', 'itako': '02', 'yurei': '01', 'ankomon': '02', 'zundamon': '02', 'kobako': '02', 'sora': '02', 'ritsu': '02',
          'kurono': None, 'shirakami': None, 'aoyama': None}  # None: 腰なし（ズボン）
 # コマ: (脚, 目, 左腕, 右腕)。腕は *armL_han<番号> / *armR_han<番号>、'dummy' は空レイヤー（描かない）
 # 歩きは walk1 ⇔ walk2 の交互（PSDのままの向きで右から左へ歩く。左から右へは左右反転で表示）。banzai は万歳
