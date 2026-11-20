@@ -1,8 +1,8 @@
 #!/bin/sh
 # 公開側フォルダ（git worktree）を指定タグへ反映する: tools/deploy.sh <タグ>   例: tools/deploy.sh live-20261120-1
-# 試合中の部屋があれば中止 → メンテ中 → 公開側を指定タグへ → 依存が変わっていれば npm ci → ビルド → ゲームサーバーだけ止めて同じポートで再起動 → メンテ解除
+# 試合中の部屋があれば中止 → メンテ中 → 公開側を指定タグへ → 依存が変わっていれば npm ci → ビルド → launchd でゲームサーバーだけ再起動 → メンテ解除
 # cloudflared は触らない。share.sh は使わない。失敗したら直前のタグへ戻す手順を表示して止まる（メンテ中のまま）
-# 環境変数（試験用に別フォルダ・別ポートで動かすとき）: LIVE_DIR=公開側フォルダ PORT=ポート LABEL=launchd のラベル（登録されていれば launchd で再起動）
+# 環境変数（試験用に別フォルダ・別ポートで動かすとき）: LIVE_DIR=公開側フォルダ PORT=ポート LABEL=launchd のラベル（ゲームサーバーは launchd で再起動する。未登録なら何もせず止まる）
 # FORCE=1: /status で試合中か判断できない（サーバーが止まっている・旧版）ときも進める
 set -u
 TAG=${1:?使い方: tools/deploy.sh <タグ>}
@@ -20,6 +20,7 @@ die() {
   exit 1
 }
 git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "タグがない: ${TAG}"; exit 1; }
+launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || { echo "launchd に未登録: ${LABEL}（先に tools/launchd.sh install）"; exit 1; }
 
 # 1. 試合中の部屋があれば中止（/status の state が playing）
 ST=$(curl -s -m 5 "http://localhost:${PORT}/status")
@@ -41,23 +42,9 @@ rsync -a --delete "${DEV}/public/assets/" public/assets/ || die "素材のコピ
 # 4. ビルド（動いているサーバーの dist/ は差し替えの直前まで触らない）
 rm -rf dist.new && npx vite build --outDir dist.new --emptyOutDir >/dev/null || die "ビルド"
 
-# 5. ゲームサーバーだけ止めて同じポートで再起動（launchd に登録済みなら launchd で）
-swap() { rm -rf dist.old; [ -d dist ] && mv dist dist.old; mv dist.new dist; }
-if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
-  swap && launchctl kickstart -k "gui/$(id -u)/${LABEL}" || die "launchd の再起動"
-else
-  PID=$(lsof -nP -tiTCP:"${PORT}" -sTCP:LISTEN | head -1)
-  if [ -n "${PID}" ]; then
-    # 待ち受けている node と、その親の tsx・npm exec（src/server/index.ts を起動したもの）だけ止める
-    KILL=${PID}; P=${PID}
-    for _ in 1 2; do P=$(ps -o ppid= -p "${P}" | tr -d ' '); ps -o command= -p "${P}" | grep -q 'src/server/index.ts' && KILL="${KILL} ${P}"; done
-    echo "止める: ${KILL}"; kill ${KILL}
-    for _ in $(seq 40); do lsof -nP -tiTCP:"${PORT}" -sTCP:LISTEN >/dev/null || break; sleep 0.5; done
-    lsof -nP -tiTCP:"${PORT}" -sTCP:LISTEN >/dev/null && die "ポート${PORT} が空かない"
-  fi
-  swap || die "dist の差し替え"
-  nohup env SERVE_DIST=1 GAME_PORT="${PORT}" npx tsx src/server/index.ts >> logs/server.log 2>&1 &
-fi
+# 5. dist を差し替えて launchd でゲームサーバーだけ再起動（同じポート）
+rm -rf dist.old; { [ ! -d dist ] || mv dist dist.old; } && mv dist.new dist || die "dist の差し替え"
+launchctl kickstart -k "gui/$(id -u)/${LABEL}" || die "launchd の再起動"
 
 # 6. 新しいビルドで動いたらメンテ解除
 WANT=$(cat dist/build.txt)
