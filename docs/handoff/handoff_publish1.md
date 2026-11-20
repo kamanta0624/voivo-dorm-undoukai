@@ -4,7 +4,7 @@
 
 ## 公開サーバーを落とさない（最優先）
 - 改修・検証は別フォルダ・別ポート（GAME_PORT・CLIENT_PORT）。稼働中のゲームサーバー・dist/・cloudflared に触らない
-- 反映は handoff_cm_e2e1.md 3章4の無停止手順。cloudflared は触らない
+- 公開版への反映はしない（反映は本人の指示で、まとめて tools/deploy.sh <タグ> で行う）。cloudflared は触らない
 - 手順どおりにできない事情があれば止めて聞く
 
 ## 前提の整理（現行コード）
