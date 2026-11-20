@@ -67,7 +67,11 @@ export const CONFIG = {
   NET_QUEUE_MAX: 20, // サーバー側の入力待ちの上限
   TEAM_SIZE: 4, // 開始時に足りない枠はBotで埋める
   LOBBY_GRACE: 15, // 待機画面: 人間が複数のとき、最初の出撃から開始までの選択猶予(秒)
-  MAX_CLIENTS: 16, // 超過分は観戦
+  MAX_CLIENTS: 16, // 超過分は観戦（e2e の部屋だけ。常設の部屋は ROOM_FULL で満員）
+  ROOMS: 2, // 常設の部屋の数（サーバー起動時に作り、空になっても残す）。仮置き
+  ROOM_FULL: 8, // 常設の部屋の満員（人間の参加者の数）。仮置き
+  STATUS_POLL_SEC: 3, // タイトル画面の部屋一覧の自動更新の間隔(秒)
+  TUTORIAL: { autoBase: 1.5, autoPerChar: 0.12 }, // ルール説明のオートで音声のない行: autoBase + 文字数 × autoPerChar 秒で次へ
   MATCH_TIME: 300, // 秒
   // 開始と終了の演出
   INTRO_SPEED,

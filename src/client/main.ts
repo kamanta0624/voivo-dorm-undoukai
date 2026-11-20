@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
-import { Client, Room, CloseCode } from '@colyseus/sdk';
+import { Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
@@ -20,6 +20,7 @@ const DOT_KEYS = [...Object.keys(CHARS), COURIER_CHAR, ...Object.keys(C.ASSIST.u
 const charName = (k: string) => CHARS[k]?.name ?? C.ASSIST.units[k]?.name ?? k; // アシストは chars.json にいない
 const DOT = (key: string, frame = 'idle') => `assets/gen/dot/${key}/${frame}.png`;
 const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動ける場面（カウント中と終了後は部屋の中だけ）
+const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const css16 = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.png`;
 
@@ -55,13 +56,7 @@ type SkillFx = { kind: string; t0: number; [k: string]: any };
 
 // 立ち絵の層（DOM）。ドットとは別に高解像度で表示する
 // ビルドの識別子（gitの短縮ハッシュ＋ビルド日時、vite.config.ts で埋め込む）を画面の隅に常に出す
-declare const __BUILD__: string;
-declare const __GAME_PORT__: number; // 開発時に繋ぐゲームサーバーのポート（vite.config.ts の GAME_PORT）
-const ver = document.createElement('div');
-ver.id = 'ver';
-ver.textContent = __BUILD__;
-ver.style.cssText = 'position:fixed;left:2px;bottom:1px;z-index:9999;font:10px monospace;color:#fff8;pointer-events:none';
-document.body.appendChild(ver);
+const ver = document.getElementById('ver')!; // タイトル画面（title.ts）が作る
 const fx = document.createElement('div');
 fx.id = 'fx';
 fx.style.cssText = 'position:fixed;pointer-events:none;overflow:hidden';
@@ -233,6 +228,8 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .cmsub{position:absolute;left:50%;bottom:calc(var(--z) * 6px);transform:translateX(-50%);max-width:56%;display:none;z-index:4;pointer-events:none;background:#000b;color:#fff;font:bold max(11px,calc(var(--z) * 8px))/1.35 sans-serif;padding:.25em .7em;border-radius:4px;text-align:center}
 #lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 7px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby #cmbtn.off{color:#fff8}
+#lobby #totitle{left:34%;top:3%;font-size:calc(var(--z) * 7px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
 `;
 document.head.appendChild(css);
 const down = document.createElement('div');
@@ -251,7 +248,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
@@ -327,6 +324,7 @@ class GameScene extends Phaser.Scene {
   rosterHtml = ['', ''];
   lastPhase = ''; // 連戦（リザルト → 待機画面）の検知用
   backSent = false; // リザルトで「戻る」を押したか
+  toTitle = false; // 「タイトルへ」を押した（部屋を出たらタイトル画面へ）
   introCam = false; // 開始演出でカメラを寄せているか
   introCut = ''; // 新開幕: 今映しているカット
   introBanner: [string, string] | null = null; // 新開幕: 画面中央の文字
@@ -386,7 +384,7 @@ class GameScene extends Phaser.Scene {
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
     lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div id="roster"></div>`
-      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button>';
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
     const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
@@ -442,20 +440,26 @@ class GameScene extends Phaser.Scene {
     }
     document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
+    // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
+    for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.room?.leave(); };
 
-    // 本番ビルド（npm run share）はページと同じ場所（https→wss、http→ws）。開発時は従来どおり（HTTPS は Vite の中継 vite.config.ts を通す）
-    const client = new Client(import.meta.env.PROD ? location.origin : location.protocol === 'https:' ? `${location.origin}/colyseus` : `ws://${location.hostname}:${__GAME_PORT__}`);
-    const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt'; // ?e2e=<値> はテスト専用の部屋（値ごとに別の部屋）
-    // 再読み込みしたタブは、待ってもらっている試合に戻る（RECONNECT_SEC 秒以内）。戻れなければ新しく入る
-    const saved = sessionStorage.getItem(tokenKey);
-    (saved ? client.reconnect(saved).catch(() => client.joinOrCreate('game', e2e ? { e2e } : {})) : client.joinOrCreate('game', e2e ? { e2e } : {})).then((room) => {
+    // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
+    const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
+    const room: Room = (window as any).__room;
+    {
       this.room = room;
       (window as any).room = room; // 検証用
       sessionStorage.setItem(tokenKey, room.reconnectionToken);
-      if (saved) this.ctl.sendAim();
+      if ((window as any).__rejoin) this.ctl.sendAim();
       // 通信の再接続（自動）。戻ったら照準モードを送り直す。再接続できなければ入り直す
       room.onReconnect(() => { sessionStorage.setItem(tokenKey, room.reconnectionToken); this.ctl.sendAim(); });
-      room.onLeave((code: number) => { if (code === CloseCode.CONSENTED) sessionStorage.removeItem(tokenKey); else location.reload(); }); // 切れたら再読み込み（保存した合言葉で戻る）
+      // 切れたら再読み込み（保存した合言葉で戻る）。キック・BAN（reason）と「タイトルへ」はタイトル画面へ
+      room.onLeave((code: number, reason?: string) => {
+        if (code !== CloseCode.CONSENTED) return location.reload();
+        sessionStorage.removeItem(tokenKey);
+        if (reason === 'kick' || reason === 'ban') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : '部屋から外されました');
+        if (reason === 'kick' || reason === 'ban' || this.toTitle) location.reload();
+      });
       addEventListener('pagehide', () => { if (this.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) { this.hiddenAt = performance.now(); return; }
@@ -486,7 +490,7 @@ class GameScene extends Phaser.Scene {
         if (mine) this.cutin(mine.char, k.victimChar, k.how);
       });
       room.onMessage('koed', (k: any) => (this.koedBy = { kc: k.kc, how: k.how }));
-    });
+    }
   }
 
   // ミニマップの下絵を塗る
@@ -895,7 +899,7 @@ class GameScene extends Phaser.Scene {
     if (me?.ok) { this.selMode = 'go'; this.selChar = me.char; } else if (this.selMode === 'go') this.selMode = 'sortie';
     if (!this.selChar && me) this.selChar = me.char;
     // 右上: 味方の選択状況（今選んでいるキャラと、選択中／出撃済み）、敵陣営の一覧と陣営の移動
-    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : r.id === s.me ? 'あなた' : '人間'} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? '出撃済み' : '選択中…'}</em></div>`;
+    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : `${r.id === s.me ? 'あなた' : '人間'}${r.name ? `（${esc(r.name)}）` : ''}`} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? '出撃済み' : '選択中…'}</em></div>`;
     const team = (t: number) => {
       const list = s.roster.filter((r: any) => r.team === t), rows = list.map(row);
       while (rows.length < C.TEAM_SIZE) rows.push('<div class="row"><span>（空き: 開始時にBot）</span></div>');
@@ -1285,6 +1289,7 @@ class GameScene extends Phaser.Scene {
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;
     back.style.display = s.phase === 'ended' && mine ? 'block' : 'none';
+    $('.totitle').style.display = back.style.display;
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
     if (s.phase !== 'waiting') this.tokuHud(s, sinceSnap);

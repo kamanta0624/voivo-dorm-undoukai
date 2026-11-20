@@ -1,0 +1,8 @@
+{
+  "_": "ルール説明（ADV）の台本。1行 = { who: 話者のキャラ key（chars.json）, face: 表情（chars.json の select/ko/koed）, bg: 背景（public/assets/tutorial/ のファイル名）, text: 台詞（字幕）, yomi: 読み（音声化用）, audio: 音声ファイル（任意。public/ からのパス） }。最初に出た話者が左、2人目が右。{name:key}・{skill:key} はキャラ名・技名（chars.json・chars.ts）に置き換える。今は仮の話者2人・仮台詞3行（本人の話者指定後に書き直す）",
+  "lines": [
+    { "who": "zundamon", "face": "select", "bg": "lobby.png", "text": "（仮）{name:zundamon}なのだ。ルール説明の仕組みの確認なのだ", "yomi": "かり。ずんだもんなのだ。るーるせつめいのしくみのかくにんなのだ" },
+    { "who": "kiritan", "face": "select", "bg": "battle.png", "text": "（仮）{name:kiritan}です。私の技は{skill:kiritan}です", "yomi": "かり。とうほくきりたんです。わたしのわざはぜんだんせいしゃです" },
+    { "who": "zundamon", "face": "ko", "bg": "battle.png", "text": "（仮）タップかクリックで次へ。スキップでタイトルへ戻るのだ", "yomi": "かり。たっぷかくりっくでつぎへ。すきっぷでたいとるへもどるのだ" }
+  ]
+}

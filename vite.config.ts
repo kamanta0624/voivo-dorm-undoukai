@@ -15,9 +15,10 @@ const GAME_PORT = Number(process.env.GAME_PORT) || 2567;
 
 export default defineConfig({
   define: { __BUILD__: JSON.stringify(BUILD), __GAME_PORT__: GAME_PORT },
+  plugins: [{ name: 'build-txt', generateBundle() { this.emitFile({ type: 'asset', fileName: 'build.txt', source: BUILD }); } }], // dist/build.txt: 配信中のビルド（サーバーの /status が返し、旧版のクライアントを再読み込みさせる）
   server: {
     https: process.env.HTTPS ? { key: readFileSync('certs/key.pem'), cert: readFileSync('certs/cert.pem') } : undefined,
     ...(process.env.CLIENT_PORT ? { port: Number(process.env.CLIENT_PORT), strictPort: true } : {}),
-    proxy: { '/colyseus': { target: `http://localhost:${GAME_PORT}`, ws: true, rewrite: (p) => p.replace(/^\/colyseus/, '') } },
+    proxy: { '/colyseus': { target: `http://localhost:${GAME_PORT}`, ws: true, rewrite: (p) => p.replace(/^\/colyseus/, '') }, '/status': `http://localhost:${GAME_PORT}`, '/admin': `http://localhost:${GAME_PORT}` }, // /status・/admin はゲームサーバー（src/server/outgame.ts）
   },
 });

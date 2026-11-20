@@ -1,4 +1,4 @@
-import { Room, Client } from 'colyseus';
+import { Room, Client, ServerError, CloseCode } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
@@ -9,6 +9,7 @@ import { findPath } from './pathfind';
 import { stepPlayer } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Director } from './commentary';
+import * as OG from './outgame';
 
 const T = C.TILE;
 const BAD_DECAY = (-C.TOKU.courier * C.BAD_MULT.courier) / C.BAD_DECAY_SEC; // 反省中に毎秒減る悪行ポイント（config の BAD_DECAY_SEC）
@@ -64,6 +65,7 @@ export type Player = {
   koAt: number; // 撃破された時刻（撃破の演出 KO_FX）
   hitAt: number; // 最後に被弾した時刻（Bot のリコール判断の「脅威あり」）
   lowFight: boolean; lowUntil: number; // Bot: 低HPで脅威ありのときの攻撃(true)／逃亡(false)と、その決定を維持する時刻
+  name?: string; ip?: string; bid?: string; // 人間: プレイヤー名（自動）、IP・ブラウザ保存ID（管理ページの表示と BAN）
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 export type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number; holdUntil: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻、holdUntil: この時刻までは拠点移動を始めない（技が止める）
@@ -93,6 +95,9 @@ export const isUnit = (t: Thing) => t.k === 'p' || t.k === 'boss' || (t.k === 'e
 export class GameRoom extends Room {
   static logFile = ''; // 試合ログの出力先（JSON Lines、空なら書かない）。src/server/index.ts で設定
   maxClients = C.MAX_CLIENTS;
+  static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
+  static sealed = false; // 常設の部屋を作り終えたら true（以後は e2e の部屋しか作らせない。src/server/index.ts）
+  pub = false; // 常設の部屋（タイトルの一覧に出る。e2e の部屋は false）
   now = 0;
   phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting'; // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）、finale: 決着演出（入力なし。CONFIG.FINALE）
   finale: Finale | null = null; // 決着演出の状態
@@ -113,6 +118,7 @@ export class GameRoom extends Room {
   courierAt = 0; // コバコの復活時刻
   warns: Warn[] = [];
   dropped = new Set<string>(); // 再接続待ちのプレイヤーid（途中参加の入れ替え先にしない）
+  kicked = new Set<string>(); // 管理ページでキックしたプレイヤーid（再接続待ちの間にキックされたら、戻ってきた時点で外す）
   backVotes = new Set<string>(); // リザルトで「戻る」を押した人間のプレイヤーid
   fx: Fx[] = []; // このティックに起きた技のエフェクト（送信後に空にする）
   tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
@@ -304,7 +310,11 @@ export class GameRoom extends Room {
   }
 
   // 現在の試合: 中央からの経路距離の合計が上限以下になる組み合わせから選ぶ
-  onCreate(_options?: { e2e?: boolean }) {
+  onCreate(options?: { e2e?: string }) {
+    this.pub = !options?.e2e;
+    if (this.pub && GameRoom.sealed) throw new Error('常設の部屋は増やせない');
+    if (this.pub) this.autoDispose = false; // 空になっても残す
+    GameRoom.live.add(this);
     this.setup();
     this.setSimulationInterval((dtMs) => { for (let i = 0; i < this.speed; i++) this.tick(dtMs / 1000, i === this.speed - 1); }, 1000 / C.TICK_HZ);
   }
@@ -373,12 +383,29 @@ export class GameRoom extends Room {
     return p;
   }
 
-  onJoin(client: Client) {
+  onDispose() { GameRoom.live.delete(this); }
+
+  // 人間の参加者の数（再接続待ちを含む）
+  humanCount() { return [...this.players.values()].filter((p) => !p.bot && !p.assist).length + [...this.dropped].filter((id) => this.players.get(id)?.bot).length; }
+
+  // 入室の判定: BAN は全部の部屋、常設の部屋はメンテ中・対戦中・満員も拒否（再接続はここを通らない）
+  onAuth(_client: Client, options: any, ctx?: { ip?: string; headers?: Headers }) {
+    const ip = ctx?.headers?.get?.('cf-connecting-ip') ?? ctx?.ip ?? '', bid = typeof options?.bid === 'string' ? options.bid.slice(0, 64) : '';
+    if (OG.banned(ip, bid)) throw new ServerError(4403, '入室できません');
+    if (this.pub && OG.maintenance()) throw new ServerError(4503, OG.maintText());
+    if (this.pub && this.phase !== 'waiting') throw new ServerError(4409, 'この部屋は対戦中です');
+    if (this.pub && this.humanCount() >= C.ROOM_FULL) throw new ServerError(4429, 'この部屋は満員です');
+    return { ip, bid };
+  }
+
+  onJoin(client: Client, options?: { name?: string }) {
     if (this.phase === 'waiting') {
       if (this.players.size >= C.TEAM_SIZE * 2) return; // 観戦
       const counts = [0, 0];
       this.players.forEach((p) => counts[p.team]++);
-      this.addPlayer(client.sessionId, counts[0] <= counts[1] ? 0 : 1, false);
+      const p = this.addPlayer(client.sessionId, counts[0] <= counts[1] ? 0 : 1, false);
+      const base = OG.validName(options?.name) ? options!.name! : OG.randomName(); // 部品の組み合わせでない名前は付け直す
+      Object.assign(p, { name: OG.uniqueName(base, [...this.players.values()].filter((q) => q !== p).map((q) => q.name ?? '')), ip: client.auth?.ip, bid: client.auth?.bid });
       this.owners.set(client.sessionId, client.sessionId);
     } else if (this.phase !== 'ended') {
       // 人間の少ない陣営のBotと入れ替わる。Botがいなければ観戦
@@ -408,6 +435,7 @@ export class GameRoom extends Room {
   // 再接続できた: 操作を本人に戻す（照準モードはクライアントが送り直す）
   onReconnect(client: Client) {
     const p = this.players.get(this.owners.get(client.sessionId) ?? '');
+    if (p && this.kicked.has(p.id)) { this.dropped.delete(p.id); return client.leave(CloseCode.CONSENTED, OG.banned(p.ip ?? '', p.bid ?? '') ? 'ban' : 'kick'); }
     if (p) { Object.assign(p, { bot: false, dx: 0, dy: 0 }); this.dropped.delete(p.id); }
   }
 
@@ -422,6 +450,19 @@ export class GameRoom extends Room {
       if (p) { p.bot = true; p.path = []; p.aim = C.BOT_AIM; p.qAt = p.recallAt = null; }
       this.checkBack();
     }
+    // 常設の部屋: 人間が誰もいなくなったら（再接続待ちもなし）、試合を打ち切って待機に戻す
+    if (this.pub && this.phase !== 'waiting' && !this.clients.length && !this.dropped.size) { this.players.clear(); this.setup(); this.lobbyLeft = null; this.unlock(); }
+  }
+
+  // 管理ページ: キック（枠は Bot が引き継ぐ。再接続させない）。ban なら以後の入室も拒否
+  kick(id: string, ban: boolean) {
+    const p = this.players.get(id);
+    if (!p || p.bot && !this.dropped.has(id)) return;
+    if (ban) OG.addBan({ ip: p.ip ?? '', bid: p.bid ?? '', name: p.name ?? '', at: new Date().toISOString() });
+    this.kicked.add(id);
+    const sid = [...this.owners].find(([, v]) => v === id)?.[0];
+    const client = this.clients.find((c) => c.sessionId === sid);
+    if (client) client.leave(CloseCode.CONSENTED, ban ? 'ban' : 'kick'); // onLeave（Bot が引き継ぐ）
   }
 
   startMatch() {
@@ -1500,7 +1541,7 @@ export class GameRoom extends Room {
     }));
     const wanted = this.teams.map((t) => this.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
     const all = { players: [...this.players.values()], bosses: this.bosses, ents: this.ents, shots: this.shots, fx: this.fx, warns: this.warns };
-    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok }));
+    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name }));
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）

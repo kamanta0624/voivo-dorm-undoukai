@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ゲームサーバーの常駐（launchd）。tools/launchd.sh install が __〜__ を埋めて ~/Library/LaunchAgents/<ラベル>.plist に置く。落ちたら自動再起動、ログは logs/server.log へ追記 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>WorkingDirectory</key><string>__DIR__</string>
+  <key>ProgramArguments</key>
+  <array><string>__NODE__</string><string>node_modules/tsx/dist/cli.mjs</string><string>src/server/index.ts</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SERVE_DIST</key><string>1</string>
+    <key>GAME_PORT</key><string>__PORT__</string>
+    <key>PATH</key><string>__PATH__</string>
+__ADMIN__  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>__DIR__/logs/server.log</string>
+  <key>StandardErrorPath</key><string>__DIR__/logs/server.log</string>
+</dict>
+</plist>

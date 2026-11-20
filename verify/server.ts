@@ -1,5 +1,6 @@
 // サーバー単体のテスト（ブラウザなし、数秒）。実行: npm run test:server
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/server/GameRoom';
+import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk } from '../src/shared/chars';
@@ -967,7 +968,7 @@ console.log(`--- 大将の反撃（全体×${C.BOSS_DAMAGE_MULT}、アシスト�
 console.log('--- 通信の切断と再接続（スマホのバックグラウンド等）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
-  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate();
+  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 't' }); // 途中参加は e2e の部屋だけ（常設の部屋は対戦中に入れない。人間がいなくなれば待機に戻る）
   let allowed: any = null; r.allowReconnection = (c: any, sec: number) => { allowed = { id: c.sessionId, sec }; };
   r.onJoin({ sessionId: 'h' }); r.startMatch(); r.beginPlay();
   const P = r.players.get('h'); P.aim = 'lowhp';
@@ -1816,6 +1817,47 @@ console.log('--- 九州そら（ソーラーキャノン）');
   bt.A.sk.charge = S.botMin + 1; const yes = bt.r.botSkillUseful(bt.A); bt.B.y = 900 + 200; const no = bt.r.botSkillUseful(bt.A);
   ok(`Bot: チャージ${S.botMin}秒以上でビームの線上に敵がいれば撃つ`, !low && yes && !no);
   ok('e2e の Bot 編成に入れない', !E2E_BOTS.includes('sora'));
+}
+
+console.log('--- アウトゲーム（常設の部屋・入室の判定・名前・BAN・/status・キック）');
+{
+  const room = (opt?: any) => { const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {}; const cl: any[] = []; Object.defineProperty(r, 'clients', { value: cl }); r.onCreate(opt); return r; };
+  const auth = (r: any, opt: any = {}, ip = '9.9.9.9', cf?: string) => { try { return r.onAuth({}, opt, { ip, headers: new Headers(cf ? { 'cf-connecting-ip': cf } : {}) }); } catch (e: any) { return { err: e.message }; } };
+  const join = (r: any, sid: string, name?: string) => { const c = { sessionId: sid, auth: auth(r, { bid: 'b' + sid }), send: (t: string, m: any) => { if (t === 's') c.got = m; }, leave: (code: number, why: string) => (c.left = [code, why]) } as any; r.clients.push(c); r.onJoin(c, { name }); return c; };
+  // 常設の部屋: 空になっても残す。作り終えたら（sealed）e2e 以外の部屋は作れない
+  const a = room(), b = room();
+  GameRoom.sealed = true; let sealed = false; try { room(); } catch { sealed = true; } const e = room({ e2e: 'x' }); GameRoom.sealed = false;
+  ok(`常設の部屋は空になっても残し（autoDispose なし）、${C.ROOMS}つ作った後は e2e の部屋しか作れない`, a.pub && !a.autoDispose && sealed && !e.pub && e.autoDispose);
+  ok('/status: 部屋ごとの状態・人数（待機中）', JSON.stringify(OG.status([a, b]).rooms.map((x: any) => [x.no, x.state, x.humans, x.max])) === JSON.stringify([[1, 'waiting', 0, C.ROOM_FULL], [2, 'waiting', 0, C.ROOM_FULL]]));
+  // 名前: 部品の組み合わせ（そのまま）、それ以外は付け直す、重複は末尾に番号
+  const nm = OG.randomName();
+  for (let i = 0; i < 3; i++) join(a, 'h' + i, nm); join(a, 'h3', 'あいうえお');
+  const names = ['h0', 'h1', 'h2', 'h3'].map((id) => a.players.get(id).name);
+  ok('名前: 同じ部屋で重複したら末尾に番号、部品の組み合わせでない名前はサーバーが付け直す', names[0] === nm && names[1] === nm + '2' && names[2] === nm + '3' && OG.validName(names[3]), names);
+  a.sendSnapshots(); ok('名前は待機画面の名簿（roster）で送る', a.clients[0].got.roster.find((x: any) => x.id === 'h1').name === nm + '2');
+  // 満員（人間 ROOM_FULL 人）・対戦中は入れない。e2e の部屋は従来どおり
+  for (let i = 4; i < C.ROOM_FULL; i++) join(a, 'h' + i);
+  ok(`満員（人間${C.ROOM_FULL}人）の部屋には入れない。/status は満員`, auth(a).err === 'この部屋は満員です' && OG.status([a]).rooms[0].state === 'full', auth(a));
+  join(b, 'p0'); b.startMatch();
+  ok('対戦中の部屋には入れない。/status は対戦中', auth(b).err === 'この部屋は対戦中です' && OG.status([b]).rooms[0].state === 'playing' && OG.status([b]).rooms[0].humans === 1);
+  e.startMatch(); ok('e2e の部屋は対戦中でも入れる（途中参加）', !auth(e).err);
+  // メンテ中: 常設の部屋に入れない。/status にメンテ中と告知文
+  OG.setMaintenance(true);
+  ok('メンテ中は常設の部屋に入れず、/status にメンテ中と告知文', auth(room()).err === OG.MAINT_TEXT && OG.status([a]).maintenance && OG.status([a]).notice === OG.MAINT_TEXT);
+  OG.setMaintenance(false); ok('メンテ解除で入れる', !auth(room()).err && !OG.status([a]).maintenance);
+  // BAN: IP（CF-Connecting-IP 優先、なければ接続元）かブラウザ保存IDのどちらか一致で拒否（e2e の部屋も）
+  OG.addBan({ ip: '1.2.3.4', bid: '', name: '', at: '' }); OG.addBan({ ip: '', bid: 'evil', name: '', at: '' });
+  const f = room();
+  ok('BAN: CF-Connecting-IP・接続元IP・ブラウザ保存IDのどれかが一致したら「入室できません」、他は入れる', auth(f, {}, '5.5.5.5', '1.2.3.4').err === '入室できません' && auth(f, {}, '1.2.3.4').err === '入室できません' && auth(e, { bid: 'evil' }).err === '入室できません' && !auth(f, { bid: 'ok' }, '1.2.3.4', '7.7.7.7').err);
+  OG.bans.splice(0);
+  // キック・BAN（管理ページ）: その人を外し、Bot が引き継ぐ（再接続させない）。BAN は以後の入室も拒否
+  const g = room(), k1 = join(g, 'k1'), k2 = join(g, 'k2'); g.players.get('k2').ip = '8.8.8.8'; g.startMatch(); g.beginPlay();
+  g.kick('k1', false); g.kick('k2', true);
+  ok('キック・BAN: 理由つきで外す（kick / ban）。BAN は IP とブラウザ保存IDを記録して以後は入れない', k1.left?.[1] === 'kick' && k2.left?.[1] === 'ban' && OG.banned('8.8.8.8', '') && OG.banned('', 'bk2') && !OG.banned('8.8.8.9', 'bk1'));
+  OG.bans.splice(0);
+  // 常設の部屋は、人間が誰もいなくなったら（再接続待ちもなし）試合を打ち切って待機に戻る
+  const h = room(), c = join(h, 'q'); h.startMatch(); h.beginPlay(); h.clients.splice(0); h.onLeave(c);
+  ok('常設の部屋は人間が誰もいなくなったら待機に戻る（Bot だけの試合を続けない）', h.phase === 'waiting' && h.players.size === 0);
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

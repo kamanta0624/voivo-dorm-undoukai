@@ -3,6 +3,8 @@ dist/
 logs/
 # 素材（32dotドット・立ち絵）。二次配布防止のため管理外。npm run assets で再生成
 public/assets/gen/
+# ルール説明の背景（ゲーム画面のスクショ。ドット・立ち絵が写るので同じく管理外。tools/deploy.sh が公開側へ写す）
+public/assets/tutorial/
 verify/evidence/
 .env
 .env.*
@@ -14,3 +16,5 @@ nohup.out
 .cloudflared/
 cert.pem
 *.pem
+dist.new/
+dist.old/
