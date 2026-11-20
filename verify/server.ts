@@ -1200,7 +1200,7 @@ console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');
   const k = mk('kiritan', 'himari'); Object.assign(k.B, { x: 1552 + 100 }); k.r.skill('b'); k.r.skill('a'); tick(k, 0.5);
   ok('透明化中は敵の技（きりたんのロックオン）の対象にならない', k.A.sk.marks.length === 0);
   const bi = mk('bii', 'himari'); Object.assign(bi.B, { x: 1552 + 5 }); bi.r.skill('b'); bi.r.skill('a'); bi.r.now += 0.05; bi.r.updateEnts(0.05); // 鎌を振ると透明化が解けるので、ビィの予約だけを進める
-  ok('透明化中は敵の技（ビィのオーバーロードの予約）の対象にならない', ents(bi.r, 'overload')[0]?.marks.length === 0);
+  ok('透明化中は敵の技（ビィのオーバードライブの予約）の対象にならない', ents(bi.r, 'overload')[0]?.marks.length === 0);
   // 被弾（範囲攻撃を含む）で即死
   const d = mk('metan', 'himari'); d.r.skill('b'); d.A.face = 0; d.A.tgt = null; d.r.skill('a'); d.r.updatePlayers(0.05);
   ok('透明化中は被弾（範囲攻撃）で即死', !d.B.alive);
@@ -1282,7 +1282,7 @@ console.log('--- 東北きりたん（全弾斉射）');
   ok('Bot: ロックして発射する', fired);
 }
 
-console.log('--- 猫使ビィ（オーバーロード）');
+console.log('--- 猫使ビィ（オーバードライブ）');
 {
   const B = CHARS.bii.skill;
   const run = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); z.r.updateEnts(0.05); } };
@@ -1301,21 +1301,27 @@ console.log('--- 猫使ビィ（オーバーロード）');
   ok('残像は敵の通常攻撃・自動照準の対象になり、攻撃を受けると消える', ents(dc.r, 'biiDecoy').every((d: any) => d.x !== 1552) && dc.A.hp === hp0 && dc.B.cooldownUntil > dc.r.now, { decoys: ents(dc.r, 'biiDecoy').map((d: any) => d.x), hp: dc.A.hp });
   // 予約: 触れた敵に1回。終了でポーズ（硬直）→ 予約の全員へダメージ
   const h = mk('bii', 'metan'); h.r.addPlayer('c', 1, false); const Cc = h.r.players.get('c'); Object.assign(Cc, { char: 'sayo', alive: true, x: 1552 + 200, y: 900, hp: 9999 }); Cc.st.test = NOAUTO();
-  Object.assign(h.B, { x: 1552 + 5, hp: 9999 }); h.r.skill('a'); run(h, 0.5);
-  const m1 = ov(h).marks.length; Object.assign(h.A, { x: 1552 + 195 }); run(h, 0.5); Object.assign(h.A, { x: 1552 + 5 }); run(h, 0.5);
-  const mv = ov(h).v.length;
-  run(h, B.dur - 1.5 + 0.05); const pose = !!h.r.stat(h.A, 'overloadPose') && h.r.effect(h.A, 'lock'), hpPose = [h.B.hp, Cc.hp];
+  Object.assign(h.B, { x: 1552 + 5, hp: 9999 }); h.r.skill('a'); run(h, 0.4);
+  const m1 = ov(h).marks.length; Object.assign(h.A, { x: 1552 + 195 }); run(h, 0.4); Object.assign(h.A, { x: 1552 + 5 }); run(h, 0.4);
+  const mv = ov(h).v;
+  run(h, B.dur - 1.2 + 0.05); const pose = !!h.r.stat(h.A, 'overloadPose') && h.r.effect(h.A, 'lock'), stillPose = h.r.stillLock(h.A), hpPose = [h.B.hp, Cc.hp];
   run(h, B.pose + 0.1);
   const want = [Math.round(B.dmg * C.DAMAGE_MULT * (1 - C.DEFENSE_CUT)), Math.round(B.dmg * C.DAMAGE_MULT)];
-  ok('触れた敵に予約が付き、同じ敵は1回だけ（予約の目印をスナップショットで送る）', m1 === 1 && mv === 2, { m1, mv });
+  ok('触れた敵に予約が付き、同じ敵は1回だけ（予約の目印は対象のidと半径だけ送り、位置はクライアントが対象の描画位置から引く）', m1 === 1 && mv.length === 2 && mv.map((m: any) => m.id).join() === 'p:b,p:c' && mv.every((m: any) => m.x === undefined && m.r > 0), { m1, mv });
+  const sl = mk('bii'); sl.A.st.x = { until: Infinity, lock: true, still: true }; const s1 = sl.r.stillLock(sl.A); sl.A.st.y = { until: Infinity, lock: true }; const s2 = sl.r.stillLock(sl.A); delete sl.A.st.x; delete sl.A.st.y; const s3 = sl.r.stillLock(sl.A);
+  ok('ポーズはその場で止まる lock（still）。still は有効な lock がすべて still のときだけ（サーバーが動かす lock が混ざれば補間）', stillPose && s1 && !s2 && !s3, { stillPose, s1, s2, s3 });
   ok(`終了時にポーズ（硬直${B.pose}秒）→ 予約の全員へダメージ（${B.dmg}×全体の倍率、1回だけ）`, pose && hpPose[0] === 9999 && hpPose[1] === 9999 && 9999 - h.B.hp === want[0] && 9999 - Cc.hp === want[1] && !h.r.stat(h.A, 'overloadPose'), { pose, b: 9999 - h.B.hp, c: 9999 - Cc.hp, want });
+  // 接触範囲: 中心間 敵の半径＋touch 以内で予約（プレイヤー同士の接触 20px より広い）
+  const tr = (dx: number) => { const z = mk('bii', 'metan'); z.B.st.test = NOAUTO(); Object.assign(z.B, { x: 1552 + dx, y: 900 }); z.r.skill('a'); run(z, 0.05); return ov(z).marks.length; };
+  const edge = C.PLAYER_RADIUS + B.touch;
+  ok(`接触範囲は中心間${edge}px（敵の半径＋${B.touch}）。その外は予約しない`, tr(edge - 2) === 1 && tr(30) === 1 && tr(edge + 4) === 0, { in: tr(edge - 2), out: tr(edge + 4) });
   // 予約0人ならポーズも爆発もない
   const z = mk('bii', 'metan'); Object.assign(z.B, { x: 1552 + 300 }); z.r.skill('a'); run(z, B.dur + 0.05); z.r.fx = [];
   ok('予約0人なら終了時にポーズも硬直もない', !z.A.st.overloadPose && !z.r.effect(z.A, 'lock') && ov(z) === undefined);
   // 途中で倒されたら不発（予約は消える）
   const k = mk('bii', 'metan'); Object.assign(k.B, { x: 1552 + 5, hp: 9999 }); k.r.skill('a'); run(k, 0.2); k.r.damagePlayer(k.A, 1e9, 'b'); run(k, B.dur + B.pose);
   const kp = mk('bii', 'metan'); Object.assign(kp.B, { x: 1552 + 5, hp: 9999 }); kp.r.skill('a'); run(kp, B.dur + 0.05); kp.r.damagePlayer(kp.A, 1e9, 'b'); run(kp, B.pose + 0.1);
-  ok('オーバーロード中・ポーズ中に倒されたら予約は消え、ダメージは不発', k.B.hp === 9999 && kp.B.hp === 9999 && !ents(k.r, 'overload').length && !ents(kp.r, 'overload').length);
+  ok('オーバードライブ中・ポーズ中に倒されたら予約は消え、ダメージは不発', k.B.hp === 9999 && kp.B.hp === 9999 && !ents(k.r, 'overload').length && !ents(kp.r, 'overload').length);
   // ビィ2人の予約は別々（片方が倒れても、もう片方の予約は残る）
   const two = mk('bii', 'metan'); two.r.addPlayer('d', 0, false); const D = two.r.players.get('d'); Object.assign(D, { char: 'bii', alive: true, x: 1552, y: 1100 }); D.st.test = NOAUTO();
   two.r.addPlayer('c', 1, false); const C2 = two.r.players.get('c'); Object.assign(C2, { char: 'sayo', alive: true, x: 1552 + 5, y: 1100, hp: 9999 }); C2.st.test = NOAUTO();
@@ -1333,7 +1339,7 @@ console.log('--- 猫使ビィ（オーバーロード）');
   const bt = mk('bii', 'metan'); Object.assign(bt.B, { x: 1552 + 100 }); bt.A.bot = true;
   const use = bt.r.botSkillUseful(bt.A); Object.assign(bt.B, { x: 1552 + B.botRange + 60 }); const far = bt.r.botSkillUseful(bt.A);
   Object.assign(bt.B, { x: 1552 + 100 }); bt.r.skill('a'); bt.A.dx = bt.A.dy = 0; const d0 = Math.hypot(bt.B.x - bt.A.x, bt.B.y - bt.A.y); run(bt, 0.3);
-  ok('Bot: 敵が近ければ使い、オーバーロード中は予約していない敵へ寄る', use && !far && Math.hypot(bt.B.x - bt.A.x, bt.B.y - bt.A.y) < d0 - 30, { d0, d1: Math.hypot(bt.B.x - bt.A.x, bt.B.y - bt.A.y) });
+  ok('Bot: 敵が近ければ使い、オーバードライブ中は予約していない敵へ寄る', use && !far && Math.hypot(bt.B.x - bt.A.x, bt.B.y - bt.A.y) < d0 - 30, { d0, d1: Math.hypot(bt.B.x - bt.A.x, bt.B.y - bt.A.y) });
 }
 
 console.log('--- もち子（ホバー）・ずん子');

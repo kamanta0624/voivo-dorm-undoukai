@@ -564,7 +564,7 @@ export class Director {
         active: () => !!(p.st.charge || room.stat(p, 'rush')),
         zone: () => p.st.charge ? foes(room.inRectAhead(p, p.sk.a, room.speedOf(p) * S.speed * S.dur, S.w)) : room.stat(p, 'rush') ? foes(room.enemyThings(p.team).filter((t) => inDashShape(S, t.x, t.y, p.x, p.y, p.sk.a, t.r))) : [],
       };
-      case 'bii': { // オーバーロード: 予約した敵（終了まで被弾しなければ回避）
+      case 'bii': { // オーバードライブ: 予約した敵（終了まで被弾しなければ回避）
         const ov = () => room.ents.find((e) => e.kind === 'overload' && e.owner === p.id);
         return { active: () => !!ov(), zone: () => ((ov()?.marks ?? []) as { id: string }[]).filter((m) => m.id.startsWith('p:')).map((m) => m.id.slice(2)).filter((id) => !room.players.get(id)?.assist) };
       }

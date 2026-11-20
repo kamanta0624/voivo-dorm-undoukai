@@ -34,9 +34,9 @@ export const CHARS: Record<string, CharDef> = {
   // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
   // fx: 見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
   aru: def({ desc: 'タメてから決めた方向へ突撃。壁を壊し、触れた敵にダメージ', role: 'speed', skill: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9, fx: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 } } }),
-  // オーバーロード: dur 秒、移動 speed 倍・通常攻撃しない。every 秒ごとにその場へ残像（敵の通常攻撃・自動照準の対象になるおとり。decoyLife 秒か攻撃を受けると消える。HP decoyHp）を置く
-  // 触れた敵（プレイヤー・大将）にダメージ予約（同じ敵は1回のオーバーロードで1回）。終了時に予約が1人以上いれば pose 秒ポーズで硬直してから予約の全員へ dmg（大将へは bossDmg）。途中で倒されたら不発。Bot: 敵が botRange 内なら使い、予約していない敵へ寄る
-  bii: def({ desc: 'しばらく足が速くなり、残像（おとり）を残しながら走る。触れた敵に印を付け、終わるとポーズして印の敵全員にダメージ（途中で倒されると不発）', role: 'support', skill: { name: 'オーバーロード', ct: 10, dur: 3, speed: 1.6, every: 0.2, decoyLife: 1, decoyHp: 1, pose: 0.5, dmg: 60, bossDmg: 30, botRange: 150 } }),
+  // オーバードライブ: dur 秒、移動 speed 倍・通常攻撃しない。every 秒ごとにその場へ残像（敵の通常攻撃・自動照準の対象になるおとり。decoyLife 秒か攻撃を受けると消える。HP decoyHp）を置く
+  // 触れた敵（中心間 敵の半径＋touch px 以内のプレイヤー・大将）にダメージ予約（同じ敵は1回のオーバードライブで1回）。終了時に予約が1人以上いれば pose 秒ポーズで硬直してから予約の全員へ dmg（大将へは bossDmg）。途中で倒されたら不発。Bot: 敵が botRange 内なら使い、予約していない敵へ寄る
+  bii: def({ desc: 'しばらく足が速くなり、残像（おとり）を残しながら走る。触れた敵に印を付け、終わるとポーズして印の敵全員にダメージ（途中で倒されると不発）', role: 'support', skill: { name: 'オーバードライブ', ct: 10, dur: 1.5, touch: 40, speed: 1.6, every: 0.2, decoyLife: 1, decoyHp: 1, pose: 0.5, dmg: 60, bossDmg: 30, botRange: 150 } }),
   ierutan: def({ desc: 'まわりの味方と自分の足を速くし、しばらく回復し続ける', role: 'support', skill: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 } }), // regen: 効果中の毎秒の回復量
   zunko: def({ desc: '矢を撃ち、当たった敵をずんだ餅にする（足が遅くなり、技が使えない）', role: 'attacker', melee: false, aa: [{ name: '遠距離', kind: 'shot', range: 200, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 1, shot: 'bullet', speed: C.BULLET_SPEED }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5 } }), // 当たった敵はずんだ餅（移動×speed、技不可）
   // 足が遅い。対象が 60 より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁

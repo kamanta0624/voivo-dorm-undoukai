@@ -24,7 +24,7 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | `metan` | 四国めたん | defense | normal | 近接 | あり | ― | ドリル（4.8） |
 | `mochiko` | もち子 | defense | hover | 近接 | あり | ― | ファンネル（30） |
 | `aru` | 猫使アル | speed | normal | 近接 | あり | ― | 突撃（6） |
-| `bii` | 猫使ビィ | support | normal | 近接 | あり | ― | オーバーロード（10） |
+| `bii` | 猫使ビィ | support | normal | 近接 | あり | ― | オーバードライブ（10） |
 | `ierutan` | あいえるたん | support | normal | 近接 | あり | ― | 加速（8） |
 | `zunko` | 東北ずん子 | attacker | normal | 遠距離（弾、射程200） | なし | ― | ずんだアロー（12） |
 | `kiritan` | 東北きりたん | なし | normal | 包丁（近接）／きりたん砲（弾、射程310、対象が60より遠いとき） | なし | 移動×0.8 | 全弾斉射（7.2） |
@@ -43,15 +43,15 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | `sayo` | 一定時間、移動が速くなり自分中心の円に周期ダメージ | `tick`、`ended` | `dance`（speed） | ― | status `dance` の目印、fx `dance`（周期ごとの斬線・命中の印） |
 | `metan` | 一定時間、前方（移動・照準に追従）にドリルを出しっぱなし。触れた敵にダメージ＋はじき、同じ相手には一定間隔で再ヒット。ドリル中は通常攻撃しない | `afterMove`（ドリルの当たり） | `drill`（noAttack） | ― | status `drill`（回転するドリル・流れる縞・先端の火花） |
 | `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
-| `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
-| `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の位置を `v` で送る）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
+| `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・still・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
+| `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む。中心間 敵の半径＋touch）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・still・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の対象id・半径を `v` で送る。印の位置はクライアントが対象の描画位置から引く）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
 | `ierutan` | 範囲内の味方と自分を加速＋毎秒回復 | ― | `accel`（speed・regen）を味方に付ける | ― | status `accel` の目印（足元の輪・上へ流れる矢印）、fx `accel`（広がる二重の輪・放射線） |
 | `zunko` | 矢を撃ち、当たった敵をずんだ餅に（減速・技不可） | ― | `mochi`（speed・noSkill）を敵に付ける | ―（矢は共通の弾） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾） |
 | `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射（総数12発を人数で分ける）。目標が倒れた弾は直進に切り替わる。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
 | `himari` | 発動で透明化。透明化中の Space で鎌（特大ダメージ。ディフェンス以外は一撃）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
 | `itako` | 自分の周りを時計回りに回る火の玉（接触ダメージ、消えない）。展開中に再発動で最寄りの敵を標的に、9時の位置から順に離れてホーミング、命中で消える。CT は再発動か時間切れから。通常攻撃の見た目はキツネ（`aa` の `fx`） | `tick`（時間切れのCT）。`use` が false を返してCTを自前で入れる | ― | `foxfire`（対象外、回転→待機→追尾） | ents `foxfire`（ヒトダマ風。キツネの絵の仮置き）、fx `kitsune`（通常攻撃） |
 | `yurei` | 螺旋を描く光弾が直進、判定は先頭だけ。ダメージは当たった敵の悪行に比例（0で1、手配中は即死）。壁で消える。パッシブ：壊せる壁をすり抜けて移動（`ghost`） | ― | ― | `enma`（対象外） | ents `enma`（先頭＋螺旋の光弾） |
-| `sora` | 試合開始から自動チャージ（撤退で0、発射で0）。発射でその場に止まりビーム照射（チャージ270秒までは0.5秒、270〜294秒で5秒まで伸びる。照射秒はキーフレームの第5列。向きは少しだけ変えられる）。キャラ貫通・多段ヒット、壊せる壁を壊して外壁で止まる。チャージ10秒以上で、キャラ・壁の長方形ごと・射程の端に1照射1回の爆発。性能はチャージのキーフレームの補間。ビームが当たっている大将は拠点移動しない（`Boss.holdUntil`） | `tick`（チャージ・照射）、`ended`（照射） | `solar`（lock・noAttack・cancel）、`solarCharge`（光の見た目用。チャージ秒を送る） | ― | status `solar`（光の帯）・`solarCharge`（光1つ／たくさんちらつく）、色 `solar` |
+| `sora` | 試合開始から自動チャージ（撤退で0、発射で0）。発射でその場に止まりビーム照射（チャージ270秒までは0.5秒、270〜294秒で5秒まで伸びる。照射秒はキーフレームの第5列。向きは少しだけ変えられる）。キャラ貫通・多段ヒット、壊せる壁を壊して外壁で止まる。チャージ10秒以上で、キャラ・壁の長方形ごと・射程の端に1照射1回の爆発。性能はチャージのキーフレームの補間。ビームが当たっている大将は拠点移動しない（`Boss.holdUntil`） | `tick`（チャージ・照射）、`ended`（照射） | `solar`（lock・still・noAttack・cancel）、`solarCharge`（光の見た目用。チャージ秒を送る） | ― | status `solar`（光の帯）・`solarCharge`（光1つ／たくさんちらつく）、色 `solar` |
 
 使用中の状態 key：`fistCharge` `dance` `drill` `charge` `rush` `overload` `overloadPose` `accel` `mochi` `lockon` `cloak` `leap` `solar` `solarCharge`
 使用中の場の物の種類：`fist` `funnel` `overload` `biiDecoy` `missile` `foxfire` `enma`

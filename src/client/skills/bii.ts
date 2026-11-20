@@ -1,4 +1,4 @@
-// 猫使ビィ: オーバーロード（加速中は足元に光の輪、残像（おとり）はビィのドットを水色で半透明に、予約した敵の頭上に印、終了時のポーズは万歳のコマ、爆発の色）
+// 猫使ビィ: オーバードライブ（加速中は足元に光の輪、残像（おとり）はビィのドットを水色で半透明に、予約した敵の頭上に印、終了時のポーズは万歳のコマ、爆発の色）
 import type Phaser from 'phaser';
 import type { ClientSkill } from './index';
 import { CONFIG as C } from '../../shared/config';
@@ -29,12 +29,14 @@ const skill: ClientSkill = {
         d.im.setPosition(Math.round(e.x), Math.round(e.y));
       },
     },
-    // 予約の印: 予約した敵の頭上に赤い照準（大将は体の大きさに合わせて上へ）
+    // 予約の印: 予約した敵の頭上に赤い照準（大将は体の大きさに合わせて上へ）。位置は対象の描画位置（補間）
     overload: {
       layer: 'fx',
-      draw(g, e, time) {
+      draw(g, e, time, _tc, pos) {
         for (const m of e.v ?? []) {
-          const x = m.x, y = m.y - (m.r > C.PLAYER_RADIUS ? m.r * 2.2 : MARK_UP), r = 6 + Math.sin(time / 90);
+          const q = pos(m.id);
+          if (!q) continue;
+          const x = q.x, y = q.y - (m.r > C.PLAYER_RADIUS ? m.r * 2.2 : MARK_UP), r = 6 + Math.sin(time / 90);
           g.lineStyle(2, 0xff3030, 0.95).strokeCircle(x, y, r).lineBetween(x - r - 3, y, x + r + 3, y).lineBetween(x, y - r - 3, x, y + r + 3);
         }
       },

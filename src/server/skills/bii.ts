@@ -1,4 +1,4 @@
-// 猫使ビィ: オーバーロード（加速・通常攻撃なし・残像のおとりを置く。触れた敵にダメージ予約 → 終了時にポーズ → 予約の全員へダメージ。途中で倒されたら不発）
+// 猫使ビィ: オーバードライブ（加速・通常攻撃なし・残像のおとりを置く。触れた敵にダメージ予約 → 終了時にポーズ → 予約の全員へダメージ。途中で倒されたら不発）
 import type { GameRoom, Player, Ent, Thing } from '../GameRoom';
 import { thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -15,7 +15,7 @@ const marked = (room: GameRoom, e: Ent) => (e.marks as Mark[])
   .filter((x): x is { m: Mark; t: Thing } => !!x.t && (x.t.k !== 'p' || x.t.o.koAt === x.m.ko))
   .map((x) => x.t);
 
-// オーバーロードの進行（ビィ1人に1つ。owner のビィが倒れたら予約ごと消える）
+// オーバードライブの進行（ビィ1人に1つ。owner のビィが倒れたら予約ごと消える）
 function update(room: GameRoom, e: Ent, dt: number) {
   const p = room.players.get(e.owner);
   if (!p?.alive || (!p.st.overload && !p.st.overloadPose)) return room.removeEnt(e); // 途中で倒された: 不発
@@ -24,7 +24,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
     if (room.now >= e.nextDecoy - 1e-9) { e.nextDecoy += B.every; decoy(room, p); } // 1e-9: 時刻の足し算の誤差でtickが1つずれないように
     // 触れた敵に予約（同じ敵は1回）
     if (room.phase === 'playing') for (const t of room.enemyThings(p.team)) {
-      if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t) || Math.hypot(t.x - p.x, t.y - p.y) > t.r + C.PLAYER_RADIUS) continue;
+      if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t) || Math.hypot(t.x - p.x, t.y - p.y) > t.r + B.touch) continue;
       const id = thingId(t);
       if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
     }
@@ -32,14 +32,14 @@ function update(room: GameRoom, e: Ent, dt: number) {
     // 終了: 予約がいればポーズ（硬直）、いなければ何もしない
     delete p.st.overload;
     if (!marked(room, e).length) return room.removeEnt(e);
-    p.st.overloadPose = { until: room.now + B.pose, lock: true, noAttack: true, cancel: true };
+    p.st.overloadPose = { until: room.now + B.pose, lock: true, still: true, noAttack: true, cancel: true };
   } else if (!room.stat(p, 'overloadPose')) {
     // ポーズの終わり: 予約の全員へダメージ
     delete p.st.overloadPose;
     for (const t of marked(room, e)) { room.hitThing(p, t, t.k === 'boss' ? B.bossDmg : B.dmg); room.addFx({ x: t.x, y: t.y, team: p.team }, 'aura', { r: t.r + 16, color: 'boom' }); }
     return room.removeEnt(e);
   }
-  e.v = marked(room, e).map((t) => ({ x: t.x, y: t.y, r: t.r })); // 予約の目印（両陣営に送る）
+  e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r })); // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く
 }
 
 // 残像（おとり）をその場に置く
@@ -58,7 +58,7 @@ const skill: Skill = {
     room.ents.push({ id: room.nextId++, kind: 'overload', team: p.team, owner: p.id, x: p.x, y: p.y, r: 0, body: null, marks: [], nextDecoy: room.now + B.every, v: [] });
     decoy(room, p); // 発動した位置に1つ目
   },
-  // Bot: オーバーロード中は、まだ予約していない一番近い敵へ寄る（通常の移動の代わり）
+  // Bot: オーバードライブ中は、まだ予約していない一番近い敵へ寄る（通常の移動の代わり）
   afterMove(room, p, dt, px, py, locked) {
     if (!p.bot || locked || !room.stat(p, 'overload')) return;
     const e = room.ents.find((x) => x.kind === 'overload' && x.owner === p.id);

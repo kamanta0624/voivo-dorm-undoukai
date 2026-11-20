@@ -25,7 +25,7 @@ export type StatusView = {
   bare?: boolean; // 足元の陣営色・HP・目印を出さず、敵のミニマップにも出さない
 };
 // 場の物の描画。layer: ground=床（資材などと同じ層）、fx=技のエフェクトの層。tc: 陣営色
-export type EntView = { layer: 'ground' | 'fx'; draw(g: G, e: any, time: number, tc: number): void };
+export type EntView = { layer: 'ground' | 'fx'; draw(g: G, e: any, time: number, tc: number, pos: (id: string) => { x: number; y: number } | null): void }; // pos: 対象のid（p:/boss:/c:/e:）→ 描画位置
 // 技の fx（サーバーの addFx）の描画を差し替える。color でどの技の fx か分かる。ms: 出している時間（既定 SKILL_FX_MS）、k: 0→1 の経過、s: 今のスナップショット
 export type FxView = { ms?: number; draw(g: G, f: any, time: number, k: number, s: any): void };
 export type ClientSkill = {

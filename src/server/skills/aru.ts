@@ -49,7 +49,7 @@ const skill: Skill = {
   // タメに入る（方向はこの瞬間に決める: 移動入力 → 照準の対象 → 向いている方向）
   use(room, p, a) {
     const [ix, iy] = room.moveIntent(p), at = room.now;
-    p.st.charge = { until: Infinity, at, lock: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.a, len: room.speedOf(p) * S.speed * S.dur, left: S.windup - (room.now - at) }) };
+    p.st.charge = { until: Infinity, at, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.a, len: room.speedOf(p) * S.speed * S.dur, left: S.windup - (room.now - at) }) };
     p.sk.a = ix || iy ? Math.atan2(iy, ix) : a;
   },
   afterMove: (room, p, dt) => step(room, p, dt),

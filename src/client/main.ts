@@ -1035,19 +1035,22 @@ class GameScene extends Phaser.Scene {
     const mine = s.players.find((p: any) => p.id === s.me);
     if (mine) {
       if (!mine.alive) this.face = mine.face;
-      const rp = mine.lock ? (this.interp.at(mine.id, now) ?? mine) : this.pred.render(this.acc / (C.NET_STEP * 1000), dtMs);
+      // その場で止まる lock（still）は補間に切り替えず、今の表示位置からサーバーの位置へなめらかに寄せる（補間は0.25秒前の位置なので後ろへ飛ぶ）。サーバーが動かす lock は補間
+      const step = (C.NET_CORR_SPEED * dtMs) / 1000, gap = Math.hypot(mine.x - this.me.x, mine.y - this.me.y);
+      const rp = mine.lock && mine.still && this.me.init ? (gap <= step ? mine : { x: this.me.x + ((mine.x - this.me.x) / gap) * step, y: this.me.y + ((mine.y - this.me.y) / gap) * step })
+        : mine.lock ? (this.interp.at(mine.id, now) ?? mine) : this.pred.render(this.acc / (C.NET_STEP * 1000), dtMs);
       Object.assign(this.me, { x: rp.x, y: rp.y, init: true });
     }
     const myTeam = mine?.team ?? 0;
     const sinceSnap = (now - this.snapAt) / 1000;
     const labelSeen = new Set<string>();
-    // 対象のid（p:/boss:/c:/e:）→ 位置
+    // 対象のid（p:/boss:/c:/e:）→ 描画位置（自キャラは this.me、他キャラ・大将・コバコは補間の位置。ユニットの描画と同じ）
     const thingPos = (id: string | null): { x: number; y: number } | null => {
       if (!id) return null;
       const k = id.slice(0, id.indexOf(':')), v = id.slice(id.indexOf(':') + 1);
-      if (k === 'p') { const q = s.players.find((q: any) => q.id === v); return q ? (q.id === s.me ? this.me : q) : null; }
-      if (k === 'boss') return s.bosses.find((b: any) => String(b.team) === v) ?? null;
-      if (k === 'c') return s.couriers.find((c: any) => String(c.id) === v) ?? null;
+      if (k === 'p') { const q = s.players.find((q: any) => q.id === v); return q ? (q.id === s.me ? this.me : (this.interp.at(q.id, now) ?? q)) : null; }
+      if (k === 'boss') { const b = s.bosses.find((b: any) => String(b.team) === v); return b ? (this.interp.at('boss' + b.team, now) ?? b) : null; }
+      if (k === 'c') { const c = s.couriers.find((c: any) => String(c.id) === v); return c ? (this.interp.at('c' + c.id, now) ?? c) : null; }
       if (k === 'e') return s.ents.find((e: any) => String(e.id) === v) ?? null;
       return null;
     };
@@ -1253,7 +1256,7 @@ class GameScene extends Phaser.Scene {
       for (const k in STATUS_VIEW) if (p.st?.[k]) STATUS_VIEW[k].fx?.(fxG, { x: pos.x, y: pos.y, time, v: p.st[k] });
     }
     for (const m of CLIENT_SKILLS) m.frame?.(fxG, time);
-    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team));
+    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
     for (const sh of s.shots) {
       if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）
       if (sh.kind === 'cannon') fxG.fillStyle(0xc87a3a).fillCircle(sh.x, sh.y, 5).lineStyle(1, 0x5a3010).strokeCircle(sh.x, sh.y, 5); // きりたん砲
@@ -1268,7 +1271,7 @@ class GameScene extends Phaser.Scene {
       this.drawItem(g, it);
       this.label(`item${it.id}`, ITEM_LABEL[it.kind], it.x, it.y - 15, '', labelSeen);
     }
-    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team));
+    for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team), thingPos);
 
     // 視界（観戦者はフォグなし）
     const vg = this.visG.clear().fillStyle(0xffffff);
