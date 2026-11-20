@@ -29,17 +29,20 @@ function update(room: GameRoom, e: Ent, dt: number) {
       if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
     }
   } else if (p.st.overload) {
-    // 終了: 予約がいればポーズ（硬直）、いなければ何もしない
+    // 終了: 予約がいればポーズ（硬直）、いなければ何もしない。ポーズの終わり＝爆発は技の終了時刻＋pose（予約の残り秒の表示と一致させる）
+    const end = p.st.overload.until;
     delete p.st.overload;
     if (!marked(room, e).length) return room.removeEnt(e);
-    p.st.overloadPose = { until: room.now + B.pose, lock: true, still: true, noAttack: true, cancel: true };
+    p.st.overloadPose = { until: end + B.pose, lock: true, still: true, noAttack: true, cancel: true };
   } else if (!room.stat(p, 'overloadPose')) {
     // ポーズの終わり: 予約の全員へダメージ
     delete p.st.overloadPose;
     for (const t of marked(room, e)) { room.hitThing(p, t, t.k === 'boss' ? B.bossDmg : B.dmg); room.addFx({ x: t.x, y: t.y, team: p.team }, 'aura', { r: t.r + 16, color: 'boom' }); }
     return room.removeEnt(e);
   }
-  e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r })); // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く
+  // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く。at: 爆発の時刻（技の終了時刻＋pose）、left: 爆発までの残り秒
+  const at = p.st.overloadPose?.until ?? (p.st.overload?.until ?? room.now) + B.pose;
+  e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r, at, left: Math.max(0, at - room.now) }));
 }
 
 // 残像（おとり）をその場に置く

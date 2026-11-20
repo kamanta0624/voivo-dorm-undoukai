@@ -3,7 +3,7 @@ import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/ser
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
-import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk } from '../src/shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
@@ -139,7 +139,7 @@ console.log('--- ロール倍率・特性');
 const roles: Record<string, string> = { hanamaru: 'balance', sayo: 'attacker', zunko: 'attacker', whitecul: 'speed', aru: 'speed', mochiko: 'defense', metan: 'defense', ierutan: 'support', bii: 'support' };
 for (const [ch, role] of Object.entries(roles)) {
   const { r, A } = mk(ch, 'sayo'); const R = C.ROLES[role], k = melee(ch) ? MB : { hp: 1, speed: 1, atk: 1 };
-  const t = mk(ch, 'sayo'); const h0 = t.B.hp; t.r.attack('a'); if (CHARS[ch].aa[0].kind === 'shot') t.r.updateShots(0.2);
+  const t = mk(ch, 'sayo'); const h0 = t.B.hp; t.r.attack('a'); if (aaMode(ch, null).kind === 'shot') t.r.updateShots(0.2); // 対象なし＝遠い扱い（ずん子は遠距離）
   ok(`${ch}（${role}${melee(ch) ? '・近接補正' : ''}）HP${r.maxHp(A).toFixed(1)} 移動${r.speedOf(A).toFixed(1)} 攻撃${h0 - t.B.hp} 視界${visionRadius(ch)}`,
     Math.abs(r.maxHp(A) - C.PLAYER_HP * R.hp * k.hp) < 1e-9 && Math.abs(r.speedOf(A) - C.PLAYER_SPEED * R.speed * k.speed) < 1e-9 && h0 - t.B.hp === Math.round(C.ATTACK_DAMAGE * R.atk * k.atk * C.DAMAGE_MULT) && visionRadius(ch) === C.VISION_RADIUS * R.vision);
 }
@@ -862,7 +862,7 @@ console.log('--- 攻撃間隔（近接・遠距離・きりたんの切り替え
   const kn = gap('kiritan'); // 近い対象（隣） → 包丁
   kn; // 隣の敵は p.tgt なし＝遠い扱いなので、包丁は対象が近いときで確認する
   const kn2 = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x, y: z.B.y, r: 10 }; });
-  ok(`近接は${C.ATTACK_COOLDOWN_MELEE}秒、遠距離（zunko・きりたん砲）は${C.ATTACK_COOLDOWN_RANGED}秒、きりたんの包丁（近い対象）は近接`, me.t0 === C.ATTACK_COOLDOWN_MELEE && me.blocked && zu.t0 === C.ATTACK_COOLDOWN_RANGED && kf.t0 === C.ATTACK_COOLDOWN_RANGED && kn2.t0 === C.ATTACK_COOLDOWN_MELEE, { me: me.t0, zu: zu.t0, cannon: kf.t0, knife: kn2.t0 });
+  ok(`近接は${C.ATTACK_COOLDOWN_MELEE}秒、遠距離はきりたん砲${C.ATTACK_COOLDOWN_RANGED}秒・ずん子${CHARS.zunko.aa[1].cd}秒、きりたんの包丁（近い対象）は近接`, me.t0 === C.ATTACK_COOLDOWN_MELEE && me.blocked && Math.abs(zu.t0 - CHARS.zunko.aa[1].cd) < 1e-9 && kf.t0 === C.ATTACK_COOLDOWN_RANGED && kn2.t0 === C.ATTACK_COOLDOWN_MELEE, { me: me.t0, zu: zu.t0, cannon: kf.t0, knife: kn2.t0 });
   const a = mk('sayo', 'metan'); a.A.aim = 'nearest'; delete a.A.st.test; a.r.updatePlayers(0.05); const h1 = a.B.hp; a.r.now += C.ATTACK_COOLDOWN_MELEE - 0.1; a.r.updatePlayers(0.05); const h2 = a.B.hp; a.r.now += 0.1; a.r.updatePlayers(0.05);
   ok('オートアタックも同じ間隔（手動の SPACE と共通）', h2 === h1 && a.B.hp < h1);
 }
@@ -1311,6 +1311,13 @@ console.log('--- 猫使ビィ（オーバードライブ）');
   const sl = mk('bii'); sl.A.st.x = { until: Infinity, lock: true, still: true }; const s1 = sl.r.stillLock(sl.A); sl.A.st.y = { until: Infinity, lock: true }; const s2 = sl.r.stillLock(sl.A); delete sl.A.st.x; delete sl.A.st.y; const s3 = sl.r.stillLock(sl.A);
   ok('ポーズはその場で止まる lock（still）。still は有効な lock がすべて still のときだけ（サーバーが動かす lock が混ざれば補間）', stillPose && s1 && !s2 && !s3, { stillPose, s1, s2, s3 });
   ok(`終了時にポーズ（硬直${B.pose}秒）→ 予約の全員へダメージ（${B.dmg}×全体の倍率、1回だけ）`, pose && hpPose[0] === 9999 && hpPose[1] === 9999 && 9999 - h.B.hp === want[0] && 9999 - Cc.hp === want[1] && !h.r.stat(h.A, 'overloadPose'), { pose, b: 9999 - h.B.hp, c: 9999 - Cc.hp, want });
+  // 爆発のカウントダウン: 予約の目印に爆発の時刻（技の終了時刻＋pose）と残り秒。残りが0になる tick でダメージ。予約後に倒れた相手の目印は消える
+  const cd = mk('bii', 'metan'); cd.r.addPlayer('c', 1, false); const Cd = cd.r.players.get('c'); Object.assign(Cd, { char: 'sayo', alive: true, x: 1552 + 200, y: 900, hp: 9999 }); Cd.st.test = NOAUTO();
+  Object.assign(cd.B, { x: 1552 + 5, hp: 9999 }); cd.r.skill('a'); const until = cd.A.st.overload.until; run(cd, 0.2);
+  const v0 = ov(cd).v[0], at = v0.at, left0 = v0.left; Object.assign(cd.A, { x: 1552 + 195 }); run(cd, 0.2); Object.assign(cd.A, { x: 1552 - 300 }); // C にも予約してから離れる
+  cd.r.damagePlayer(Cd, 1e9, 'a'); run(cd, 0.05); const afterKo = ov(cd).v.map((m: any) => m.id);
+  let hitAt = -1, lastLeft = -1; for (let i = 0; i < 80 && hitAt < 0; i++) { const e0 = ov(cd); if (e0) lastLeft = e0.v[0]?.left ?? -1; const b0 = cd.B.hp; run(cd, 0.05); if (cd.B.hp < b0) hitAt = cd.r.now; }
+  ok(`爆発のカウントダウン: 予約の目印に爆発の時刻（技の終了＋${B.pose}秒）と残り秒を送り、残りが0になる tick でダメージ。予約後に倒れた相手の目印は消える`, Math.abs(at - (until + B.pose)) < 1e-9 && Math.abs(left0 - (at - 0.2)) < 1e-6 && hitAt >= at - 1e-9 && hitAt < at + 0.05 + 1e-9 && lastLeft > 0 && lastLeft <= 0.05 + 1e-9 && afterKo.join() === 'p:b', { at, left0, hitAt, lastLeft, afterKo });
   // 接触範囲: 中心間 敵の半径＋touch 以内で予約（プレイヤー同士の接触 20px より広い）
   const tr = (dx: number) => { const z = mk('bii', 'metan'); z.B.st.test = NOAUTO(); Object.assign(z.B, { x: 1552 + dx, y: 900 }); z.r.skill('a'); run(z, 0.05); return ov(z).marks.length; };
   const edge = C.PLAYER_RADIUS + B.touch;
@@ -1434,7 +1441,7 @@ console.log('--- 友人テストの反映（通常攻撃の見た目・撃破の
   const sl = mk('sayo', 'metan'); sl.r.attack('a', 0);
   const f = sl.r.fx.find((x: any) => x.kind === 'slash'), sw = sl.r.fx.find((x: any) => x.kind === 'sweat');
   ok('近接の通常攻撃: 斬撃（攻撃の向き・射程・角度）と、当たった側に汗', f && f.a === 0 && f.r === CHARS.sayo.aa[0].range && f.arc === C.ATTACK_ARC && sw && sw.x === sl.B.x && sw.y === sl.B.y);
-  const zs = mk('zunko', 'metan'); zs.A.tgt = { k: 'p', o: zs.B, x: zs.B.x, y: zs.B.y, r: C.PLAYER_RADIUS }; zs.r.attack('a', 0); const noSlash = !zs.r.fx.some((x: any) => x.kind === 'slash'); zs.r.updateShots(0.5);
+  const zs = mk('zunko', 'metan'); zs.B.x = zs.A.x + 150; /* 近接に切り替わらない距離 */ zs.A.tgt = { k: 'p', o: zs.B, x: zs.B.x, y: zs.B.y, r: C.PLAYER_RADIUS }; zs.r.attack('a', 0); const noSlash = !zs.r.fx.some((x: any) => x.kind === 'slash'); zs.r.updateShots(0.5);
   ok('遠距離の通常攻撃: 斬撃は出さず、当たった側に汗', noSlash && zs.r.fx.some((x: any) => x.kind === 'sweat') && zs.B.hp < zs.r.maxHp(zs.B));
   const sk = mk('whitecul', 'metan'); sk.r.skill('a'); ok('技の命中では汗を出さない', !sk.r.fx.some((x: any) => x.kind === 'sweat'));
   // 撃破の表示: 倒した側へ ko（相手・手段）、倒された側へ koed（相手のキャラ・手段）
@@ -1757,6 +1764,33 @@ console.log('--- プレイテスト3（Botのリコール判断・撃破後の�
   sh.r.shots.push({ id: 99, kind: 'bullet', team: 1, owner: A3.id, x: 1552 + 200, y: 900, vx: -300, vy: 0, sp: 300, left: 400, dmg: 10, aa: true });
   sh.r.damagePlayer(A3, 1e9, 'a'); sh.r.updateShots(0.05);
   ok('倒れたアシストの弾は消える（いないものとして扱う）', !sh.r.shots.some((x: any) => x.id === 99));
+}
+
+console.log('--- 東北ずん子（tune1: パンチ・遠距離・誘導するずんだアロー・餅の攻撃力）');
+{
+  const Z = CHARS.zunko, S = Z.skill, [pu, rg] = Z.aa, kn = CHARS.kiritan.aa[0], hm = CHARS.hanamaru.aa[0];
+  const abs = (ch: string, m: any) => charAtk(ch) * m.dmg;
+  ok(`近接（${pu.name}）と遠距離の2モード（きりたんと同じ。対象が${rg.far}pxより遠ければ遠距離）`, Z.aa.length === 2 && pu.kind === 'melee' && pu.name === 'パンチ' && rg.kind === 'shot' && rg.far === CHARS.kiritan.aa[1].far && aaMode('zunko', 30) === pu && aaMode('zunko', 200) === rg);
+  ok(`パンチ: 1発は包丁より強く（${abs('zunko', pu).toFixed(1)} ＞ ${abs('kiritan', kn).toFixed(1)}）、DPS は花丸の通常攻撃より低い（${(abs('zunko', pu) / pu.cd).toFixed(1)} ＜ ${(abs('hanamaru', hm) / hm.cd).toFixed(1)}）`, abs('zunko', pu) > abs('kiritan', kn) && abs('zunko', pu) / pu.cd < abs('hanamaru', hm) / hm.cd);
+  ok(`遠距離: CT ${rg.cd}秒（旧1.5）、弾速 ${rg.speed}（旧600）`, rg.cd < 1.5 && rg.speed! > 600);
+  // ずんだアロー: 上へ歩き続ける対象を、曲がりながら追って当たる。1tickに曲がる角度は turn×dt まで
+  const run = (z: any, n: number, each: () => void = () => {}) => { const angs: number[] = []; for (let i = 0; i < n; i++) { each(); const sh = z.r.shots.find((x: any) => x.kind === 'arrow'); if (sh) angs.push(Math.atan2(sh.vy, sh.vx)); z.r.now += 0.05; z.r.updateShots(0.05); } return angs; };
+  const turns = (a: number[]) => a.slice(1).map((x, i) => Math.abs(Math.atan2(Math.sin(x - a[i]), Math.cos(x - a[i]))));
+  const h = mk('zunko', 'sayo'); h.B.st.test = NOAUTO(); Object.assign(h.B, { x: 1552 + 260, y: 900, hp: 9999 }); h.r.skill('a');
+  const ah = run(h, 12, () => { h.B.y -= 9; }), th = turns(ah), maxT = Math.max(...th);
+  ok(`ずんだアロー: 弾速${S.arrowSpeed}で、動く対象を曲がりながら追って当たる（1tickの旋回は ${(S.turn * 0.05 * 180 / Math.PI).toFixed(1)}° まで、毎秒${(S.turn * 180 / Math.PI).toFixed(0)}°）`, !!h.B.st.mochi && maxT > 0.01 && maxT <= S.turn * 0.05 + 1e-9 && Math.hypot(h.r.shots[0]?.vx ?? S.arrowSpeed, 0) > 0, { mochi: !!h.B.st.mochi, maxTurnDeg: maxT * 180 / Math.PI });
+  // 急な切り返し（対象が真後ろへ）は追えない
+  const b = mk('zunko', 'sayo'); b.B.st.test = NOAUTO(); Object.assign(b.B, { x: 1552 + 150, y: 900, hp: 9999 }); b.r.skill('a'); run(b, 1); Object.assign(b.B, { x: 1552 - 60, y: 900 + 60 });
+  const ab = run(b, 20), tb = turns(ab);
+  ok('旋回の上限を超える切り返し（真後ろへ回り込む）は追えず外れる', !b.B.st.mochi && Math.max(...tb) <= S.turn * 0.05 + 1e-9, { maxTurnDeg: Math.max(...tb) * 180 / Math.PI });
+  // 対象が倒れたら直進
+  const o = mk('zunko', 'sayo'); o.B.st.test = NOAUTO(); Object.assign(o.B, { x: 1552 + 300, y: 900 + 150 }); o.r.skill('a'); run(o, 2); o.r.damagePlayer(o.B, 1e9, 'a'); const ao = run(o, 4);
+  ok('対象が倒れたら（対象にならなくなったら）直進する', ao.length > 1 && turns(ao).every((x) => x < 1e-9), { n: ao.length });
+  // 餅の間は与えるダメージ ×atk（通常攻撃・技とも）
+  const m = mk('sayo', 'metan'); m.B.hp = 9999; m.r.hitThing(m.A, { k: 'p', o: m.B, x: m.B.x, y: m.B.y, r: 10 }, 10); const d0 = 9999 - m.B.hp;
+  m.A.st.mochi = { until: m.r.now + S.dur, speed: S.speed, noSkill: true, atk: S.atk }; m.B.hp = 9999; m.r.hitThing(m.A, { k: 'p', o: m.B, x: m.B.x, y: m.B.y, r: 10 }, 10, true); const d1 = 9999 - m.B.hp;
+  const z2 = mk('zunko', 'sayo'); z2.B.st.test = NOAUTO(); Object.assign(z2.B, { x: 1552 + 100, y: 900 }); z2.r.skill('a'); run(z2, 4);
+  ok(`ずんだ餅の間は与えるダメージ×${S.atk}（通常攻撃・技とも）。ずんだアローの餅に付く`, Math.abs(d1 - d0 * S.atk) <= 1 && z2.B.st.mochi?.atk === S.atk, { d0, d1 });
 }
 
 console.log('--- 九州そら（ソーラーキャノン）');

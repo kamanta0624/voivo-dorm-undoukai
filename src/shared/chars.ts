@@ -38,7 +38,10 @@ export const CHARS: Record<string, CharDef> = {
   // 触れた敵（中心間 敵の半径＋touch px 以内のプレイヤー・大将）にダメージ予約（同じ敵は1回のオーバードライブで1回）。終了時に予約が1人以上いれば pose 秒ポーズで硬直してから予約の全員へ dmg（大将へは bossDmg）。途中で倒されたら不発。Bot: 敵が botRange 内なら使い、予約していない敵へ寄る
   bii: def({ desc: 'しばらく足が速くなり、残像（おとり）を残しながら走る。触れた敵に印を付け、終わるとポーズして印の敵全員にダメージ（途中で倒されると不発）', role: 'support', skill: { name: 'オーバードライブ', ct: 10, dur: 1.5, touch: 40, speed: 1.6, every: 0.2, decoyLife: 1, decoyHp: 1, pose: 0.5, dmg: 60, bossDmg: 30, botRange: 150 } }),
   ierutan: def({ desc: 'まわりの味方と自分の足を速くし、しばらく回復し続ける', role: 'support', skill: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 } }), // regen: 効果中の毎秒の回復量
-  zunko: def({ desc: '矢を撃ち、当たった敵をずんだ餅にする（足が遅くなり、技が使えない）', role: 'attacker', melee: false, aa: [{ name: '遠距離', kind: 'shot', range: 200, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 1, shot: 'bullet', speed: C.BULLET_SPEED }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5 } }), // 当たった敵はずんだ餅（移動×speed、技不可）
+  // 東北ずん子: 近接のパンチと遠距離（きりたんと同じ2モード。対象が far より遠ければ遠距離）。数値は仮置き（パンチは包丁より1発が強く、DPS は花丸の通常攻撃より低い）
+  // ずんだアロー: 発射時の照準の対象1体を追う矢（弾速 arrowSpeed、進行方向は毎秒 turn ラジアンまでしか曲がらない。対象が倒れた・対象にならなくなったら直進。壁・life 秒で消える）
+  // 当たった敵はずんだ餅（dur 秒、移動×speed、技不可、与えるダメージ×atk。無敵の相手には効かない）。range: 対象を選ぶ射程
+  zunko: def({ desc: 'ずんだアロー（簡）を放つ。運動会中はずんだもんを呼び出さず、気合いで放っている。矢は狙った敵を追って少しだけ曲がり、当たった敵をずんだ餅にする（足が遅くなり、技が使えず、与えるダメージが半分になる）', role: 'attacker', melee: false, aa: [{ ...MELEE, name: 'パンチ', dmg: 0.9, cd: 1.1 }, { name: '遠距離', kind: 'shot', range: 200, cd: 1.2, dmg: 1, shot: 'bullet', speed: 800, far: 60 }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5, atk: 0.5, arrowSpeed: 900, turn: (Math.PI * 2) / 3, life: 0.6 } }),
   // 足が遅い。対象が 60 より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁
   // 全弾斉射: 1回目でロックオン（射程 range 内の敵に近い順で lockEvery 秒ごとに1体ずつ。最大 lockMax 秒）、2回目でロックした全員へホーミング弾（総数 perTarget × volleys 発をロックした人数で均等に分け、割り切れない余りはロック順に1発ずつ足す。各自の分を volleys 回に分けて volleyGap 秒おき、1発 dmg）。CT は発射（またはロックの時間切れ）から
   // 弾道（3種を順に）: straight=直進して追う、spread=左右へゆっくり展開（spreadT 秒、spreadSpeed）→加速（accel）して目標へ、brake=前方／後方へ偏差的に速く飛ぶ（leadT 秒、leadSpeed、leadAngle）→急制動（brakeT 秒）→目標へ。速さの上限 maxSpeed、life 秒で消える、弾の半径 r。目標が着弾前に倒れた（撤退・消滅・対象にならない状態を含む）弾は、その時点の進行方向へ orphanSpeed で直進し、life の残り・壁・敵（コバコを含む。最初に当たった敵にダメージ、コバコはKO）で消える
