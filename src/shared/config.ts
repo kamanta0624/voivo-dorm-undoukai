@@ -222,16 +222,21 @@ export const CONFIG = {
       plain: { name: 'リーチのみ', win: 20, miss: 70, sec: 1.5 },
       chibi: { name: 'ちびキャラ', win: 30, miss: 20, sec: 3 },
       cutin: { name: 'カットイン', win: 30, miss: 8, sec: 3 },
-      fish: { name: '魚群', win: 20, miss: 2, sec: 3 },
+      fish: { name: '魚群', win: 14, miss: 2, sec: 3 },
+      fishSp: { name: '特別な魚群', win: 6, miss: 0.2, sec: 3 }, // 画面全体の視界外を使う（special）。通常の魚群より信頼度が高い
     } as Record<string, { name: string; win: number; miss: number; sec: number }>,
     allSpinSec: 3, // 全回転の秒数
     colors: ['白', '青', '緑', '赤', '虹'], // 保留の色（期待度の順）。虹は当選確定（外れ時0）
     colorWin: [40, 20, 15, 20, 5], colorMiss: [91, 6, 2, 1, 0], // 保留の色の選択率（当選時・外れ時。転落は外れと同じ）
     sakibare: { win: 0.3, miss: (0.3 * (1 / 120) * 0.6) / (0.4 * (119 / 120)) }, // 先バレの発生率（当選時・外れ時）。外れ時は徳5の通常で信頼度40%になる固定値。転落では出さない
-    special: ['allSpin'], // 画面全体の視界外を使える特別な演出（それ以外は視界外の隅だけ）
+    special: ['allSpin', 'fishSp'], // 画面全体の視界外を使える特別な演出（それ以外は視界外の隅だけ）
     // 演出を出せる範囲（論理解像度 VIEW_W×VIEW_H の座標）。視界は画面中央・半径 VISION_RADIUS の円。キルログ域は #fx .kills（上から22%・3行）の仮の外枠
     area: { killLog: { x: 230, y: 76, w: 180, h: 56 } },
     fish: { n: 7, speed: 170, gap: 26 }, // 魚群: 匹数・速さ(px/秒)・間隔(px)
+    fishSp: { n: 12, speed: 220, gap: 30, scale: 1.5, rows: [26, 300] }, // 特別な魚群: 匹数・速さ・間隔・表示倍率・横切る高さ（上下2列。論理解像度の y）
+    // リールの絵柄 1〜9（添字＋1が絵柄の番号）。player:n＝陣営のプレイヤー n 番目、assist:n＝アシスト n 番目（ASSIST.units の順）、boss＝陣営の大将
+    // add: そろったときの当たりの強さ（通常時はアシストのレベル、CT・引き戻しは +add）。2＝良い当たり、1＝良くない当たり。7（大将）は将来別扱いにするため絵柄ごとに持つ
+    reel: { syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'boss', 'assist:3', 'player:3'], add: [2, 1, 2, 1, 2, 1, 2, 1, 2] },
   },
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
   POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ

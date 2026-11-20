@@ -1,10 +1,14 @@
 // モダンのスロットの単体画面（handoff_slot2 E章）。抽選は src/shared/slot_modern.ts、演出は src/client/slot_modern_fx.ts を呼ぶだけ
 import { CONFIG as C } from '../shared/config';
+import { BOSS_CHAR } from '../shared/chars';
 import { ModernSlot, reliability, lvText, Hold, Ev, Mode } from '../shared/slot_modern';
 import { ModernFx, HOLD_COLORS } from './slot_modern_fx';
 
 const spec = structuredClone(C.SLOT_MODERN) as typeof C.SLOT_MODERN; // 画面から書き換える（定数ファイルは変えない）
-const CHARS = ['hanamaru', 'sayo', 'metan', 'kiritan']; // リールの絵柄・魚群のキャラ（仮置き: 1陣営4人）
+const CHARS = ['hanamaru', 'sayo', 'metan', 'kiritan']; // 陣営のプレイヤー（仮置き: 単体画面には編成が無い）。魚群にも使う
+const ASSISTS = Object.keys(C.ASSIST.units), BOSS = BOSS_CHAR[0]; // 陣営の切替は無いので陣営0の大将
+// リールの絵柄 1〜9 → キャラ（SLOT_MODERN.reel.syms）
+const SYMS = spec.reel.syms.map((s) => (s === 'boss' ? BOSS : s.startsWith('assist:') ? ASSISTS[Number(s.slice(7))] : CHARS[Number(s.slice(7))]));
 const MODE_NAME: Record<Mode, string> = { normal: '通常', ct: 'CT', back: '引き戻し' };
 const OUT_NAME: Record<string, string> = { win: '当選', miss: '外れ', fall: '転落' };
 const actName = (a: string | null) => (a === 'allSpin' ? '全回転' : a ? spec.reach[a].name : '');
@@ -41,6 +45,7 @@ document.body.innerHTML = `<div id="app">
 <h3>手動発火（次に回る保留を差し替え）</h3>
 <div class="row">当否 <select id="fOut"><option value="win">当選</option><option value="miss">外れ</option></select>
 <button id="fReach">リーチ</button><select id="fAct">${Object.keys(spec.reach).map((k) => `<option value="${k}">${spec.reach[k].name}</option>`).join('')}</select>
+そろい目 <select id="fSym"><option value="">おまかせ</option>${spec.reel.syms.map((_, i) => `<option value="${i + 1}">${i + 1}${spec.reel.add[i] === 2 ? '（良）' : ''}</option>`).join('')}</select>
 <button id="fAll">全回転（当選）</button><button id="fSaki">先バレ</button><button id="fColor">保留の色</button><select id="fCol">${spec.colors.map((c, i) => `<option value="${i}">${c}</option>`).join('')}</select>
 <button id="fHigh">高確率保留</button><button id="fFall">転落</button></div>
 <h3>統計</h3><div id="stats"></div></div>
@@ -51,7 +56,7 @@ document.body.innerHTML = `<div id="app">
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const k = spec.area.killLog; Object.assign($('#kl').style, { left: `${k.x}px`, top: `${k.y}px`, width: `${k.w}px`, height: `${k.h}px` });
-const fx = new ModernFx($('#hud'), $('#layer'), CHARS, '#f0a030');
+const fx = new ModernFx($('#hud'), $('#layer'), SYMS, CHARS, '#f0a030');
 fx.idle(performance.now());
 const save = (key: string, v: string) => { try { localStorage.setItem(key, v); } catch {} };
 const load = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -78,27 +83,18 @@ function newStats() {
 
 let slot = new ModernSlot(spec, 5);
 let speed = 1, paused = false, last = performance.now(), idleAt = 0;
-const reelsOf = new Map<Hold, number[]>();
 const logLines: string[] = [];
 const log = (s: string) => { logLines.push(s); if (logLines.length > 60) logLines.shift(); };
-const rnd = (n: number) => Math.floor(Math.random() * n);
-function reelsFor(h: Hold) {
-  const n = CHARS.length, a = rnd(n);
-  if (h.outcome === 'fall') return [-1, -1, -1];
-  if (h.outcome === 'win') return [a, a, a];
-  if (h.act) return [a, a, (a + 1 + rnd(n - 1)) % n];
-  return [a, (a + 1 + rnd(n - 1)) % n, rnd(n)];
-}
 
 function onEv(e: Ev, show: boolean, now: number) {
   const tt = e.t.toFixed(1).padStart(7);
   if (e.type === 'hold') { if (!e.hold.forced) st.draws++; if (show && e.hold.saki) fx.sakibare(); }
   else if (e.type === 'discard') { st.draws++; st.discards++; }
   else if (e.type === 'spin') {
-    const r = reelsFor(e.hold); reelsOf.set(e.hold, r);
+    const r = e.hold.reels;
     if (!show) return;
     const sec = (e.end - e.t);
-    if (sec > 0) { fx.spin(now, r, e.hold.act); if (e.hold.act === 'allSpin') fx.allSpinFx(CHARS[r[0]], sec); else fx.reach(e.hold.act!, CHARS[r[0]], sec, e.hold.outcome === 'win'); }
+    if (sec > 0) { fx.spin(now, r, e.hold.act); if (e.hold.act === 'allSpin') fx.allSpinFx(SYMS[r[0] - 1], sec); else fx.reach(e.hold.act!, SYMS[r[0] - 1], sec, e.hold.outcome === 'win'); }
   } else if (e.type === 'stop') {
     const h = e.hold, w = h.outcome === 'win' ? 1 : 0;
     st.spins[e.mode]++; st.wins[e.mode] += w;
@@ -107,9 +103,8 @@ function onEv(e: Ev, show: boolean, now: number) {
     if (h.saki) { st.saki.n++; st.saki.win += w; }
     if (h.high) { st.high.n++; st.high.win += w; }
     st.color[h.color].n++; st.color[h.color].win += w;
-    if (h.act || h.saki || h.outcome !== 'miss' || h.high || h.color) log(`${tt}s 徳${h.toku.toFixed(1)} ${MODE_NAME[e.mode].padEnd(4, '　')} ${OUT_NAME[h.outcome]} ${h.act ? `リーチ:${actName(h.act)}` : ''} 色:${spec.colors[h.color]}${h.saki ? ' 先バレ' : ''}${h.high ? ' 高確率' : ''}`);
-    if (show) { fx.stop(reelsOf.get(h) ?? reelsFor(h), h.outcome); idleAt = now + Math.min(600, spec.interval[slot.mode] * 500); }
-    reelsOf.delete(h);
+    if (h.act || h.saki || h.outcome !== 'miss' || h.high || h.color) log(`${tt}s 徳${h.toku.toFixed(1)} ${MODE_NAME[e.mode].padEnd(4, '　')} ${OUT_NAME[h.outcome]} [${h.reels.join('')}] ${h.act ? `リーチ:${actName(h.act)}` : ''} 色:${spec.colors[h.color]}${h.saki ? ' 先バレ' : ''}${h.high ? ' 高確率' : ''}`);
+    if (show) { fx.stop(h.reels, h.outcome); idleAt = now + Math.min(600, spec.interval[slot.mode] * 500); }
   } else if (e.type === 'win') {
     if (e.first) st.first.push(e.t - st.normalAt);
     st.maxLv.power = Math.max(st.maxLv.power, slot.lv.power); st.maxLv.assist = Math.max(st.maxLv.assist, slot.lv.assist);
@@ -198,12 +193,14 @@ sakiEl.checked = load('slotSaki') !== '0'; sndEl.checked = load('slotSnd') !== '
 const applyCustom = () => { fx.sakiOn = sakiEl.checked; fx.sound = sndEl.checked; save('slotSaki', sakiEl.checked ? '1' : '0'); save('slotSnd', sndEl.checked ? '1' : '0'); };
 sakiEl.onchange = sndEl.onchange = applyCustom; applyCustom();
 const out = () => $<HTMLSelectElement>('#fOut').value as 'win' | 'miss';
-$('#fReach').onclick = () => slot.force({ outcome: out(), act: $<HTMLSelectElement>('#fAct').value });
-$('#fAll').onclick = () => slot.force({ outcome: 'win', act: 'allSpin' });
-$('#fSaki').onclick = () => slot.force({ outcome: out(), saki: true });
-$('#fColor').onclick = () => slot.force({ outcome: out(), color: Number($<HTMLSelectElement>('#fCol').value) });
+// 当選のそろい目（おまかせ＝払い出しの抽選に合う絵柄）
+const sym = (o: string) => { const v = Number($<HTMLSelectElement>('#fSym').value); return o === 'win' && v ? { reels: [v, v, v] } : {}; };
+$('#fReach').onclick = () => slot.force({ outcome: out(), act: $<HTMLSelectElement>('#fAct').value, ...sym(out()) });
+$('#fAll').onclick = () => slot.force({ outcome: 'win', act: 'allSpin', ...sym('win') });
+$('#fSaki').onclick = () => slot.force({ outcome: out(), saki: true, ...sym(out()) });
+$('#fColor').onclick = () => slot.force({ outcome: out(), color: Number($<HTMLSelectElement>('#fCol').value), ...sym(out()) });
 $('#fHigh').onclick = () => { slot.nextHigh = true; };
 $('#fFall').onclick = () => slot.force({ outcome: 'fall' });
 
-(window as any).slotPage = { get slot() { return slot; }, get stats() { return st; }, spec, renderStats };
+(window as any).slotPage = { get slot() { return slot; }, get stats() { return st; }, spec, renderStats, fx };
 requestAnimationFrame(loop);

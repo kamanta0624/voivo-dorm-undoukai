@@ -1,5 +1,5 @@
 // モダンのスロットの演出（handoff_slot2 D章）。DOM だけで描く（試合の HUD #fx にも載せられるように）
-// hud: リール・保留・モード表示を入れる要素。layer: 論理解像度 VIEW_W×VIEW_H の演出用の要素（拡大は呼び出し側）。演出は視界の円・キルログ域を抜いたマスクの中だけに出る（special は視界の円だけ抜く）
+// hud: リール・保留・モード表示を入れる要素。syms: リールの絵柄 1〜9 のキャラ（添字＋1が番号）。chars: 魚群のキャラ（陣営のプレイヤー）。layer: 論理解像度 VIEW_W×VIEW_H の演出用の要素（拡大は呼び出し側）。演出は視界の円・キルログ域を抜いたマスクの中だけに出る（special は視界の円だけ抜く）
 // 素材は加工しない（表示時の拡大・位置のみ）
 import { CONFIG as C } from '../shared/config';
 import type { Hold, Mode } from '../shared/slot_modern';
@@ -15,7 +15,9 @@ const CSS = `
 .mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
 .mfx-sl.win{border-color:#ffd700;box-shadow:0 0 6px #ffd700}
 .mfx-sl.flash{animation:mfxflash .5s ease-out}
-.mfx-ic{width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box}
+.mfx-ic{position:relative;width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box}
+.mfx-ic[data-n]::after{content:attr(data-n);position:absolute;right:0;bottom:-1px;font:900 6px sans-serif;color:#fff;-webkit-text-stroke:.4px #000}
+.mfx-ic.good[data-n]::after{color:#ffd700}
 .mfx-ic.pen{background:#400;color:#f66;text-align:center;line-height:13px;font-size:10px}
 .mfx-holds{display:flex;gap:3px;align-items:center}
 .mfx-h{position:relative;width:7px;height:7px;border-radius:50%;border:1px solid #000a}
@@ -54,11 +56,11 @@ function maskUrl(special: boolean) {
 export class ModernFx {
   sl: HTMLElement; reelEls: HTMLElement[]; holdsEl: HTMLElement; modeEl: HTMLElement; label: HTMLElement;
   normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
-  spinning = [false, false, false]; allSpin = false; spinAt = 0;
+  spinning = [false, false, false]; allSpin = false; allSpinFrom = 1; spinAt = 0;
   sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
   audio: AudioContext | null = null;
 
-  constructor(public hud: HTMLElement, public layer: HTMLElement, public chars: string[], color: string) {
+  constructor(public hud: HTMLElement, public layer: HTMLElement, public syms: string[], public chars: string[], color: string) {
     if (!document.getElementById('mfx-css')) { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = CSS; document.head.append(st); }
     hud.classList.add('mfx-hud');
     hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
@@ -70,19 +72,20 @@ export class ModernFx {
 
   private setReel(i: number, k: number) {
     const e = this.reelEls[i];
-    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; e.style.backgroundImage = ''; return; }
-    e.className = 'mfx-ic'; e.textContent = ''; e.style.backgroundImage = `url(${DOT(this.chars[k % this.chars.length])})`;
+    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; return; }
+    const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1; // 回転中は番号を巡回
+    e.className = `mfx-ic${M.reel.add[no - 1] === 2 ? ' good' : ''}`; e.textContent = ''; e.dataset.n = String(no); e.style.backgroundImage = `url(${DOT(this.syms[no - 1])})`;
   }
 
   // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄
   frame(now: number) {
     const k = Math.floor((now - this.spinAt) / C.SLOT_REEL_MS);
-    this.spinning.forEach((s, i) => { if (s) this.setReel(i, this.allSpin ? k : k + i * 2); });
+    this.spinning.forEach((s, i) => { if (s) this.setReel(i, this.allSpin ? this.allSpinFrom + k : 1 + k + i * 3); });
   }
 
   // 回転開始: リーチは2つそろえて3つ目だけ回す。全回転は3つ同じ絵柄で回す。結果まで回すだけ（結果は stop）
   spin(now: number, reels: number[], act: string | null) {
-    this.spinAt = now; this.allSpin = act === 'allSpin'; this.label.textContent = '';
+    this.spinAt = now; this.allSpin = act === 'allSpin'; this.allSpinFrom = reels[0]; // 全回転はそろう絵柄から3つ同じまま回る this.label.textContent = '';
     this.sl.classList.remove('win', 'reach');
     if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.spinning = [false, false, true]; this.sl.classList.add('reach'); this.label.textContent = 'リーチ！'; }
     else this.spinning = [true, true, true];
@@ -133,6 +136,11 @@ export class ModernFx {
     } else if (act === 'fish') { // 魚群: 陣営のキャラの群れが下の端を横切る
       const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[i % this.chars.length], 'walk1')}" style="top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px">`) as HTMLImageElement);
       const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.left = `${W + i * F.gap - F.speed * p}px`; im.src = DOT(this.chars[i % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    } else if (act === 'fishSp') { // 特別な魚群（special）: 大きな群れが画面全体の視界外（上下2列）を横切る
+      const F = M.fishSp, t0 = performance.now(), sz = [32 * F.scale, 42 * F.scale];
+      const ims = F.rows.flatMap((y, r) => Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[(i + r) % this.chars.length], 'walk1')}" style="width:${sz[0]}px;height:${sz[1]}px;top:${y - sz[1] / 2 + (i % 2) * 8}px">`, this.special) as HTMLImageElement));
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, j) => { const i = j % F.n, r = Math.floor(j / F.n), x = r ? -sz[0] - i * F.gap + F.speed * p : W + i * F.gap - F.speed * p; im.style.left = `${x}px`; im.style.transform = r ? 'scaleX(-1)' : ''; im.src = DOT(this.chars[(i + r) % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
     }
     // plain（リーチのみ）は HUD の「リーチ！」だけ

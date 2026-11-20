@@ -6,9 +6,9 @@ import { CONFIG } from './config';
 export type Spec = typeof CONFIG.SLOT_MODERN;
 export type Mode = 'normal' | 'ct' | 'back';
 export type Outcome = 'win' | 'miss' | 'fall';
-// act: リーチ演出のキー（spec.reach）、'allSpin'＝全回転、null＝リーチなし
-export type Hold = { outcome: Outcome; mode: Mode; toku: number; color: number; saki: boolean; act: string | null; high: boolean; forced?: boolean };
+// act: リーチ演出のキー（spec.reach）、'allSpin'＝全回転、null＝リーチなし。reels: 出目（絵柄の番号 1〜9、転落は −1）。pay: 当選の払い出し（そろい目の強さと一致）
 export type Pay = { kind: 'power' | 'assist'; add: number; key: string };
+export type Hold = { outcome: Outcome; mode: Mode; toku: number; color: number; saki: boolean; act: string | null; high: boolean; reels: number[]; pay?: Pay; forced?: boolean };
 export type Ev =
   | { t: number; type: 'hold'; hold: Hold } // 保留を積んだ（先バレの光はここ）
   | { t: number; type: 'discard'; hold: Hold } // 保留が満杯で捨てた
@@ -78,7 +78,28 @@ export class ModernSlot {
     let act: string | null = null;
     if (win) act = this.rng() < S.allSpin ? 'allSpin' : keys[pick(keys.map((k) => R[k].win), this.rng())];
     else if (outcome === 'miss' && this.rng() < S.reachMiss) act = keys[pick(keys.map((k) => R[k].miss), this.rng())];
-    return { outcome, mode: m, toku: t, color, saki, act, high };
+    return this.fill({ outcome, mode: m, toku: t, color, saki, act, high, reels: [] });
+  }
+
+  // 払い出しの抽選（通常＝初当たりの表、CT・引き戻し＝CT の表）。add を指定するとその強さの中から選ぶ
+  drawPay(mode: Mode, add?: number): Pay {
+    const table = mode === 'normal' ? this.spec.first : this.spec.ct, ks = Object.keys(table).filter((k) => add === undefined || Number(k.slice(-1)) === add);
+    const key = ks.length ? ks[pick(ks.map((k) => table[k]), this.rng())] : Object.keys(table)[0];
+    return { kind: key.startsWith('power') ? 'power' : 'assist', add: Number(key.slice(-1)), key };
+  }
+
+  // 出目と払い出しを決める。当選は払い出しの強さ（add）に合う絵柄でそろえる（出目が指定されていればその絵柄の強さで払い出す）
+  // リーチの外れは2つそろえて3つ目をずらす、リーチなしの外れは1つ目と2つ目を違えておく。転落は −1（×）
+  fill(h: Hold): Hold {
+    const add = this.spec.reel.add, n = add.length, any = () => 1 + Math.floor(this.rng() * n), other = (a: number) => 1 + ((a + Math.floor(this.rng() * (n - 1))) % n);
+    if (h.outcome === 'win') {
+      if (h.reels.length) h.pay ??= this.drawPay(h.mode, add[h.reels[0] - 1]);
+      else { h.pay ??= this.drawPay(h.mode); const ok = add.map((v, i) => (v === h.pay!.add ? i + 1 : 0)).filter(Boolean), s = ok.length ? ok[Math.floor(this.rng() * ok.length)] : any(); h.reels = [s, s, s]; }
+    } else if (!h.reels.length) {
+      if (h.outcome === 'fall') h.reels = [-1, -1, -1];
+      else { const a = any(), b = other(a); h.reels = h.act ? [a, a, b] : [a, b, any()]; }
+    }
+    return h;
   }
 
   // dt 秒進める（イベントの順に細かく刻む）
@@ -114,8 +135,7 @@ export class ModernSlot {
     this.ev.push({ t: this.t, type: 'stop', hold: h, mode: m });
     if (h.outcome === 'win') {
       this.toku = Math.max(0, Math.min(10, this.toku + S.winToku));
-      const table = m === 'normal' ? S.first : S.ct, key = Object.keys(table)[pick(Object.values(table), this.rng())];
-      const pay: Pay = { kind: key.startsWith('power') ? 'power' : 'assist', add: Number(key.slice(-1)), key };
+      const pay = h.pay ?? this.drawPay(m);
       if (m === 'normal') { this.chain = 0; this.lv = { power: 0, assist: pay.add }; } // 初当たり: アシストのレベル1・2
       else { this.chain++; this.lv[pay.kind] += pay.add; }
       this.maxLv = { power: Math.max(m === 'normal' ? 0 : this.maxLv.power, this.lv.power), assist: Math.max(m === 'normal' ? 0 : this.maxLv.assist, this.lv.assist) };
@@ -147,7 +167,7 @@ export class ModernSlot {
 
   // 手動発火: 次に消化する保留（先頭）を指定の内容に差し替える（当否つき）
   force(p: Partial<Hold> & { outcome: Outcome }) {
-    const h: Hold = { mode: this.mode, toku: this.toku, color: 0, saki: false, act: null, high: false, ...p, forced: true };
+    const h = this.fill({ mode: this.mode, toku: this.toku, color: 0, saki: false, act: null, high: false, reels: [], ...p, forced: true });
     if (this.holds.length) this.holds[0] = h; else this.holds.push(h);
     this.ev.push({ t: this.t, type: 'hold', hold: h });
     return h;
