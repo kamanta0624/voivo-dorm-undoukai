@@ -4,6 +4,7 @@ import type { ClientSkill } from './index';
 import { CONFIG as C } from '../../shared/config';
 
 const MARK_UP = 42 * C.DOT_SCALE * 0.85 + 16; // 予約の印の高さ（足元から、HPバーの上）
+const MARK_UP_BOSS = 42 * C.DOT_SCALE * 2 * 0.85 + 16; // 大将（2倍のドット）は頭の上（顔に重ならない高さ）
 const decoys = new Map<number, { im: Phaser.GameObjects.Image; seen: number }>(); // 残像の id → 表示中の画像
 const counts = new Map<string, { tx: Phaser.GameObjects.Text; seen: number }>(); // 予約（ビィの進行の id＋対象）→ 残り秒の文字
 const skill: ClientSkill = {
@@ -30,14 +31,14 @@ const skill: ClientSkill = {
         d.im.setPosition(Math.round(e.x), Math.round(e.y));
       },
     },
-    // 予約の印: 予約した敵の頭上に爆弾マークと爆発までの残り秒（切り上げ）。位置は対象の描画位置（補間）。大将は体の大きさに合わせて上へ
+    // 予約の印: 予約した敵の頭上に爆弾マークと爆発までの残り秒（切り上げ）。位置は対象の描画位置（補間）。大将は2倍のドットの頭の上
     overload: {
       layer: 'fx',
       draw(g, e, time, _tc, pos) {
         for (const m of e.v ?? []) {
           const q = pos(m.id);
           if (!q) continue;
-          const x = q.x, y = q.y - (m.r > C.PLAYER_RADIUS ? m.r * 2.2 : MARK_UP), sec = Math.max(0, Math.ceil(m.left - 1e-6)), hot = m.left < 1;
+          const x = q.x, y = q.y - (m.id.startsWith('boss:') ? MARK_UP_BOSS : MARK_UP), sec = Math.max(0, Math.ceil(m.left - 1e-6)), hot = m.left < 1;
           g.fillStyle(0x202020).fillCircle(x, y, 7).lineStyle(1, hot ? 0xff3030 : 0x888888).strokeCircle(x, y, 7); // 爆弾
           g.fillStyle(0xffffff, 0.6).fillCircle(x - 2.5, y - 2.5, 1.5); // 光沢
           g.lineStyle(1.5, 0xc0a060).lineBetween(x + 4, y - 5, x + 7, y - 9); // 導火線

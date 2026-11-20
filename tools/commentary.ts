@@ -66,6 +66,10 @@ function chatter() {
     if (cur && r && r[1].trim()) out[cur].push(r[1].trim());
   }
   writeFileSync(CHATTER_JSON, JSON.stringify(out, null, 2) + '\n');
+  // 同じ実行の中の部品の一覧（allTexts・patterns）が書き出した雑談を使うように、読み込み済みの CHATTER を差し替える
+  const mem = CHATTER as Record<string, string[]>;
+  for (const k of Object.keys(mem)) delete mem[k];
+  Object.assign(mem, out);
   console.log(`${CHATTER_JSON}: ${Object.entries(out).map(([k, v]) => `${k} ${v.length}`).join('、')}`);
 }
 

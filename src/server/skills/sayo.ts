@@ -12,11 +12,11 @@ const skill: Skill = {
   tick(room, p) {
     if (!room.stat(p, 'dance') || room.now < p.sk.danceNext) return;
     p.sk.danceNext += S.every;
-    room.inCircle(p, p.x, p.y, S.r).forEach((t) => room.hitThing(p, t, S.dmg));
-    room.addFx(p, 'ring', { r: S.r, color: 'dance' });
+    room.inBodyCircle(p, S.r).forEach((t) => room.hitThing(p, t, S.dmg)); // 範囲と輪は体の中心
+    room.fxAtBody(p, 'ring', { r: S.r, color: 'dance' });
   },
   ended(room, p) {
-    if (room.stat(p, 'dance') && room.now >= p.sk.danceNext) { p.sk.danceNext += S.every; room.addFx(p, 'ring', { r: S.r, color: 'dance' }); }
+    if (room.stat(p, 'dance') && room.now >= p.sk.danceNext) { p.sk.danceNext += S.every; room.fxAtBody(p, 'ring', { r: S.r, color: 'dance' }); }
   },
   botUse: (room, p) => room.nearFoe(p, S.r + 10, isUnit),
   statuses: ['dance'],

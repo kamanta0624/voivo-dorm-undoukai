@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/server/GameRoom';
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
-import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity } from '../src/shared/config';
+import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { SKILLS, ENTS } from '../src/server/skills';
@@ -1791,6 +1791,27 @@ console.log('--- 東北ずん子（tune1: パンチ・遠距離・誘導する�
   m.A.st.mochi = { until: m.r.now + S.dur, speed: S.speed, noSkill: true, atk: S.atk }; m.B.hp = 9999; m.r.hitThing(m.A, { k: 'p', o: m.B, x: m.B.x, y: m.B.y, r: 10 }, 10, true); const d1 = 9999 - m.B.hp;
   const z2 = mk('zunko', 'sayo'); z2.B.st.test = NOAUTO(); Object.assign(z2.B, { x: 1552 + 100, y: 900 }); z2.r.skill('a'); run(z2, 4);
   ok(`ずんだ餅の間は与えるダメージ×${S.atk}（通常攻撃・技とも）。ずんだアローの餅に付く`, Math.abs(d1 - d0 * S.atk) <= 1 && z2.B.st.mochi?.atk === S.atk, { d0, d1 });
+}
+
+console.log('--- 自分中心の範囲は体の中心（tune2）');
+{
+  const up = bodyUp(), upA = bodyUp(C.ASSIST.scale);
+  ok(`体の中心は足元から ${up.toFixed(1)}px 上（ドットの高さ42 × (0.85−0.5) × DOT_SCALE）、アシスト・大将は2倍`, Math.abs(up - 42 * 0.35 * C.DOT_SCALE) < 1e-9 && Math.abs(upA - up * C.ASSIST.scale) < 1e-9);
+  // あいえるたん: 輪の中心＝体の中心。円の縁ちょうど（体の中心どうしの距離＝r）の味方は加速、r を少し超えたら加速しない。アシスト（2倍）も体の中心で測る
+  const S = CHARS.ierutan.skill, z = mk('ierutan'); z.r.fx = [];
+  const ally = (id: string, x: number, y: number, assist = false) => { z.r.addPlayer(id, 0, false); const q = z.r.players.get(id); Object.assign(q, { char: assist ? 'aoyama' : 'sayo', alive: true, x, y, assist }); q.st.test = NOAUTO(); return q; };
+  const cy = 900 - up, e1 = ally('e1', 1552 + S.r, 900), e2 = ally('e2', 1552 - S.r - 0.5, 900), a1 = ally('a1', 1552, cy - S.r + upA - 1, true), a2 = ally('a2', 1552, 900 + S.r - 1 + upA - up, true);
+  z.r.skill('a'); const f = z.r.fx.find((x: any) => x.color === 'accel');
+  ok('あいえるたんの加速: 輪の中心は体の中心。縁ちょうどの味方は加速、縁の外は加速しない（アシストも体の中心どうしで測る: 足元では内でも体で外なら加速しない、その逆は加速）', f && f.x === 1552 && Math.abs(f.y - cy) < 1e-9 && !!e1.st.accel && !e2.st.accel && !a1.st.accel && !!a2.st.accel, { f: f && [f.x, f.y], e1: !!e1.st.accel, e2: !!e2.st.accel, a1: !!a1.st.accel, a2: !!a2.st.accel });
+  // 小夜の舞: 大将（2倍）も体の中心で測る。輪は体の中心
+  const sy = mk('sayo'); sy.r.fx = []; const R = CHARS.sayo.skill.r, b = sy.r.bosses[1], bu = bodyUp(2);
+  Object.assign(b, { x: 1552, y: 900 - up + bu + R + C.BOSS_RADIUS - 1 }); const bh = b.hp; sy.r.skill('a'); sy.r.now += 0.01; sy.r.updatePlayers(0.05);
+  const sf = sy.r.fx.find((x: any) => x.color === 'dance');
+  ok('小夜の舞: 範囲と輪は体の中心（大将も体の中心で測り、足元の距離では外でも当たる）', sf && Math.abs(sf.y - (900 - up)) < 1e-9 && b.hp < bh && Math.hypot(b.x - 1552, b.y - 900) > R + C.BOSS_RADIUS, { ring: sf && sf.y, hit: b.hp < bh });
+  // 輪の見た目だけのもの: もち子の発射・ウルト・罰・回復アイテム・帰還の回復、ひまりの扇、青山の回復の輪 も体の中心
+  const u = mk('sayo'); u.r.fx = []; u.r.giveUlt(u.A, 1); const uf = u.r.fx.find((x: any) => x.color === 'ult');
+  const pn = mk('sayo'); pn.r.fx = []; pn.r.penalty(0); const pf = pn.r.fx.find((x: any) => String(x.color).startsWith('pen_') && Math.abs(x.x - pn.A.x) < 1e-9);
+  ok('ウルト・罰の輪は体の中心', uf && Math.abs(uf.y - (u.A.y - up)) < 1e-9 && (!pf || Math.abs(pf.y - (pn.A.y - up)) < 1e-9), { ult: uf && uf.y, pen: pf && pf.y });
 }
 
 console.log('--- 九州そら（ソーラーキャノン）');

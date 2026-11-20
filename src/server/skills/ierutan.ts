@@ -6,8 +6,9 @@ import { CHARS } from '../../shared/chars';
 const S = CHARS.ierutan.skill;
 const skill: Skill = {
   use(room, p) {
-    for (const q of room.players.values()) if (q.team === p.team && q.alive && Math.hypot(q.x - p.x, q.y - p.y) <= S.r) q.st.accel = { until: room.now + S.dur, speed: S.speed, regen: S.regen };
-    room.addFx(p, 'aura', { r: S.r, color: 'accel' });
+    const c = room.bodyOf(p); // 範囲と輪は体の中心（味方も体の中心で測る）
+    for (const q of room.players.values()) { const b = room.bodyOf(q); if (q.team === p.team && q.alive && Math.hypot(b.x - c.x, b.y - c.y) <= S.r) q.st.accel = { until: room.now + S.dur, speed: S.speed, regen: S.regen }; }
+    room.fxAtBody(p, 'aura', { r: S.r, color: 'accel' });
   },
   botUse: (room, p) => room.nearFoe(p, C.BOT_SKILL_SENSE, (t) => t.k === 'p' || t.k === 'boss'),
   statuses: ['accel'],

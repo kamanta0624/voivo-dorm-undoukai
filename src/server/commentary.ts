@@ -569,7 +569,7 @@ export class Director {
         return { active: () => !!ov(), zone: () => ((ov()?.marks ?? []) as { id: string }[]).filter((m) => m.id.startsWith('p:')).map((m) => m.id.slice(2)).filter((id) => !room.players.get(id)?.assist) };
       }
       case 'metan': return { active: () => !!room.stat(p, 'drill'), zone: () => (room.stat(p, 'drill') ? foes(room.inRectAhead(p, room.aimOf(p), S.len, S.w)) : []) };
-      case 'sayo': return { active: () => !!room.stat(p, 'dance'), zone: () => (room.stat(p, 'dance') ? foes(room.inCircle(p, p.x, p.y, S.r)) : []) };
+      case 'sayo': return { active: () => !!room.stat(p, 'dance'), zone: () => (room.stat(p, 'dance') ? foes(room.inBodyCircle(p, S.r)) : []) };
       case 'zunko': {
         let first = true;
         return { active: () => room.shots.some((s) => s.owner === p.id && s.kind === 'arrow'), zone: () => { if (!first) return []; first = false; return foes(room.inRectAhead(p, room.aimOf(p), S.range, (C.BULLET_RADIUS + R) * 2)); } };

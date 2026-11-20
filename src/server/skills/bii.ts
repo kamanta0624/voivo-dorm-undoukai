@@ -24,7 +24,8 @@ function update(room: GameRoom, e: Ent, dt: number) {
     if (room.now >= e.nextDecoy - 1e-9) { e.nextDecoy += B.every; decoy(room, p); } // 1e-9: 時刻の足し算の誤差でtickが1つずれないように
     // 触れた敵に予約（同じ敵は1回）
     if (room.phase === 'playing') for (const t of room.enemyThings(p.team)) {
-      if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t) || Math.hypot(t.x - p.x, t.y - p.y) > t.r + B.touch) continue;
+      const b = room.body(t), c = room.bodyOf(p); // 接触は体の中心どうし
+      if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t) || Math.hypot(b.x - c.x, b.y - c.y) > t.r + B.touch) continue;
       const id = thingId(t);
       if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
     }

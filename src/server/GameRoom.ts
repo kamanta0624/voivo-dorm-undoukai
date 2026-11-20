@@ -1,7 +1,7 @@
 import { Room, Client, ServerError, CloseCode } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity } from '../shared/config';
+import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity, bodyUp } from '../shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, eyeRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
@@ -761,7 +761,7 @@ export class GameRoom extends Room {
         this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
         Object.assign(p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
         p.hp = Math.min(this.maxHp(p), p.hp + this.maxHp(p) * C.RECALL_HEAL);
-        this.addFx(p, 'aura', { r: 30, color: 'assist' });
+        this.fxAtBody(p, 'aura', { r: 30, color: 'assist' });
         if (p.bot) p.eating = true;
       }
       // ウルトの時間切れ: 元のキャラがその場にHP100%で戻る
@@ -827,7 +827,7 @@ export class GameRoom extends Room {
     this.items = this.items.filter((x) => x !== it);
     if (it.kind === 'heal') {
       if (p.hp < this.maxHp(p)) p.hp = Math.min(this.maxHp(p), p.hp + C.HEAL_ITEM_AMOUNT);
-      this.addFx(p, 'aura', { r: 24, color: 'heal' });
+      this.fxAtBody(p, 'aura', { r: 24, color: 'heal' });
       this.addToku(p.team, p, 'eat'); // 盗み食い
     } else if (it.kind === 'box_ult') { this.giveUlt(p, lottery(C.POWER_WEIGHTS)); this.cm.pickup(p, it.kind); } // 拾った本人が変身
     else if (it.kind === 'box_assist') { this.summonAssist(p.team, lottery(C.POWER_WEIGHTS), undefined, true); this.cm.pickup(p, it.kind); } // 拾った陣営にアシスト
@@ -862,7 +862,7 @@ export class GameRoom extends Room {
   giveUlt(q: Player, tier: number) {
     if (q.ult) { q.ult.until = this.now + C.ULT_DURATION; return; }
     q.ult = { form: pick(Object.keys(C.ULT_FORMS)), tier, until: this.now + C.ULT_DURATION, pending: !q.alive };
-    if (q.alive) { q.hp = this.maxHp(q); this.addFx(q, 'aura', { r: 50, color: 'ult' }); }
+    if (q.alive) { q.hp = this.maxHp(q); this.fxAtBody(q, 'aura', { r: 50, color: 'ult' }); }
   }
 
   // ブイブイ・コバコ: entrance（中央下部）に出て、荷物を1つ持って中央3部屋の往復を始める
@@ -1188,7 +1188,7 @@ export class GameRoom extends Room {
       if (kind === 'dmg') this.damagePlayer(q, this.maxHp(q) * P.dmg, null, true);
       else if (kind === 'slow') q.slowUntil = this.now + P.dur;
       else q.weakUntil = this.now + P.dur;
-      this.addFx(q, 'aura', { r: 26, color: `pen_${kind}` });
+      this.fxAtBody(q, 'aura', { r: 26, color: `pen_${kind}` });
     }
     for (const c of this.clients) c.send('penalty', { team, kind });
     this.cm.penalty(team, kind);
@@ -1283,6 +1283,20 @@ export class GameRoom extends Room {
     this.fx.push({ id: this.nextId++, kind, team: p.team, x: p.x, y: p.y, ...extra });
   }
 
+  // 体の中心（自分中心の範囲判定とその輪のエフェクトの基準）。足元から bodyUp（表示倍率: プレイヤー1・アシスト／大将2・コバコ1・ユニット扱いの場の物1、それ以外の場の物は足元＝中心）
+  body(t: Thing): Pt {
+    const s = t.k === 'p' ? (t.o.assist ? C.ASSIST.scale : 1) : t.k === 'boss' ? 2 : t.k === 'c' || t.o.body === 'unit' ? 1 : 0;
+    return { x: t.x, y: t.y - bodyUp(s) };
+  }
+  bodyOf(p: Player) { return this.body({ k: 'p', o: p, x: p.x, y: p.y, r: C.PLAYER_RADIUS }); }
+  // 自分中心の輪のエフェクト: 体の中心に出す
+  fxAtBody(p: Player, kind: string, extra: Record<string, any>) { this.addFx({ ...this.bodyOf(p), team: p.team }, kind, extra); }
+  // 自分の体の中心から半径 r（＋相手の半径）以内の敵。相手も体の中心で測る
+  inBodyCircle(p: Player, r: number) {
+    const c = this.bodyOf(p);
+    return this.enemyThings(p.team).filter((t) => { const b = this.body(t); return Math.hypot(b.x - c.x, b.y - c.y) <= r + t.r; });
+  }
+
   inCircle(p: Player, x: number, y: number, r: number) {
     return this.enemyThings(p.team).filter((t) => Math.hypot(t.x - x, t.y - y) <= r + t.r);
   }
@@ -1351,10 +1365,10 @@ export class GameRoom extends Room {
         const t = foes.find((u) => u.k === 'p' && u.o.assist) ?? [...foes].sort((u, v) => d(u) - d(v))[0]; // 相手のアシストを優先
         this.warns.push({ id: this.nextId++, team: p.team, owner: p.id, x: t.x, y: t.y, r: U.r, at: this.now + U.warn, dmg: U.dmg * k, follow: null }); // 位置は今の時点で固定
       } else if (p.char === 'shirakami') {
-        const allies = [...this.players.values()].filter((q) => q.team === p.team && q.alive && q !== p && d(q) <= U.sense);
+        const c = this.bodyOf(p), allies = [...this.players.values()].filter((q) => { const b = this.bodyOf(q); return q.team === p.team && q.alive && q !== p && Math.hypot(b.x - c.x, b.y - c.y) <= U.sense; }); // 回復の範囲は体の中心どうし（輪と一致）
         if (!allies.length) continue;
         for (const q of [p, ...allies]) { q.hp = Math.min(this.maxHp(q), q.hp + U.heal * k); q.boostUntil = this.now + U.dur; }
-        this.addFx(p, 'ring', { r: U.sense, color: 'heal' });
+        this.fxAtBody(p, 'ring', { r: U.sense, color: 'heal' });
       } else continue;
       p.skillReadyAt = this.now + U.every;
     }

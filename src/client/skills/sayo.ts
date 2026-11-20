@@ -1,12 +1,12 @@
 // 小夜: 疾風乱舞（攻撃範囲の円。周期ダメージごとに円内へ斬線（閃光→残光）、当たった敵に斬撃の印）
 import type { ClientSkill } from './index';
-import { CONFIG as C } from '../../shared/config';
+import { CONFIG as C, bodyUp } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
 
 const S = CHARS.sayo.skill, COLOR = 0xff7fbf, LINES = 5;
 const rnd = (seed: number, i: number) => { const x = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453; return x - Math.floor(x); }; // fx ごとに決まった乱数
 const skill: ClientSkill = {
-  status: { dance: { mark: (g, { x, y }) => { g.lineStyle(1, COLOR, 0.5).strokeCircle(x, y, S.r); } } },
+  status: { dance: { mark: (g, { x, y }) => { g.lineStyle(1, COLOR, 0.5).strokeCircle(x, y - bodyUp(), S.r); } } }, // 範囲は体の中心（サーバーの判定と同じ）
   fx: {
     dance: {
       ms: 500,

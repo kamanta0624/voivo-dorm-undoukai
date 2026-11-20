@@ -49,7 +49,7 @@ const skill: Skill = {
       const ang = (i / F.n) * Math.PI * 2;
       room.ents.push({ id: room.nextId++, kind: 'funnel', team: p.team, owner: p.id, x: p.x + Math.cos(ang) * 20, y: p.y + Math.sin(ang) * 20, r: F.radius, body: 'unit', hp: F.hp, until: room.now + F.life, nextAtk: room.now, slot: ang, tgt: null, path: [], retargetAt: 0 });
     }
-    room.addFx(p, 'aura', { r: 30, color: 'funnel' });
+    room.fxAtBody(p, 'aura', { r: 30, color: 'funnel' });
   },
   botUse: (room, p) => room.nearFoe(p, F.sense, (t) => t.k === 'p' || t.k === 'boss'),
   ents: { funnel: { update: updateFunnel, fog: true } },

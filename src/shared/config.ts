@@ -332,6 +332,7 @@ export const CONFIG = {
   VIEW_W: 640, // 論理解像度。ウィンドウには整数倍で表示
   VIEW_H: 360,
   DOT_SCALE: 1, // ドット（32x42）の表示倍率。大将はこの2倍
+  BODY_UP: 42 * (0.85 - 0.5), // 体の中心は足元からこれだけ上（×DOT_SCALE×表示倍率）。ドット（高さ42）を足元基準 origin(0.5, 0.85) で描くため。自分中心の範囲判定とその輪のエフェクトの基準
   CAM_LERP: 0.08, // カメラ追従の強さ（1で即追従）
   FREE_CAM_SPEED: 400, // 撤退中に WASD で視点を動かす速さ(px/秒)
   WALK_FRAME_MS: 200, // 歩きの1コマの長さ（walk1 ⇔ walk2 の交互）
@@ -376,6 +377,8 @@ export const slotRate = (toku: number) => {
   for (let i = 1; i < r.length; i++) if (toku <= r[i][0]) return m * (r[i - 1][1] + ((r[i][1] - r[i - 1][1]) * (toku - r[i - 1][0])) / (r[i][0] - r[i - 1][0]));
   return m * r[r.length - 1][1];
 };
+// 体の中心の足元からの高さ（px）。scale: 表示倍率（プレイヤー1、アシスト・大将2）
+export const bodyUp = (scale = 1) => CONFIG.BODY_UP * CONFIG.DOT_SCALE * scale;
 // 大将の攻撃の激しさ（第2形態）: 時間係数×HP係数。t=試合の経過秒、hpRatio=HP/最大HP
 export const bossIntensity = (t: number, hpRatio: number) => {
   const { time: T, hp: H } = CONFIG.BOSS_INTENSITY;
