@@ -1755,7 +1755,7 @@ console.log('--- プレイテスト3（Botのリコール判断・撃破後の�
 
 console.log('--- 九州そら（ソーラーキャノン）');
 {
-  const S = CHARS.sora.skill, K = S.keys as number[][], N = Math.round(S.dur / S.every);
+  const S = CHARS.sora.skill, K = S.keys as number[][], DUR = (c: number) => solarAt(c, 4), N = Math.round(DUR(5) / S.every), N30 = Math.round(DUR(30) / S.every);
   const run = (z: any, sec: number, input?: [number, number]) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; if (input) [z.A.inDx, z.A.inDy] = input; z.r.updatePlayers(0.05); } };
   const fire = (z: any, charge: number, a = 0) => { z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.A.face = a; z.A.tgt = null; z.r.skill('a'); };
   ok('選択画面に出る。浮遊（hover）、近接のパンチ（花丸よりダメージやや高く、間隔やや長い）', PICKABLE.includes('sora') && CHARS.sora.walk === 'hover' && CHARS.sora.melee
@@ -1767,40 +1767,47 @@ console.log('--- 九州そら（ソーラーキャノン）');
   ok(`チャージ: 試合開始から進み、撤退で0から、発射で0、CT${S.ct}秒の間も進む`, Math.abs(c10 - 10) < 0.06 && Math.abs(cKo - 2) < 0.11 && c0 === 0 && inCt && Math.abs(cCt - (S.ct - 0.5)) < 0.06, { c10, cKo, c0, cCt });
   ok('チャージの光の状態を送る（チャージ秒）', c.r.statusView(c.A).solarCharge === c.A.sk.charge);
   ok('キーフレームの間は線形補間（20秒→総ダメージ62.5）、5秒より前は5秒の値、最大は294秒', solarAt(20, 1) === 62.5 && solarAt(0, 1) === K[0][1] && solarAt(294, 2) === K[K.length - 1][2] && solarAt(400, 3) === K[K.length - 1][3]);
-  // 照射: 本人は止まる。5秒で最大約30度だけ向きが変わる
-  const t = mk('sora'); const x0 = t.A.x; fire(t, 5, 0); run(t, S.dur - 0.05, [0, 1]);
-  const turned = t.A.sk.beam.a, moved = Math.hypot(t.A.x - x0, t.A.y - 900); run(t, 0.1);
-  ok(`照射中は本人が止まり、移動入力の方へ5秒で約30度だけ向きが変わる（毎秒${(S.turn * 180 / Math.PI).toFixed(0)}度）、${S.dur}秒で終わる`, moved === 0 && Math.abs(turned - Math.PI / 6) < 0.02 && !t.A.st.solar && !t.r.effect(t.A, 'lock'), { turned: turned * 180 / Math.PI, moved });
+  // 照射秒: チャージ270秒までは0.5秒、270秒から最大（294秒）まで0.5秒→5秒へ線形に伸びる。本人が止まる時間も同じ
+  ok('照射秒: チャージ270秒以下は0.5秒、270〜294秒で0.5→5秒（線形）、294秒以降は5秒', [5, 30, 100, 270].every((c) => DUR(c) === 0.5) && Math.abs(DUR(282) - 2.75) < 1e-9 && DUR(294) === 5 && DUR(400) === 5, [5, 270, 282, 294, 400].map(DUR));
+  const ends = [5, 270, 282, 294].map((ch) => { const z = mk('sora'); fire(z, ch, 0); let n = 0; while (z.A.st.solar && n < 200) { run(z, 0.05); n++; } return +(n * 0.05).toFixed(2); });
+  ok('照射（本人が止まる lock）はその照射秒で終わる', ends.every((e, i) => Math.abs(e - DUR([5, 270, 282, 294][i])) <= 0.051), ends);
+  // 照射: 本人は止まる。向きは移動入力の方へ毎秒6度（0.5秒で3度、5秒で30度）
+  const turn = (ch: number) => { const t = mk('sora'); const x0 = t.A.x; fire(t, ch, 0); run(t, DUR(ch) - 0.05, [0, 1]); const turned = t.A.sk.beam.a, moved = Math.hypot(t.A.x - x0, t.A.y - 900); run(t, 0.1); return { turned, moved, ended: !t.A.st.solar && !t.r.effect(t.A, 'lock') }; };
+  const t5 = turn(5), t294 = turn(294);
+  ok(`照射中は本人が止まり、移動入力の方へ毎秒${(S.turn * 180 / Math.PI).toFixed(0)}度だけ向きが変わる（0.5秒照射で約3度、5秒照射で約30度）`, t5.moved === 0 && t294.moved === 0 && Math.abs(t5.turned - Math.PI / 60) < 0.01 && Math.abs(t294.turned - Math.PI / 6) < 0.02 && t5.ended && t294.ended, { t5: t5.turned * 180 / Math.PI, t294: t294.turned * 180 / Math.PI });
   // 多段ヒット・貫通（チャージ10秒未満は爆発なし）
   const h = mk('sora', 'sayo'); h.r.addPlayer('c', 1, false); const Cc = h.r.players.get('c'); Object.assign(Cc, { char: 'sayo', alive: true, x: 1552 + 120, y: 900, hp: 9999 }); Cc.st.test = NOAUTO();
   h.r.addPlayer('d', 1, false); const D = h.r.players.get('d'); Object.assign(D, { char: 'sayo', alive: true, x: 1592, y: 900 + 30, hp: 9999 }); D.st.test = NOAUTO(); // ビームの外（爆発があれば届く距離）
   Object.assign(h.B, { hp: 9999 }); const hits: number[] = []; fire(h, 5, 0);
-  for (let i = 0; i < Math.round(S.dur / 0.05); i++) { const b0 = h.B.hp; run(h, 0.05); if (h.B.hp < b0) hits.push(+h.r.now.toFixed(2)); }
+  for (let i = 0; i < Math.round(1 / 0.05); i++) { const b0 = h.B.hp; run(h, 0.05); if (h.B.hp < b0) hits.push(+h.r.now.toFixed(2)); }
   const per = Math.round((K[0][1] / N) * C.DAMAGE_MULT);
-  ok(`ビームは多段ヒット（同じ相手へ${S.every}秒おき、${S.dur}秒で${N}回）でキャラを貫通する。チャージ5秒は総ダメージ${K[0][1]}（通常攻撃1発程度）`, hits.length === N && 9999 - h.B.hp === per * N && 9999 - Cc.hp === per * N, { n: hits.length, b: 9999 - h.B.hp, c: 9999 - Cc.hp });
+  ok(`ビームは多段ヒット（同じ相手へ${S.every}秒おき、${DUR(5)}秒で${N}回）でキャラを貫通する。チャージ5秒は総ダメージ${K[0][1]}（通常攻撃1発程度）`, hits.length === N && 9999 - h.B.hp === per * N && 9999 - Cc.hp === per * N, { n: hits.length, b: 9999 - h.B.hp, c: 9999 - Cc.hp });
+  // 総ダメージ（ビームの合計＋爆発）はキーフレームのまま。照射秒が短いと1ヒットが大きい
+  const tot = [5, 30, 270, 282, 294].map((ch) => { const z = mk('sora', 'sayo'); Object.assign(z.B, { x: 1552 + 40, y: 900, hp: 9999 }); fire(z, ch, 0); run(z, DUR(ch) + 0.1); const n = Math.round(DUR(ch) / S.every); return { ch, got: 9999 - z.B.hp, want: Math.round(solarAt(ch, 1) * C.DAMAGE_MULT), n }; });
+  ok('1照射の総ダメージはキーフレームどおり（照射秒が変わっても同じ。誤差は1ヒットごとの四捨五入）', tot.every((q) => Math.abs(q.got - q.want) <= q.n / 2 + 1), tot);
   ok(`チャージ${S.boomFrom}秒未満は爆発なし（ビームの外の敵は無傷）`, D.hp === 9999 && !h.r.fx.some((f: any) => f.color === 'solar'));
   // あとから入ってきたキャラにも当たる
-  const l = mk('sora', 'sayo'); Object.assign(l.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); l.B.st.h = { until: Infinity, hidden: true }; fire(l, 5, 0); delete l.B.st.h; run(l, 1); const lb0 = l.B.hp; l.B.y = 900; run(l, 1);
+  const l = mk('sora', 'sayo'); Object.assign(l.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); l.B.st.h = { until: Infinity, hidden: true }; fire(l, 5, 0); delete l.B.st.h; run(l, 0.15); const lb0 = l.B.hp; l.B.y = 900; run(l, 0.3);
   ok('ビームにはあとから入ってきたキャラにも当たる（発射の狙いにならないように隠してから出す）', lb0 === 9999 && l.B.hp < 9999);
   // 爆発: キャラごとに1回（あとから入ってきたキャラでも）、1キャラへの爆発ダメージは1照射1回
   const e = mk('sora', 'sayo'); e.r.addPlayer('c', 1, false); const E2 = e.r.players.get('c'); Object.assign(E2, { char: 'sayo', alive: true, x: 1552 + 60, y: 900, hp: 9999 }); E2.st.test = NOAUTO();
   e.r.addPlayer('d', 1, false); const E3 = e.r.players.get('d'); Object.assign(E3, { char: 'sayo', alive: true, x: 1552 + 50, y: 900 + 32, hp: 9999 }); E3.st.test = NOAUTO(); // ビームの外、B・E2 の両方の爆発の範囲
   Object.assign(e.B, { x: 1552 + 40, hp: 9999 }); e.r.fx = []; fire(e, 30, 0); run(e, 0.05); const boomFx = e.r.fx.filter((f: any) => f.color === 'solar').length;
-  run(e, S.dur); const R30 = K[2][1], boomOne = Math.round(R30 * (1 - S.beamShare) * C.DAMAGE_MULT), beamOne = Math.round((R30 * S.beamShare / N) * C.DAMAGE_MULT);
-  ok(`チャージ${K[2][0]}秒: 当たったキャラごとに1回・射程の端で1回爆発（半径${K[2][3]}）。爆発がいくつ重なっても1キャラへは1回（${boomOne}）`, boomFx === 3 && 9999 - E3.hp === boomOne && 9999 - e.B.hp === boomOne + beamOne * N && 9999 - E2.hp === boomOne + beamOne * N, { boomFx, e3: 9999 - E3.hp, b: 9999 - e.B.hp, e2: 9999 - E2.hp, boomOne, beamOne });
-  const le = mk('sora', 'sayo'); Object.assign(le.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); le.B.st.h = { until: Infinity, hidden: true }; fire(le, 30, 0); delete le.B.st.h; run(le, 1); le.r.fx = []; le.B.y = 900; run(le, 0.05);
+  run(e, DUR(30)); const R30 = K[2][1], boomOne = Math.round(R30 * (1 - S.beamShare) * C.DAMAGE_MULT), beamOne = Math.round((R30 * S.beamShare / N30) * C.DAMAGE_MULT);
+  ok(`チャージ${K[2][0]}秒: 当たったキャラごとに1回・射程の端で1回爆発（半径${K[2][3]}）。爆発がいくつ重なっても1キャラへは1回（${boomOne}）`, boomFx === 3 && 9999 - E3.hp === boomOne && 9999 - e.B.hp === boomOne + beamOne * N30 && 9999 - E2.hp === boomOne + beamOne * N30, { boomFx, e3: 9999 - E3.hp, b: 9999 - e.B.hp, e2: 9999 - E2.hp, boomOne, beamOne });
+  const le = mk('sora', 'sayo'); Object.assign(le.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); le.B.st.h = { until: Infinity, hidden: true }; fire(le, 30, 0); delete le.B.st.h; run(le, 0.15); le.r.fx = []; le.B.y = 900; run(le, 0.05);
   ok('途中からビームに入ってきたキャラでも爆発する', le.r.fx.some((f: any) => f.color === 'solar' && Math.abs(f.x - le.B.x) < 1e-9));
   // 壁: 壊せる壁は壊して進み、外壁で止まる。壁（長方形）ごとに1回爆発し、範囲の壁も壊す
   const w = mk('sora'); Object.assign(w.A, { x: 300, y: 150 }); w.r.fx = []; const walls0 = w.r.walls; fire(w, 30, 0); run(w, 0.05);
   const wb = w.A.sk.beam, wfx = w.r.fx.filter((f: any) => f.color === 'solar').length, wbroken = w.r.broken.length, wlen = wb.len;
-  run(w, S.dur - 0.1, [0, -1]); const rects = new Set(w.r.broken.map(([x, y]: number[]) => walls0.findIndex((o: any) => x * T >= o.x && x * T < o.x + o.w && y * T >= o.y && y * T < o.y + o.h)));
+  run(w, DUR(30) - 0.1, [0, -1]); const rects = new Set(w.r.broken.map(([x, y]: number[]) => walls0.findIndex((o: any) => x * T >= o.x && x * T < o.x + o.w && y * T >= o.y && y * T < o.y + o.h)));
   ok(`壊せる壁（study の東壁の扉のない所）は壊して進み（チャージ${K[2][0]}秒の射程${K[2][2]}px）、壁の長方形ごとに1照射1回爆発（範囲の壁も壊す）、射程の端でも1回`, wbroken > 0 && Math.abs(wlen - K[2][2]) <= 4 && wfx === wb.wallsBoomed.size + 1 && wb.wallsBoomed.size >= 1 && w.r.fx.filter((f: any) => f.color === 'solar').length <= rects.size + 1, { wbroken, wlen, wfx, walls: wb.wallsBoomed.size });
   const pe = mk('sora'); Object.assign(pe.A, { x: 248, y: 60 }); fire(pe, 294, -Math.PI / 2); run(pe, 0.05);
   ok('壊せない外壁で止まる（最大チャージでも外周の壁は壊れない）', pe.A.sk.beam.len < 60 && pe.r.broken.every(([x, y]: number[]) => !PERIMETER[y][x]), { len: pe.A.sk.beam.len });
   // 大将: ビームが当たっている間は拠点移動しない（予告・無敵も起きない）。離れたら通常どおり
-  const bh = mk('sora'); Object.assign(bh.r.bosses[1], { x: 1552 + 150, y: 900, dmgAtBase: C.BOSS_MOVE_THRESHOLD - 1 }); fire(bh, 30, 0); run(bh, 1);
+  const bh = mk('sora'); Object.assign(bh.r.bosses[1], { x: 1552 + 150, y: 900, dmgAtBase: C.BOSS_MOVE_THRESHOLD - 1 }); fire(bh, 30, 0); run(bh, DUR(30) - 0.1);
   const held = !bh.r.bosses[1].moving && bh.r.warns.length === 0 && bh.r.bosses[1].dmgAtBase >= C.BOSS_MOVE_THRESHOLD;
-  run(bh, S.dur); bh.r.hitThing(bh.A, { k: 'boss', o: bh.r.bosses[1], x: 0, y: 0, r: 0 }, 1);
+  run(bh, 1); bh.r.hitThing(bh.A, { k: 'boss', o: bh.r.bosses[1], x: 0, y: 0, r: 0 }, 1);
   ok('ビームが当たっている間は大将の拠点移動（予告・無敵）が起きず、照射後のダメージで通常どおり始まる', held && bh.r.bosses[1].moving, { held });
   // 最大チャージ: 対角の端から撃つと、HP満タンの大将がワープせず試合終了の直前に撃破される（294・295・296秒）
   const far = { x: 72, y: 376 }; // svcA_R の大将から、外周の壁に遮られない一番遠い床（約2600px。マップの外接の対角線は約3700px）

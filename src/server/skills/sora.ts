@@ -9,7 +9,7 @@ import { circleRect } from '../../shared/geom';
 const S = CHARS.sora.skill, T = C.TILE, K = S.keys as number[][];
 const BOSS_LAST = S.bossMax / (C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT); // 最大チャージの大将への総ダメージ（倍率を掛ける前）。全倍率の後で bossMax になる
 
-// チャージ秒 → キーフレームの線形補間。col: 1=総ダメージ 2=射程 3=爆発半径。boss: 大将への総ダメージ（最後のキーフレームだけ BOSS_LAST）
+// チャージ秒 → キーフレームの線形補間。col: 1=総ダメージ 2=射程 3=爆発半径 4=照射秒。boss: 大将への総ダメージ（最後のキーフレームだけ BOSS_LAST）
 export function solarAt(charge: number, col: number, boss = false) {
   const v = (i: number) => (boss && col === 1 && i === K.length - 1 ? BOSS_LAST : K[i][col]);
   if (charge <= K[0][0]) return v(0);
@@ -18,10 +18,10 @@ export function solarAt(charge: number, col: number, boss = false) {
 }
 
 // 照射の状態（発射時に決める）
-type Beam = { a: number; charge: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置
+type Beam = { a: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置
 
-// 総ダメージの配分: ビームの1ヒット・爆発（大将は別の値）
-const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / Math.round(S.dur / S.every);
+// 総ダメージの配分: ビームの1ヒット（照射秒で多段の回数が変わる）・爆発（大将は別の値）
+const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / Math.round(b.dur / S.every);
 const boomDmg = (b: Beam, t: Thing) => solarAt(b.charge, 1, t.k === 'boss') * (1 - S.beamShare);
 
 // 壁を壊す（外周は除く）。1回の照射につき徳は1回
@@ -101,9 +101,9 @@ function charge(room: GameRoom, p: Player, dt: number) {
 const skill: Skill = {
   use(room, p) {
     const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2));
-    p.sk.beam = { a, charge: c, range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, pending: [] };
+    p.sk.beam = { a, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, pending: [] };
     p.sk.charge = 0;
-    p.st.solar = { until: room.now + S.dur, lock: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]) }) };
+    p.st.solar = { until: room.now + p.sk.beam.dur, lock: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]) }) };
   },
   tick(room, p, dt) {
     if (room.phase === 'playing') charge(room, p, dt);

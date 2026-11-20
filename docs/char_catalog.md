@@ -51,7 +51,7 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | `himari` | 発動で透明化。透明化中の Space で鎌（特大ダメージ。ディフェンス以外は一撃）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
 | `itako` | 自分の周りを時計回りに回る火の玉（接触ダメージ、消えない）。展開中に再発動で最寄りの敵を標的に、9時の位置から順に離れてホーミング、命中で消える。CT は再発動か時間切れから。通常攻撃の見た目はキツネ（`aa` の `fx`） | `tick`（時間切れのCT）。`use` が false を返してCTを自前で入れる | ― | `foxfire`（対象外、回転→待機→追尾） | ents `foxfire`（ヒトダマ風。キツネの絵の仮置き）、fx `kitsune`（通常攻撃） |
 | `yurei` | 螺旋を描く光弾が直進、判定は先頭だけ。ダメージは当たった敵の悪行に比例（0で1、手配中は即死）。壁で消える。パッシブ：壊せる壁をすり抜けて移動（`ghost`） | ― | ― | `enma`（対象外） | ents `enma`（先頭＋螺旋の光弾） |
-| `sora` | 試合開始から自動チャージ（撤退で0、発射で0）。発射でその場に止まり5秒ビーム照射（向きは少しだけ変えられる）。キャラ貫通・多段ヒット、壊せる壁を壊して外壁で止まる。チャージ10秒以上で、キャラ・壁の長方形ごと・射程の端に1照射1回の爆発。性能はチャージのキーフレームの補間。ビームが当たっている大将は拠点移動しない（`Boss.holdUntil`） | `tick`（チャージ・照射）、`ended`（照射） | `solar`（lock・noAttack・cancel）、`solarCharge`（光の見た目用。チャージ秒を送る） | ― | status `solar`（光の帯）・`solarCharge`（光1つ／たくさんちらつく）、色 `solar` |
+| `sora` | 試合開始から自動チャージ（撤退で0、発射で0）。発射でその場に止まりビーム照射（チャージ270秒までは0.5秒、270〜294秒で5秒まで伸びる。照射秒はキーフレームの第5列。向きは少しだけ変えられる）。キャラ貫通・多段ヒット、壊せる壁を壊して外壁で止まる。チャージ10秒以上で、キャラ・壁の長方形ごと・射程の端に1照射1回の爆発。性能はチャージのキーフレームの補間。ビームが当たっている大将は拠点移動しない（`Boss.holdUntil`） | `tick`（チャージ・照射）、`ended`（照射） | `solar`（lock・noAttack・cancel）、`solarCharge`（光の見た目用。チャージ秒を送る） | ― | status `solar`（光の帯）・`solarCharge`（光1つ／たくさんちらつく）、色 `solar` |
 
 使用中の状態 key：`fistCharge` `dance` `drill` `charge` `rush` `overload` `overloadPose` `accel` `mochi` `lockon` `cloak` `leap` `solar` `solarCharge`
 使用中の場の物の種類：`fist` `funnel` `overload` `biiDecoy` `missile` `foxfire` `enma`
