@@ -202,6 +202,37 @@ export const CONFIG = {
       dur: 8, // 移動速度・攻撃力の低下の秒数
     },
   },
+  // モダン（転落スペック）のスロット。handoff_slot2。今は単体画面（slot.html）だけが使う（試合は SLOT＝クラシックのまま）。値はすべて仮置き
+  // 確率は徳 5 の基準値。徳 t で 当選 × 2^((t−5)/win)、転落 × 2^((5−t)/fall)。t < lowBelow で当選 × lowWin・転落 × lowFall
+  SLOT_MODERN: {
+    interval: { normal: 2, ct: 1, back: 0.5 }, // 抽選間隔(秒)。通常・チャンスタイム（CT）・引き戻し
+    base: { normal: 1 / 120, ct: 1 / 15, fall: 1 / 30, back: 1 / 120 }, // 当選（モードごと）・転落（CT 中だけ。当選と同じ1回の抽選で排他）
+    tokuDiv: { win: 2.5, fall: 5 }, lowBelow: 1, lowWin: 0.5, lowFall: 2,
+    winToku: -1, // 当選のたびの徳の増減（初当たり・CT 当選・引き戻し当選すべて）
+    backSpins: 30, // 引き戻しの抽選回数（0.5秒間隔で15秒）。全部外れでペナルティ2回目 → 通常へ
+    first: { assist1: 85, assist2: 15 } as Record<string, number>, // 初当たりの振り分け（アシストのレベル1・2）。当選で CT へ
+    ct: { power1: 50, assist1: 40, power2: 5, assist2: 5 } as Record<string, number>, // CT・引き戻しの当選の振り分け（パワーアップ／アシストのレベル +1・+2）
+    lvCap: 4, // これを超えたレベルは「Lv.4+N」と表示（頭打ちにしない）
+    holds: 4, // 保留の数（常に4つ。満杯のときの抽選は捨てる）
+    high: { normal: 1 / 4, ct: 1 / 2, back: 1 / 4 }, // 高確率保留の当選確率（徳によらない・転落なし）。back は仮置き（通常と同じ）
+    // 演出: 保留を積む時点で当否を決め、当否ごとの選択率で選ぶ（外れ時の選択率は徳によらず固定）
+    allSpin: 0.01, // 当選のうち全回転（リーチを経由しない当選確定）の割合。残りはすべてリーチ
+    reachMiss: 1 / 13.4, // 外れ時のリーチ率（徳5でリーチ信頼度10%）。転落はリーチなし（仮置き）
+    reach: { // リーチ演出: 当選時・外れ時の選択率（重み）と、リールが止まらない秒数（最大3秒）
+      plain: { name: 'リーチのみ', win: 20, miss: 70, sec: 1.5 },
+      chibi: { name: 'ちびキャラ', win: 30, miss: 20, sec: 3 },
+      cutin: { name: 'カットイン', win: 30, miss: 8, sec: 3 },
+      fish: { name: '魚群', win: 20, miss: 2, sec: 3 },
+    } as Record<string, { name: string; win: number; miss: number; sec: number }>,
+    allSpinSec: 3, // 全回転の秒数
+    colors: ['白', '青', '緑', '赤', '虹'], // 保留の色（期待度の順）。虹は当選確定（外れ時0）
+    colorWin: [40, 20, 15, 20, 5], colorMiss: [91, 6, 2, 1, 0], // 保留の色の選択率（当選時・外れ時。転落は外れと同じ）
+    sakibare: { win: 0.3, miss: (0.3 * (1 / 120) * 0.6) / (0.4 * (119 / 120)) }, // 先バレの発生率（当選時・外れ時）。外れ時は徳5の通常で信頼度40%になる固定値。転落では出さない
+    special: ['allSpin'], // 画面全体の視界外を使える特別な演出（それ以外は視界外の隅だけ）
+    // 演出を出せる範囲（論理解像度 VIEW_W×VIEW_H の座標）。視界は画面中央・半径 VISION_RADIUS の円。キルログ域は #fx .kills（上から22%・3行）の仮の外枠
+    area: { killLog: { x: 230, y: 76, w: 180, h: 56 } },
+    fish: { n: 7, speed: 170, gap: 26 }, // 魚群: 匹数・速さ(px/秒)・間隔(px)
+  },
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
   POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ
   POWER_MULT: [0.49, 0.7, 0.98, 1.4], // 強さの倍率（見た目のレベル表現 POWERUP_AURA などは別）

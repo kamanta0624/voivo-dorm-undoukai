@@ -1,0 +1,149 @@
+// モダンのスロットの演出（handoff_slot2 D章）。DOM だけで描く（試合の HUD #fx にも載せられるように）
+// hud: リール・保留・モード表示を入れる要素。layer: 論理解像度 VIEW_W×VIEW_H の演出用の要素（拡大は呼び出し側）。演出は視界の円・キルログ域を抜いたマスクの中だけに出る（special は視界の円だけ抜く）
+// 素材は加工しない（表示時の拡大・位置のみ）
+import { CONFIG as C } from '../shared/config';
+import type { Hold, Mode } from '../shared/slot_modern';
+
+const M = C.SLOT_MODERN, W = C.VIEW_W, H = C.VIEW_H;
+const DOT = (k: string, f = 'idle') => `assets/gen/dot/${k}/${f}.png`;
+const TACHIE = (k: string) => `assets/gen/tachie/${k}/select.png`;
+export const HOLD_COLORS = ['#e8e8e8', '#3d8bff', '#3ccf5a', '#ff3b3b', 'conic-gradient(#f33,#fd3,#3f6,#3cf,#a3f,#f33)'];
+
+const CSS = `
+.mfx-hud{display:flex;flex-direction:column;align-items:center;gap:3px;font:bold 7px sans-serif;color:#fff;text-shadow:0 0 2px #000}
+.mfx-sl{position:relative;display:flex;gap:1px;background:#1b1b28;border:2px solid var(--c);padding:1px;border-radius:3px}
+.mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
+.mfx-sl.win{border-color:#ffd700;box-shadow:0 0 6px #ffd700}
+.mfx-sl.flash{animation:mfxflash .5s ease-out}
+.mfx-ic{width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box}
+.mfx-ic.pen{background:#400;color:#f66;text-align:center;line-height:13px;font-size:10px}
+.mfx-holds{display:flex;gap:3px;align-items:center}
+.mfx-h{position:relative;width:7px;height:7px;border-radius:50%;border:1px solid #000a}
+.mfx-h.cur{width:9px;height:9px;outline:1px solid #fff}
+.mfx-h.high{border-radius:1px;transform:rotate(45deg)}
+.mfx-h.saki::after{content:'★';position:absolute;left:50%;top:-8px;transform:translateX(-50%);color:#ffe14d;font-size:7px;text-shadow:0 0 3px #ff0}
+.mfx-mode{white-space:nowrap}
+.mfx-mode .ct{color:#ffd700}.mfx-mode .back{color:#ff8080}
+.mfx-label{position:absolute;left:100%;top:50%;transform:translate(4px,-50%);white-space:nowrap;font:900 7px sans-serif;color:#ffd700;text-shadow:0 0 3px #000,0 0 3px #000}
+.mfx-toast{position:absolute;left:50%;top:44%;transform:translateX(-50%);white-space:nowrap;font:900 12px sans-serif;color:#ffd700;-webkit-text-stroke:.5px #000;text-shadow:0 0 4px #000;animation:mfxfade 1.6s linear forwards;pointer-events:none}
+.mfx-toast.bad{color:#ff6060}
+.mfx-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;-webkit-mask-size:100% 100%;mask-size:100% 100%}
+.mfx-fx img{position:absolute;image-rendering:pixelated}
+.mfx-cut{position:absolute;border:3px solid #ffd700;background:linear-gradient(135deg,#402060,#a02040);box-shadow:0 0 8px #000;overflow:hidden;animation:mfxin .25s ease-out}
+.mfx-cut img{position:absolute;left:50%;top:0;transform:translateX(-50%);height:260%;image-rendering:auto}
+.mfx-cut.win{border-color:#ff3030;background:linear-gradient(135deg,#a01010,#ffb000)}
+.mfx-bang{position:absolute;font:900 16px sans-serif;color:#fff;-webkit-text-stroke:.6px #000;animation:mfxpop .3s ease-out}
+.mfx-rainbow{position:absolute;inset:0;background:conic-gradient(from var(--a,0deg),#f336,#fd36,#3f66,#3cf6,#a3f6,#f336);animation:mfxspin 1.2s linear infinite}
+@keyframes mfxreach{0%{border-color:#ff3030;box-shadow:0 0 5px #ff3030}100%{border-color:#ffd700;box-shadow:none}}
+@keyframes mfxflash{0%{box-shadow:0 0 16px 6px #fff;background:#fff}100%{box-shadow:none}}
+@keyframes mfxfade{0%,80%{opacity:1}100%{opacity:0}}
+@keyframes mfxin{0%{transform:translateX(-120%)}100%{transform:none}}
+@keyframes mfxpop{0%{transform:scale(2.5);opacity:0}100%{transform:none;opacity:1}}
+@keyframes mfxspin{to{--a:360deg}}
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+`;
+
+// 視界の円（画面中央・半径 VISION_RADIUS）とキルログ域を抜いたマスク（SVG）。special は視界の円だけ抜く
+function maskUrl(special: boolean) {
+  const k = M.area.killLog;
+  const holes = `<circle cx="${W / 2}" cy="${H / 2}" r="${C.VISION_RADIUS}" fill="black"/>${special ? '' : `<rect x="${k.x}" y="${k.y}" width="${k.w}" height="${k.h}" fill="black"/>`}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><mask id="m"><rect width="${W}" height="${H}" fill="white"/>${holes}</mask><rect width="${W}" height="${H}" fill="white" mask="url(#m)"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+export class ModernFx {
+  sl: HTMLElement; reelEls: HTMLElement[]; holdsEl: HTMLElement; modeEl: HTMLElement; label: HTMLElement;
+  normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
+  spinning = [false, false, false]; allSpin = false; spinAt = 0;
+  sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
+  audio: AudioContext | null = null;
+
+  constructor(public hud: HTMLElement, public layer: HTMLElement, public chars: string[], color: string) {
+    if (!document.getElementById('mfx-css')) { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = CSS; document.head.append(st); }
+    hud.classList.add('mfx-hud');
+    hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
+    this.sl = hud.querySelector('.mfx-sl')!; this.reelEls = [...hud.querySelectorAll<HTMLElement>('.mfx-ic')]; this.label = hud.querySelector('.mfx-label')!;
+    this.holdsEl = hud.querySelector('.mfx-holds')!; this.modeEl = hud.querySelector('.mfx-mode')!;
+    const mk = (special: boolean) => { const d = document.createElement('div'); d.className = 'mfx-fx'; d.style.maskImage = d.style.webkitMaskImage = maskUrl(special); layer.append(d); return d; };
+    this.normal = mk(false); this.special = mk(true);
+  }
+
+  private setReel(i: number, k: number) {
+    const e = this.reelEls[i];
+    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; e.style.backgroundImage = ''; return; }
+    e.className = 'mfx-ic'; e.textContent = ''; e.style.backgroundImage = `url(${DOT(this.chars[k % this.chars.length])})`;
+  }
+
+  // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄
+  frame(now: number) {
+    const k = Math.floor((now - this.spinAt) / C.SLOT_REEL_MS);
+    this.spinning.forEach((s, i) => { if (s) this.setReel(i, this.allSpin ? k : k + i * 2); });
+  }
+
+  // 回転開始: リーチは2つそろえて3つ目だけ回す。全回転は3つ同じ絵柄で回す。結果まで回すだけ（結果は stop）
+  spin(now: number, reels: number[], act: string | null) {
+    this.spinAt = now; this.allSpin = act === 'allSpin'; this.label.textContent = '';
+    this.sl.classList.remove('win', 'reach');
+    if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.spinning = [false, false, true]; this.sl.classList.add('reach'); this.label.textContent = 'リーチ！'; }
+    else this.spinning = [true, true, true];
+  }
+  stop(reels: number[], outcome: string) {
+    this.spinning = [false, false, false]; this.allSpin = false;
+    reels.forEach((k, i) => this.setReel(i, k));
+    this.sl.classList.remove('reach'); this.sl.classList.toggle('win', outcome === 'win');
+    this.label.textContent = outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : '';
+  }
+  // 結果を見せたあと、次の抽選まで回して見せる
+  idle(now: number) { this.spinAt = now; this.spinning = [true, true, true]; this.label.textContent = ''; this.sl.classList.remove('win'); }
+
+  // 保留4つ（先頭が次に回る）と、今回っている保留
+  holds(hs: Hold[], cur: Hold | null) {
+    const one = (h: Hold, c = '') => `<span class="mfx-h${c}${h.high ? ' high' : ''}${h.saki && this.sakiOn ? ' saki' : ''}" style="background:${HOLD_COLORS[h.color]}"></span>`;
+    this.holdsEl.innerHTML = (cur ? one(cur, ' cur') : '<span class="mfx-h cur" style="background:#333"></span>') + hs.map((h) => one(h)).join('');
+  }
+  mode(m: Mode, backLeft: number, lv: string) {
+    this.modeEl.innerHTML = (m === 'ct' ? '<span class="ct">チャンスタイム</span>' : m === 'back' ? `<span class="back">引き戻し 残り${backLeft}</span>` : '通常') + ` ／ ${lv}`;
+  }
+
+  // 先バレ: 枠が一瞬光る＋音（カスタムで OFF なら何もしない）
+  sakibare() {
+    if (!this.sakiOn) return;
+    this.sl.classList.remove('flash'); void this.sl.offsetWidth; this.sl.classList.add('flash');
+    if (!this.sound) return;
+    try {
+      const a = (this.audio ??= new AudioContext()), t = a.currentTime;
+      for (const [f, d] of [[1320, 0], [1760, 0.08]]) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; g.gain.setValueAtTime(0.15, t + d); g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.25); o.connect(g).connect(a.destination); o.start(t + d); o.stop(t + d + 0.3); }
+    } catch {}
+  }
+
+  toast(text: string, bad = false) {
+    const e = document.createElement('div'); e.className = `mfx-toast${bad ? ' bad' : ''}`; e.textContent = text; this.layer.append(e); setTimeout(() => e.remove(), 1700);
+  }
+
+  // リーチ演出（sec 秒）。char: リーチの絵柄のキャラ。win: 当否（見た目の差に使う）
+  reach(act: string, char: string, sec: number, win: boolean) {
+    const el = (html: string, layer = this.normal) => { const d = document.createElement('div'); d.innerHTML = html; const n = d.firstElementChild as HTMLElement; layer.append(n); setTimeout(() => n.remove(), sec * 1000); return n; };
+    if (act === 'chibi') { // ちびキャラ: 左下の隅をトコトコ歩いて、止まって何かを見つける
+      const im = el(`<img src="${DOT(char, 'walk1')}" style="left:-34px;top:${H - 44}px">`) as HTMLImageElement;
+      const walk = sec * 0.6, t0 = performance.now();
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.left = `${-34 + (60 * p) / walk}px`; im.src = DOT(char, Math.floor(p * 6) % 2 ? 'walk2' : 'walk1'); requestAnimationFrame(tick); } else { im.src = DOT(char, win ? 'banzai' : 'idle'); el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
+      requestAnimationFrame(tick);
+    } else if (act === 'cutin') { // 枠付きカットイン（Moiky 立ち絵）: 右下の隅
+      el(`<div class="mfx-cut${win ? ' win' : ''}" style="left:${W - 96}px;top:${H - 120}px;width:96px;height:120px"><img src="${TACHIE(char)}"></div>`);
+    } else if (act === 'fish') { // 魚群: 陣営のキャラの群れが下の端を横切る
+      const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[i % this.chars.length], 'walk1')}" style="top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px">`) as HTMLImageElement);
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.left = `${W + i * F.gap - F.speed * p}px`; im.src = DOT(this.chars[i % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }
+    // plain（リーチのみ）は HUD の「リーチ！」だけ
+  }
+
+  // 全回転（特別な演出）: 画面全体の視界外に虹の光と、そろう絵柄の大きなドット
+  allSpinFx(char: string, sec: number) {
+    const d = document.createElement('div');
+    d.innerHTML = `<div class="mfx-rainbow"></div>` + [[4, 4], [W - 68, 4], [4, H - 88], [W - 68, H - 88]].map(([x, y]) => `<img src="${DOT(char, 'banzai')}" style="left:${x}px;top:${y}px;width:64px;height:84px">`).join('');
+    const box = document.createElement('div'); box.style.cssText = 'position:absolute;inset:0'; box.append(...d.childNodes); this.special.append(box); setTimeout(() => box.remove(), sec * 1000);
+  }
+
+  clearFx() { this.normal.replaceChildren(); this.special.replaceChildren(); }
+}
