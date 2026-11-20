@@ -1,12 +1,15 @@
 // 東北イタコ: 狐火（自分の周りを時計回りに回る火の玉。展開中に再発動で、最寄りの敵へ9時の位置から順にホーミング）
+// 火の玉の座標は体の高さ（周回の中心はイタコの体の中心、当たりは相手の体の中心で測る）。壁・見通しは地面（足元の高さ＝座標＋体の高さ）で判定する
 import type { GameRoom, Player, Ent } from '../GameRoom';
 import { thingId } from '../GameRoom';
 import type { Skill } from './index';
 import { CHARS } from '../../shared/chars';
+import { bodyUp } from '../../shared/config';
 import { inRect } from '../../shared/geom';
 
 const S = CHARS.itako.skill;
 const TAU = Math.PI * 2;
+const ground = (e: { x: number; y: number }) => ({ x: e.x, y: e.y + bodyUp() }); // 火の玉の地面の位置（イタコの体の高さぶん下）
 
 const balls = (room: GameRoom, p: Player, mode: string) => room.ents.filter((e) => e.kind === 'foxfire' && e.owner === p.id && e.mode === mode);
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -37,16 +40,17 @@ function update(room: GameRoom, e: Ent, dt: number) {
     if (e.mode === 'wait') {
       const t = find(room, e.team, e.tgt);
       if (!t) return room.removeEnt(e); // 標的が倒れた・見えなくなった: 離れる前の火の玉は消える
-      const at9 = Math.atan2(t.y - o.y, t.x - o.x) - Math.PI / 2; // 標的の方向を12時としたときの9時
+      const tb = room.body(t), ob = room.bodyOf(o), at9 = Math.atan2(tb.y - ob.y, tb.x - ob.x) - Math.PI / 2; // 標的の方向を12時としたときの9時（体の中心どうし）
       if ((((at9 - prev) % TAU) + TAU) % TAU <= S.spin * dt) { // この tick で9時を通った: 円から離れる（接線＝標的の方向）
         e.ang = at9; e.mode = 'home'; e.a = at9 + Math.PI / 2; e.t = 0;
       }
     }
-    e.x = o.x + Math.cos(e.ang) * S.r; e.y = o.y + Math.sin(e.ang) * S.r;
-    if (e.mode !== 'home') { // 回っている間: 触れた敵にダメージ（同じ相手には rehit 秒おき）
+    const c = room.bodyOf(o);
+    e.x = c.x + Math.cos(e.ang) * S.r; e.y = c.y + Math.sin(e.ang) * S.r;
+    if (e.mode !== 'home') { // 回っている間: 触れた敵にダメージ（同じ相手には rehit 秒おき。相手の体の中心で測る）
       for (const t of room.enemyThings(e.team)) {
         const id = thingId(t);
-        if (dist(t, e) > t.r + e.r || room.now < (e.hits[id] ?? 0) || !room.reach(e, t)) continue;
+        if (dist(room.body(t), e) > t.r + e.r || room.now < (e.hits[id] ?? 0) || !room.reach(ground(e), t)) continue;
         e.hits[id] = room.now + S.rehit;
         room.hitThing(o, t, S.dmg);
       }
@@ -57,16 +61,18 @@ function update(room: GameRoom, e: Ent, dt: number) {
   e.t += dt;
   if (e.t > S.life) return room.removeEnt(e);
   const t = find(room, e.team, e.tgt);
-  if (t) {
-    const want = Math.atan2(t.y - e.y, t.x - e.x), d = ((((want - e.a) % TAU) + TAU + Math.PI) % TAU) - Math.PI, k = S.turn * dt;
+  const tb = t && room.body(t); // 標的の体の中心へ
+  if (tb) {
+    const want = Math.atan2(tb.y - e.y, tb.x - e.x), d = ((((want - e.a) % TAU) + TAU + Math.PI) % TAU) - Math.PI, k = S.turn * dt;
     e.a += Math.max(-k, Math.min(k, d));
   }
   let step = S.homeSpeed * dt;
   while (step > 0) {
     const m = Math.min(8, step);
     e.x += Math.cos(e.a) * m; e.y += Math.sin(e.a) * m; step -= m;
-    if (room.walls.some((w) => inRect(e.x, e.y, w))) return room.removeEnt(e);
-    if (t && dist(t, e) <= t.r + e.r) { room.hitThing(o, t, S.homeDmg); return room.removeEnt(e); }
+    const g = ground(e);
+    if (room.walls.some((w) => inRect(g.x, g.y, w))) return room.removeEnt(e);
+    if (t && tb && dist(tb, e) <= t.r + e.r) { room.hitThing(o, t, S.homeDmg); return room.removeEnt(e); }
   }
 }
 
@@ -81,9 +87,10 @@ const skill: Skill = {
       p.skillReadyAt = room.now + S.ct;
       return false;
     }
+    const c = room.bodyOf(p);
     for (let i = 0; i < S.n; i++) {
       const ang = (i / S.n) * TAU;
-      room.ents.push({ id: room.nextId++, kind: 'foxfire', team: p.team, owner: p.id, x: p.x + Math.cos(ang) * S.r, y: p.y + Math.sin(ang) * S.r, r: S.ballR, body: null, mode: 'orbit', ang, until: room.now + S.dur, hits: {}, a: 0, t: 0 });
+      room.ents.push({ id: room.nextId++, kind: 'foxfire', team: p.team, owner: p.id, x: c.x + Math.cos(ang) * S.r, y: c.y + Math.sin(ang) * S.r, r: S.ballR, body: null, mode: 'orbit', ang, until: room.now + S.dur, hits: {}, a: 0, t: 0 });
     }
     p.sk.foxUntil = room.now + S.dur;
     return false; // CT は再発動か時間切れから

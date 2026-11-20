@@ -20,8 +20,8 @@ const skill: ClientSkill = {
   ents: {
     foxfire: {
       layer: 'fx',
-      // 回っている間は尾を上へ、ホーミング中は進む向きと逆へ
-      draw(g, e, time) { hitodama(g, e.x, e.y - 10, e.r, e.a ? e.a + Math.PI : -Math.PI / 2, time); },
+      // 回っている間は尾を上へ、ホーミング中は進む向きと逆へ。座標は体の高さ（サーバーの当たりと同じ位置に描く）
+      draw(g, e, time) { hitodama(g, e.x, e.y, e.r, e.a ? e.a + Math.PI : -Math.PI / 2, time); },
     },
   },
   fx: {

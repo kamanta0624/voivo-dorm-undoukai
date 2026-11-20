@@ -41,9 +41,9 @@ function update(room: GameRoom, e: Ent, dt: number) {
     for (const t of marked(room, e)) { room.hitThing(p, t, t.k === 'boss' ? B.bossDmg : B.dmg); room.addFx({ x: t.x, y: t.y, team: p.team }, 'aura', { r: t.r + 16, color: 'boom' }); }
     return room.removeEnt(e);
   }
-  // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く。at: 爆発の時刻（技の終了時刻＋pose）、left: 爆発までの残り秒
+  // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く。at: 爆発の時刻（技の終了時刻＋pose）、left: 爆発までの残り秒、sc: 対象の表示倍率（マークの高さ）
   const at = p.st.overloadPose?.until ?? (p.st.overload?.until ?? room.now) + B.pose;
-  e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r, at, left: Math.max(0, at - room.now) }));
+  e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r, at, left: Math.max(0, at - room.now), sc: t.k === 'boss' ? 2 : t.k === 'p' && t.o.assist ? C.ASSIST.scale : 1 }));
 }
 
 // 残像（おとり）をその場に置く

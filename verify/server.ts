@@ -1564,7 +1564,7 @@ console.log('--- 東北イタコ（通常攻撃・狐火）');
   const z = mk('itako', 'sayo'); Object.assign(z.B, { x: 1552 + 300, hp: 9999 }); const ready0 = z.A.skillReadyAt; z.r.skill('a');
   const fb = () => ents(z.r, 'foxfire');
   const a0 = fb().map((e: any) => e.ang); tick(z, 0.1); const a1 = fb().map((e: any) => e.ang);
-  ok(`狐火: ${S.n}個が半径${S.r}の円周に出て時計回りに回る（CT はまだ）`, fb().length === S.n && fb().every((e: any) => Math.abs(Math.hypot(e.x - z.A.x, e.y - z.A.y) - S.r) < 1e-6) && a1.every((v: number, i: number) => Math.abs(v - a0[i] - S.spin * 0.1) < 1e-6) && z.A.skillReadyAt === ready0);
+  ok(`狐火: ${S.n}個がイタコの体の中心を中心に半径${S.r}の円周に出て時計回りに回る（CT はまだ）`, fb().length === S.n && fb().every((e: any) => Math.abs(Math.hypot(e.x - z.A.x, e.y - (z.A.y - bodyUp())) - S.r) < 1e-6) && a1.every((v: number, i: number) => Math.abs(v - a0[i] - S.spin * 0.1) < 1e-6) && z.A.skillReadyAt === ready0);
   // 回っている火の玉に触れた敵はダメージ、火の玉は消えない。同じ火の玉は rehit 秒おき
   const c = mk('itako', 'sayo'); Object.assign(c.B, { x: 1552 + S.r, y: 900, hp: 9999 }); c.r.skill('a'); let hits = 0, last = c.B.hp;
   for (let i = 0; i < 40; i++) { c.r.now += 0.05; c.r.updateEnts(0.05); if (c.B.hp < last) { hits++; last = c.B.hp; } }
@@ -1587,6 +1587,20 @@ console.log('--- 東北イタコ（通常攻撃・狐火）');
   const l = mk('itako', 'sayo'); Object.assign(l.B, { x: 1552 + 200, hp: 9999 }); l.r.skill('a'); l.r.skill('a'); for (let i = 0; i < 20; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
   l.B.alive = false; const homing = ents(l.r, 'foxfire').filter((f: any) => f.mode === 'home').length; for (let i = 0; i < 80; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
   ok('飛行中に標的が倒れたら直進して寿命・壁で消える（離れる前の火の玉は消える）', homing > 0 && ents(l.r, 'foxfire').length === 0);
+  // 当たりは相手の体の中心で測る（tune3）: 体の中心が周回の円の上にいる相手には当たり、円から離れていれば当たらない。プレイヤー・アシスト・大将（2倍）とも
+  const body = (kind: string, onCircle: boolean) => {
+    const w = mk('itako', 'sayo'); Object.assign(w.B, { x: -999, y: -999 }); const cy = 900 - bodyUp(), gap = onCircle ? 0 : S.r;
+    let o: any, up = bodyUp(), hp0 = 0, get = () => 0;
+    if (kind === 'boss') { o = w.r.bosses[1]; up = bodyUp(2); Object.assign(o, { x: 1552 + S.r + gap, y: cy + up }); hp0 = o.hp; get = () => o.hp; }
+    else { w.r.addPlayer('x', 1, false); o = w.r.players.get('x'); const as = kind === 'assist'; up = bodyUp(as ? C.ASSIST.scale : 1); Object.assign(o, { char: as ? 'aoyama' : 'sayo', assist: as, alive: true, x: 1552 + S.r + gap, y: cy + up, hp: 9999 }); o.st.test = NOAUTO(); hp0 = 9999; get = () => o.hp; }
+    w.r.skill('a'); for (let i = 0; i < 30; i++) { w.r.now += 0.05; w.r.updateEnts(0.05); }
+    return { hit: get() < hp0, feet: Math.hypot(o.x - 1552, o.y - 900) };
+  };
+  const res = ['player', 'assist', 'boss'].map((k) => ({ k, on: body(k, true), off: body(k, false) }));
+  ok('狐火の当たりは相手の体の中心で測る: 体の中心が円の上なら当たり、離れていれば当たらない（プレイヤー・アシスト・大将）', res.every((x) => x.on.hit && !x.off.hit), res);
+  const hb = mk('itako', 'sayo'); Object.assign(hb.B, { x: -999, y: -999 }); const bb = hb.r.bosses[1]; Object.assign(bb, { x: 1552 + 160, y: 900 + bodyUp(2) - bodyUp() }); const bh0 = bb.hp;
+  hb.r.skill('a'); tick(hb, 0.2); hb.r.skill('a'); for (let i = 0; i < 80; i++) { hb.r.now += 0.05; hb.r.updateEnts(0.05); }
+  ok('撃ち出した狐火は大将（2倍）の体の中心へ飛んで当たる', bb.hp < bh0 && ents(hb.r, 'foxfire').length === 0, { dmg: bh0 - bb.hp });
   // Bot: 近くに敵がいれば展開し、円の外の敵へ撃ち出す
   const bt = mk('itako', 'sayo'); bt.A.bot = true; bt.A.aim = C.BOT_AIM; Object.assign(bt.B, { x: 1552 + 60, hp: 1e9 });
   let deployed = false, launched = false;
