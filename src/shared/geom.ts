@@ -83,8 +83,10 @@ export function overlaps(x: number, y: number, r: number, obstacles: Rect[]): bo
 
 // キャラ・大将・ファンネルの位置を変える唯一の関数。細かく刻んで動かし、壁を通り抜けない
 // slide=true: 通常移動（壁に沿って滑る）／ false: 強制移動（はじき・突撃。途中で当たったらそこで止まる）
-export function moveBody(x: number, y: number, dx: number, dy: number, r: number, obstacles: Rect[], slide = true) {
-  ({ x, y } = pushOut(x, y, r, obstacles)); // 重なった状態から動くと、その壁を無視して抜けてしまうため
+export function moveBody(x: number, y: number, dx: number, dy: number, r: number, obstacles: Rect[], slide = true, corrected?: (p: { x: number; y: number }) => void) {
+  const start = pushOut(x, y, r, obstacles);
+  if (start.x !== x || start.y !== y) corrected?.(start);
+  ({ x, y } = start); // 重なった状態から動くと、その壁を無視して抜けてしまうため
   const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 4));
   for (let i = 0; i < n; i++) {
     const m = moveCircle(x, y, dx / n, dy / n, r, obstacles);

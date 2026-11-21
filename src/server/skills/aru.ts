@@ -37,7 +37,7 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
   }
   if (stop) { delete p.st.rush; return; }
   if (tiles.length) { room.breakWalls(tiles); if (!p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); } }
-  Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), false));
+  Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), false, (q) => room.noteJump(`p:${p.id}`, p, q)));
   for (const t of room.enemyThings(p.team)) {
     if (p.sk.hit.has(thingId(t)) || !inDashShape(S, t.x, t.y, p.x, p.y, a, t.r)) continue;
     p.sk.hit.add(thingId(t));

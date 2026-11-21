@@ -29,7 +29,7 @@ function leap(room: GameRoom, p: Player, dt: number) {
   const l = p.sk.leap;
   if (!p.st.leap) return;
   const step = Math.min(room.speedOf(p) * S.jumpSpeed * dt, l.left), x0 = p.x, y0 = p.y;
-  Object.assign(p, moveBody(p.x, p.y, Math.cos(l.a) * step, Math.sin(l.a) * step, C.PLAYER_RADIUS, room.obstacles(), false));
+  Object.assign(p, moveBody(p.x, p.y, Math.cos(l.a) * step, Math.sin(l.a) * step, C.PLAYER_RADIUS, room.obstacles(), false, (q) => room.noteJump(`p:${p.id}`, p, q)));
   l.left -= step;
   if (l.left <= 0 || Math.hypot(p.x - x0, p.y - y0) < step - 0.5) delete p.st.leap;
 }

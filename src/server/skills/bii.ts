@@ -70,7 +70,7 @@ const skill: Skill = {
       .sort((u, v) => Math.hypot(u.x - px, u.y - py) - Math.hypot(v.x - px, v.y - py))[0];
     if (!t) return;
     const d = Math.hypot(t.x - px, t.y - py) || 1, sp = Math.min(room.speedOf(p) * dt, d);
-    Object.assign(p, moveBody(px, py, ((t.x - px) / d) * sp, ((t.y - py) / d) * sp, C.PLAYER_RADIUS, moveWalls(p.char, room.obstacles())));
+    Object.assign(p, moveBody(px, py, ((t.x - px) / d) * sp, ((t.y - py) / d) * sp, C.PLAYER_RADIUS, moveWalls(p.char, room.obstacles()), true, (q) => room.noteJump(`p:${p.id}`, { x: px, y: py }, q)));
   },
   botUse: (room, p) => room.nearFoe(p, B.botRange, (t) => t.k === 'p' || t.k === 'boss'),
   statuses: ['overload', 'overloadPose'],

@@ -1,5 +1,6 @@
 // 通信まわりの計算（サーバーとクライアントで共通）。ブラウザなしでテストできるよう Phaser に依存しない
 import { CONFIG as C, Rect } from './config';
+import type { ClientMeasure } from './netmeasure';
 import { moveBody, pushOut } from './geom';
 
 // 入力1つぶん（NET_STEP 秒）の移動。サーバーとクライアントで同じ計算をする
@@ -68,6 +69,7 @@ export class Predictor {
 
 // 他キャラの描画: サーバー時刻付きのスナップショットを溜め、少し過去の時刻の位置を補間する
 export class Interp {
+  measure: ClientMeasure | null = null;
   buf: { t: number; pos: Map<string, { x: number; y: number }> }[] = [];
   offset: number | null = null; // 受信時刻 - サーバー時刻 の最小値（遅延の揺らぎを除く）
 
@@ -95,6 +97,7 @@ export class Interp {
       else { b = { t: s.t, p }; break; }
     }
     if (a && b) {
+      this.measure?.interpolation(id, 0);
       if (Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y) > C.NET_SNAP) return a.p; // 復活などの大きな移動は補間せず、その時刻で切り替える
       const k = (T - a.t) / (b.t - a.t);
       return { x: a.p.x + (b.p.x - a.p.x) * k, y: a.p.y + (b.p.y - a.p.y) * k };
@@ -104,10 +107,12 @@ export class Interp {
       let a0: S | null = null;
       for (const s of this.buf) { const p = s.pos.get(id); if (p && s.t < a.t) a0 = { t: s.t, p }; }
       if (a0 && Math.hypot(a.p.x - a0.p.x, a.p.y - a0.p.y) < C.NET_SNAP) {
+        this.measure?.interpolation(id, T <= a.t ? 0 : T - a.t >= C.NET_EXTRAPOLATE ? 2 : 1);
         const k = Math.min(T - a.t, C.NET_EXTRAPOLATE) / (a.t - a0.t);
         return { x: a.p.x + (a.p.x - a0.p.x) * k, y: a.p.y + (a.p.y - a0.p.y) * k };
       }
     }
+    this.measure?.interpolation(id, 0);
     return (a ?? b)?.p ?? null;
   }
 }

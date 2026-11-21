@@ -8,7 +8,7 @@
     "typecheck": "tsc",
     "assets": "sh tools/build_assets.sh",
     "share": "sh tools/share.sh",
-    "test:server": "tsx verify/server.ts && tsx verify/net.ts && tsx verify/input.ts && tsx verify/commentary.ts && tsx verify/slot_modern.ts",
+    "test:server": "tsx verify/server.ts && tsx verify/net.ts && tsx verify/netmeasure.ts && tsx verify/input.ts && tsx verify/commentary.ts && tsx verify/slot_modern.ts",
     "cm:vvproj": "tsx tools/commentary.ts vvproj",
     "cm:audio": "tsx tools/commentary.ts audio"
   },

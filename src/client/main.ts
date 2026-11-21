@@ -5,6 +5,7 @@ import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW, SELF_VIEW } from './skills';
+import { ClientMeasure } from '../shared/netmeasure';
 import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
@@ -293,6 +294,19 @@ class GameScene extends Phaser.Scene {
   me = { x: 0, y: 0, init: false };
   face = 0; // 自キャラの向き（直近の入力方向）
   pred = new Predictor(); // 自キャラの予測（入力番号でサーバーと照合）
+  measure: ClientMeasure | null = null;
+  measureId = 0;
+  measureSent = false;
+  measureFrameAt: number | null = null;
+  pingAt = -Infinity;
+  pingPending: number | null = null;
+  sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
+  finishMeasure() {
+    if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
+    this.measureSent = true;
+    this.room.send('netReport', { id: this.measureId, value: this.measure.report() });
+    this.interp.measure = null;
+  }
   interp = new Interp(); // 他キャラ・大将の補間
   acc = 0; // 次の入力までの経過時間(ms)
   lobbyKey = '';
@@ -451,7 +465,7 @@ class GameScene extends Phaser.Scene {
     document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
-    for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.room?.leave(); };
+    for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
 
     // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
     const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
@@ -470,15 +484,27 @@ class GameScene extends Phaser.Scene {
         if (reason === 'kick' || reason === 'ban') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : '部屋から外されました');
         if (reason === 'kick' || reason === 'ban' || this.toTitle) location.reload();
       });
-      addEventListener('pagehide', () => { if (this.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
+      addEventListener('pagehide', () => { this.finishMeasure(); if (this.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) { this.hiddenAt = performance.now(); return; }
         if (room.connection.isOpen && performance.now() - this.hiddenAt >= C.RESUME_RECONNECT_SEC * 1000) room.connection.close(CloseCode.MAY_TRY_RECONNECT); // 止まっていた接続を張り直す
       });
+      room.onMessage('netPong', (m: any) => {
+        if (this.measure && !this.measureSent && m.id === this.measureId && m.at === this.pingPending) {
+          this.measure.rtt.add(performance.now() - m.at); this.pingPending = null;
+        }
+      });
+      room.onMessage('netFinish', (m: any) => { if (m.id === this.measureId) this.finishMeasure(); });
       room.onMessage('s', (s: any) => {
+        if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== this.measureId) {
+          this.measureId = s.netMeasure; this.measure = new ClientMeasure(); this.measureSent = false; this.measureFrameAt = null;
+          this.pingAt = -Infinity; this.pingPending = null;
+        }
+        if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
         this.snap = s;
         this.snapAt = performance.now();
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
+        if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
         const m = s.players.find((p: any) => p.id === s.me);
         if (m) {
           if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
@@ -597,7 +623,7 @@ class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: sp, rotation: f.a + 0.2, alpha: 0, duration: C.SLASH_MS, ease: 'Quad.easeOut', onComplete: () => sp.destroy() });
     } else {
       const sp = this.add.image(f.x + 9, f.y - 30, 'sweat').setDepth(21);
-      this.tweens.add({ targets: sp, y: f.y - 22, alpha: 0, duration: C.SWEAT_MS, ease: 'Quad.easeIn', onComplete: () => sp.destroy() });
+      this.sweatFx.push({ target: f.target, sp, born: this.time.now });
     }
   }
 
@@ -1029,6 +1055,15 @@ class GameScene extends Phaser.Scene {
     if (!s) return;
     const dt = dtMs / 1000;
     const now = performance.now();
+    this.interp.measure = s.phase === 'playing' && !this.measureSent ? this.measure : null;
+    if (this.interp.measure) {
+      this.interp.measure.beginFrame(this.measureFrameAt === null ? null : now - this.measureFrameAt);
+      this.measureFrameAt = now;
+      if (now - this.pingAt >= 1000 && (this.pingPending === null || now - this.pingPending > 10000)) {
+        this.pingAt = this.pingPending = now;
+        this.room.send('netPing', { id: this.measureId, at: now });
+      }
+    }
     const k = this.keys;
     const { dx, dy } = this.ctl.move({ up: k.W.isDown, down: k.S.isDown, left: k.A.isDown, right: k.D.isDown });
     if (dx || dy) this.face = Math.atan2(dy, dx);
@@ -1222,15 +1257,34 @@ class GameScene extends Phaser.Scene {
     }
 
     const fxG = this.fxG.clear();
+    const sweatPos = (id: string | undefined) => {
+      if (!id) return null;
+      const pos = thingPos(id), [kind, value] = id.split(':');
+      if (!pos) return null;
+      if (kind === 'p' && !s.players.find((p: any) => p.id === value)?.alive) return null;
+      if (kind === 'boss' && !(s.bosses.find((b: any) => String(b.team) === value)?.hp > 0)) return null;
+      const key = kind === 'p' ? value : kind === 'boss' ? `boss${value}` : kind === 'c' ? `c${value}` : null;
+      if (!key) return pos;
+      const sprite = this.units.get(key)?.s;
+      return seen.has(key) && sprite?.visible ? { x: sprite.x, y: sprite.y } : null;
+    };
     // 技の範囲エフェクト
     for (const f0 of this.fxQueue) {
-      const f = f0.kind === 'slash' && f0.who === s.me ? { ...f0, x: this.me.x, y: this.me.y } : f0; // 自分の斬撃は画面の自キャラの位置から（向き・射程・角度はサーバーの値）
+      const target = f0.kind === 'sweat' ? sweatPos(f0.target) : null;
+      if (f0.kind === 'sweat' && !target) continue;
+      const f = target ? { ...f0, ...target } : f0.kind === 'slash' && f0.who === s.me ? { ...f0, x: this.me.x, y: this.me.y } : f0; // 自分の斬撃は画面の自キャラの位置から（向き・射程・角度はサーバーの値）
       const dv = `${f.d > 0 ? '+' : '−'}${Math.abs(f.d).toFixed(2).replace(/0$/, '')}`;
       if ((f.kind === 'slash' && !(f.color && FX_VIEW[f.color])) || f.kind === 'sweat') this.aaFx(f); // 通常攻撃の斬撃・汗（color の描画があれば技の fx の層で描く）
       else if (f.kind === 'toku') this.popup(`徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）
       else this.skillFx.push({ ...f, t0: time });
     }
     this.fxQueue = [];
+    this.sweatFx = this.sweatFx.filter((f) => {
+      const pos = sweatPos(f.target), age = (time - f.born) / C.SWEAT_MS;
+      if (!pos || age >= 1) { f.sp.destroy(); return false; }
+      f.sp.setPosition(pos.x + 9, pos.y - 30 + 8 * age * age).setAlpha(1 - age * age);
+      return true;
+    });
     const fxMs = (f: SkillFx) => (f.kind === 'recall' ? C.RECALL_FX_MS : (f.color && FX_VIEW[f.color]?.ms) || C.SKILL_FX_MS);
     this.skillFx = this.skillFx.filter((f) => time - f.t0 < fxMs(f));
     for (const f of this.skillFx) {

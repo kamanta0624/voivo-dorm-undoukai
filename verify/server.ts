@@ -1012,6 +1012,7 @@ console.log('--- 待機画面の陣営移動・試合ログ');
   r.damageBoss(enemy, 30, { ...r.players.get('h1'), assist: true });
   r.damageBoss(enemy, hp, r.players.get('h1')); // 撃破（与えたのは残りHPまで）
   const { readFileSync, rmSync } = await import('node:fs');
+  r.flushLog(); // 終了レポートの収集期限を待たずに確定
   const lines = readFileSync(file, 'utf8').trim().split('\n'); rmSync(file); (GameRoom as any).logFile = '';
   const L = JSON.parse(lines[0]);
   ok('試合終了で試合ログに1行（時刻・試合時間・勝利陣営・決着・陣営ごとのキャラと人/Bot・大将へのダメージ）', lines.length === 1 && L.start && L.end && L.sec >= 0 && L.winner === 0 && L.kind === 'boss'

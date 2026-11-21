@@ -6,7 +6,10 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { CONFIG as C } from '../src/shared/config';
 
+if (process.env.NET_MEASURE !== undefined) C.NET_MEASURE = process.env.NET_MEASURE !== '0';
+
 if (process.argv[2] === '--server') {
+  let seed = 7; Math.random = () => ((seed = Math.imul(seed, 1664525) + 1013904223 >>> 0) / 2 ** 32);
   const { defineServer, defineRoom } = await import('colyseus');
   const { GameRoom } = await import('../src/server/GameRoom');
   const { WebSocket } = await import('ws');
@@ -66,7 +69,7 @@ try {
         if (k === 0) room.onMessage('s', (m: any) => { phase = m.phase; });
         conns.push(room);
       }
-      for (const room of conns.slice(-PER)) room.send('go', { char: PICKABLE[Math.floor(Math.random() * PICKABLE.length)] });
+      for (const room of conns.slice(-PER)) room.send('go', { char: PICKABLE[conns.indexOf(room) % PICKABLE.length] });
       for (let i = 0; i < 600 && phase !== 'playing'; i++) await sleep(100);
       if (phase !== 'playing') throw new Error(`部屋${r + 1}の試合が始まらない（${phase}）`);
     }

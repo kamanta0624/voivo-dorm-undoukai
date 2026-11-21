@@ -9,6 +9,7 @@ import { findPath } from './pathfind';
 import { stepPlayer } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Director } from './commentary';
+import { ServerMeasure, clientReport, LIMITS } from '../shared/netmeasure';
 import * as OG from './outgame';
 
 const T = C.TILE;
@@ -101,7 +102,12 @@ export class GameRoom extends Room {
   static sealed = false; // 常設の部屋を作り終えたら true（以後は e2e の部屋しか作らせない。src/server/index.ts）
   pub = false; // 常設の部屋（タイトルの一覧に出る。e2e の部屋は false）
   now = 0;
-  phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting'; // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）、finale: 決着演出（入力なし。CONFIG.FINALE）
+  private _phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting';
+  get phase() { return this._phase; }
+  set phase(value: typeof this._phase) {
+    if (value !== this._phase) { this.hist = []; this.jumps.clear(); }
+    this._phase = value;
+  } // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）、finale: 決着演出（入力なし。CONFIG.FINALE）
   finale: Finale | null = null; // 決着演出の状態
   phaseLeft = 0; // intro / countdown の残り秒数
   elapsed = 0; // スナップショットの時刻（試合の前後も進む。他キャラの補間の時計合わせに使う）
@@ -145,13 +151,27 @@ export class GameRoom extends Room {
   bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }]; // 陣営ごとの、敵大将に与えたダメージ（試合ログ用）
   cm!: Director; // 実況ディレクター（試合ごとに作り直す）
 
+  measure: ServerMeasure | null = null;
+  measureId = 0;
+  reports: Record<string, ReturnType<typeof clientReport>> = Object.create(null);
+  private lastTick: number | null = null;
+  private pendingLog: { line: any; file: string; timer: ReturnType<typeof setTimeout> } | null = null;
+
   messages = {
+    netPing: (client: Client, m: { id: number; at: number }) => {
+      if (this.measure && m?.id === this.measureId && Number.isFinite(m.at)) client.send('netPong', m);
+    },
+    netReport: (client: Client, m: { id: number; value: unknown }) => {
+      if (!this.measure || m?.id !== this.measureId || Object.hasOwn(this.reports, client.sessionId)) return;
+      const report = clientReport(m.value);
+      if (report) this.reports[client.sessionId] = report;
+    },
     input: (client: Client, m: { seq: number; dx: number; dy: number; rt?: number }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (!p) return;
       p.inputs.push(m); // 1tickに1つずつ処理する（クライアントの予測と同じ刻み）
       p.inDx = m.dx; p.inDy = m.dy; // 最後に届いた移動入力（アルの突撃の方向に使う）
-      if (p.inputs.length > C.NET_QUEUE_MAX) p.inputs.shift();
+      if (p.inputs.length > C.NET_QUEUE_MAX) { p.inputs.shift(); if (this.measure && this.phase === 'playing') this.measure.client(client.sessionId).dropped++; }
     },
     // Q を押した: 押している間リコールを溜める
     qdown: (client: Client) => {
@@ -213,7 +233,8 @@ export class GameRoom extends Room {
         const p = this.players.get(this.owners.get(client.sessionId) ?? '');
         if (!p || !p.alive || this.phase !== 'playing') return;
         const boss = this.bosses[1 - p.team];
-        Object.assign(p, { x: boss.x - (C.BOSS_RADIUS + C.PLAYER_RADIUS + 8), y: boss.y, dx: 0, dy: 0, face: 0 });
+        this.relocate(`p:${p.id}`, p, { x: boss.x - (C.BOSS_RADIUS + C.PLAYER_RADIUS + 8), y: boss.y });
+        Object.assign(p, { dx: 0, dy: 0, face: 0 });
       },
       // 時間の早送り（1tickの間にサーバーの処理を k 回まわす）
       e2eSpeed: (_c: Client, m: { k: number }) => { this.speed = Math.max(1, Math.round(m.k)); },
@@ -248,13 +269,13 @@ export class GameRoom extends Room {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
         if (!p) return;
         const a = this.summonAssist(p.team, m.tier, m.char);
-        if (m.dx !== undefined) Object.assign(a, pushOut(p.x + m.dx, p.y + (m.dy ?? 0), C.PLAYER_RADIUS, this.obstacles())); // 自分からの位置
+        if (m.dx !== undefined) this.relocate(`p:${a.id}`, a, pushOut(p.x + m.dx, p.y + (m.dy ?? 0), C.PLAYER_RADIUS, this.obstacles())); // 自分からの位置
         if (m.ready) a.skillReadyAt = this.now; // 技をすぐ使える
       },
       // 自分の悪行ポイントを v にする（指名手配の確認用）
       e2eBad: (c: Client, m: { v: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.bad = m.v; p.wantedHold = false; } },
       // 自キャラを (x, y) へ移す
-      e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) Object.assign(p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles()), { dx: 0, dy: 0 }); },
+      e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) { this.relocate(`p:${p.id}`, p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles())); p.dx = p.dy = 0; } },
       // 自キャラのキャラを変える（花丸の確認用）
       e2eChar: (c: Client, m: { char: string }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && PICKABLE.includes(m.char)) { p.char = m.char; p.hp = this.maxHp(p); } },
       // 自キャラの技のクールタイムを明ける
@@ -264,7 +285,8 @@ export class GameRoom extends Room {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
         if (!p) return;
         if (!this.couriers.length) this.spawnCourier();
-        Object.assign(this.couriers[0], pushOut(p.x + (m.dist ?? 40), p.y, C.PLAYER_RADIUS, this.obstacles()), m.box ? { box: m.box } : {});
+        this.relocate(`c:${this.couriers[0].id}`, this.couriers[0], pushOut(p.x + (m.dist ?? 40), p.y, C.PLAYER_RADIUS, this.obstacles()));
+        if (m.box) this.couriers[0].box = m.box;
       },
       // Bot の攻撃で大将が減らないようにする（人間の確認の途中で試合が決着しないように）
       e2eBossGuard: (_c: Client, m: { on: boolean }) => { this.bossGuard = m.on; },
@@ -325,6 +347,7 @@ export class GameRoom extends Room {
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
     Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
+    this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
@@ -386,7 +409,7 @@ export class GameRoom extends Room {
     return p;
   }
 
-  onDispose() { GameRoom.live.delete(this); }
+  onDispose() { if (this.measure && this.startedAt) this.writeLog('disconnect'); this.flushLog(); GameRoom.live.delete(this); }
 
   // 人間の参加者の数（再接続待ちを含む）
   humanCount() { return [...this.players.values()].filter((p) => !p.bot && !p.assist).length + [...this.dropped].filter((id) => this.players.get(id)?.bot).length; }
@@ -402,6 +425,7 @@ export class GameRoom extends Room {
   }
 
   onJoin(client: Client, options?: { name?: string }) {
+    if (this.phase === 'playing') this.measure?.client(client.sessionId);
     if (this.phase === 'waiting') {
       if (this.players.size >= C.TEAM_SIZE * 2) return; // 観戦
       const counts = [0, 0];
@@ -454,7 +478,7 @@ export class GameRoom extends Room {
       this.checkBack();
     }
     // 常設の部屋: 人間が誰もいなくなったら（再接続待ちもなし）、試合を打ち切って待機に戻す
-    if (this.pub && this.phase !== 'waiting' && !this.clients.length && !this.dropped.size) { this.players.clear(); this.setup(); this.lobbyLeft = null; this.unlock(); }
+    if (this.pub && this.phase !== 'waiting' && !this.clients.length && !this.dropped.size) { if (this.measure && this.startedAt) this.writeLog('disconnect'); this.players.clear(); this.setup(); this.lobbyLeft = null; this.unlock(); }
   }
 
   // 管理ページ: キック（枠は Bot が引き継ぐ。再接続させない）。ban なら以後の入室も拒否
@@ -499,6 +523,10 @@ export class GameRoom extends Room {
 
   // カウント0（GAME START）: 部屋から出られるようになり、試合時間を数え始める
   beginPlay() {
+    this.flushLog();
+    this.measure = C.NET_MEASURE ? new ServerMeasure() : null;
+    for (const c of this.clients) this.measure?.client(c.sessionId);
+    this.measureId++; this.reports = Object.create(null); this.lastTick = null;
     this.phase = 'playing';
     this.startedAt = Date.now();
     this.phaseLeft = 0;
@@ -542,6 +570,16 @@ export class GameRoom extends Room {
   }
 
   tick(dt: number, send = true) {
+    const measure = this.measure, start = measure && this.phase === 'playing' ? performance.now() : null;
+    if (start !== null) {
+      if (this.lastTick !== null) measure!.interval.add(start - this.lastTick);
+      this.lastTick = start;
+    }
+    this.tickGame(dt, send);
+    if (start !== null) measure!.tick.add(performance.now() - start);
+  }
+
+  private tickGame(dt: number, send = true) {
     if (send) this.elapsed += dt; // 早送り中も実時間で進める
     if (this.phase === 'intro' || this.phase === 'countdown') {
       this.phaseLeft -= dt;
@@ -629,9 +667,9 @@ export class GameRoom extends Room {
   // 保険: 壁と重なっているキャラ・大将・ユニット扱いの場の物を最寄りの空き位置へ押し出す
   unstick() {
     const obs = this.obstacles();
-    for (const p of this.players.values()) if (p.alive) Object.assign(p, pushOut(p.x, p.y, C.PLAYER_RADIUS, moveWalls(p.char, obs)));
-    for (const b of this.bosses) Object.assign(b, pushOut(b.x, b.y, C.BOSS_RADIUS, obs));
-    for (const e of this.ents) if (e.body === 'unit') Object.assign(e, pushOut(e.x, e.y, e.r, obs));
+    for (const p of this.players.values()) if (p.alive) this.relocate(`p:${p.id}`, p, pushOut(p.x, p.y, C.PLAYER_RADIUS, moveWalls(p.char, obs)));
+    for (const b of this.bosses) this.relocate(`boss:${b.team}`, b, pushOut(b.x, b.y, C.BOSS_RADIUS, obs));
+    for (const e of this.ents) if (e.body === 'unit') this.relocate(`e:${e.id}`, e, pushOut(e.x, e.y, e.r, obs));
   }
 
   // 決着: 演出（finale）を始める。試合ログはここで書く（試合時間に演出を含めない）
@@ -700,9 +738,29 @@ export class GameRoom extends Room {
         bossDmg: { player: r(this.bossDmg[t].player), assist: r(this.bossDmg[t].assist) },
       })),
     };
-    mkdirSync(dirname(GameRoom.logFile), { recursive: true });
-    appendFileSync(GameRoom.logFile, JSON.stringify(line) + '\n');
     this.startedAt = 0;
+    if (!this.measure) { this.appendLog(GameRoom.logFile, line); return; }
+    const server = this.measure, reports = this.reports;
+    const clients = this.clients.map((c) => c.sessionId);
+    for (const id of clients) server.client(id);
+    this.pendingLog = { file: GameRoom.logFile, line: { ...line, net: { id: this.measureId, limitsMs: LIMITS, server, clients: reports } }, timer: setTimeout(() => this.flushLog(), 2000) };
+    this.pendingLog.timer.unref();
+    for (const c of this.clients) c.send('netFinish', { id: this.measureId });
+  }
+
+
+  private appendLog(file: string, line: unknown) {
+    mkdirSync(dirname(file), { recursive: true });
+    appendFileSync(file, JSON.stringify(line) + '\n');
+  }
+
+  flushLog() {
+    const pending = this.pendingLog;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pending.line.net.missingClients = Object.keys(pending.line.net.server.clients).filter((id) => !Object.hasOwn(pending.line.net.clients, id));
+    this.appendLog(pending.file, pending.line);
+    this.pendingLog = null;
   }
 
   // 陣営の人間のクライアントへ通知
@@ -737,6 +795,10 @@ export class GameRoom extends Room {
       if (!p.bot) {
         // 人間: 届いた入力を1tickに1つ（溜まっていれば2つ）、クライアントと同じ計算で処理
         p.dx = p.dy = 0;
+        if (this.measure) {
+          const m = this.measure.client([...this.owners].find(([, id]) => id === p.id)?.[0] ?? p.id);
+          m.queue.add(p.inputs.length); if (p.inputs.length > C.NET_CATCHUP) m.catchup++;
+        }
         for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
           const m = p.inputs.shift()!;
           this.setInput(p.id, m.dx, m.dy);
@@ -746,7 +808,7 @@ export class GameRoom extends Room {
         }
       } else if (this.now >= p.stunUntil && !locked) {
         const sp = this.speedOf(p) * dt;
-        Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, moveWalls(p.char, obs)));
+        Object.assign(p, moveBody(p.x, p.y, p.dx * sp, p.dy * sp, C.PLAYER_RADIUS, moveWalls(p.char, obs), true, (q) => this.noteJump(`p:${p.id}`, p, q)));
       }
       SKILLS[p.char]?.afterMove?.(this, p, dt, px, py, locked);
       if (!p.assist) {
@@ -764,7 +826,7 @@ export class GameRoom extends Room {
         const r = C.RECALL_ROOMS[p.team];
         p.recallAt = null; p.recallBreaks = 0;
         this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
-        Object.assign(p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
+        this.relocate(`p:${p.id}`, p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
         p.hp = Math.min(this.maxHp(p), p.hp + this.maxHp(p) * C.RECALL_HEAL);
         this.fxAtBody(p, 'aura', { r: 30, color: 'assist' });
         if (p.bot) p.eating = true;
@@ -796,6 +858,7 @@ export class GameRoom extends Room {
   respawn(p: Player) {
     const s = C.SPAWNS[p.team];
     if (p.ult?.pending) Object.assign(p.ult, { pending: false, until: this.now + C.ULT_DURATION }); // 撤退中に選ばれたウルトは復活後に始まる
+    this.noteJump(`p:${p.id}`, p, s);
     Object.assign(p, { alive: true, x: s.x, y: s.y, eating: false, stunUntil: 0, st: {}, recallAt: null, boostUntil: 0 });
     p.hp = this.maxHp(p);
     p.lastHitBy.clear();
@@ -857,8 +920,10 @@ export class GameRoom extends Room {
     }
     const boss = this.bosses[team];
     const a = this.addPlayer(`assist${this.nextId++}`, team, true);
+    const before = { x: a.x, y: a.y };
     Object.assign(a, { char, assist: true, tier, role: 'raid', aim: C.BOT_AIM, x: boss.x + C.BOSS_RADIUS + C.PLAYER_RADIUS + 4, y: boss.y, skillReadyAt: this.now + C.ASSIST.units[char].every });
     Object.assign(a, pushOut(a.x, a.y, C.PLAYER_RADIUS, this.obstacles()));
+    this.noteJump(`p:${a.id}`, before, a, true);
     a.hp = this.maxHp(a);
     for (const c of this.clients) c.send('assist', { char, tier, team }); // 両陣営に通知
     this.addFx(a, 'aura', { r: 40, color: 'assist' });
@@ -894,7 +959,7 @@ export class GameRoom extends Room {
     while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 6) c.path.shift();
     if (!c.path.length && Math.hypot(to.x - c.x, to.y - c.y) > C.COURIER.reach && findPath(c, to, obs, this.walls).length === 0) { this.nextWp(c); return; } // 行けない地点は飛ばす
     const n = c.path[0] ?? to, d = Math.hypot(n.x - c.x, n.y - c.y) || 1, m = Math.min(C.PLAYER_SPEED * C.COURIER.speed * dt, d);
-    Object.assign(c, moveBody(c.x, c.y, ((n.x - c.x) / d) * m, ((n.y - c.y) / d) * m, C.PLAYER_RADIUS, obs));
+    Object.assign(c, moveBody(c.x, c.y, ((n.x - c.x) / d) * m, ((n.y - c.y) / d) * m, C.PLAYER_RADIUS, obs, true, (q) => this.noteJump(`c:${c.id}`, c, q)));
   }
 
   // コバコが巡回の部屋に着いた: その部屋の未取得のコバコの徳が cap 個未満なら、高性能の徳を COURIER_DROP.n 個置く
@@ -981,7 +1046,25 @@ export class GameRoom extends Room {
   // ---- 近接AAの巻き戻し判定（ラグ補償） ----
   hist: { t: number; pos: Map<string, Pt> }[] = []; // tick ごとのプレイヤー・大将・コバコの位置（elapsed で記録。NET_REWIND_MAX より少し長く持つ）
 
+  jumps = new Map<string, { t: number; before: Pt; after: Pt; born: boolean }[]>();
+
+  noteJump(id: string, before: Pt, after: Pt, born = false) {
+    if (this.phase !== 'playing' || (!born && before.x === after.x && before.y === after.y)) return;
+    const events = this.jumps.get(id) ?? [];
+    events.push({ t: this.elapsed, before: { x: before.x, y: before.y }, after: { x: after.x, y: after.y }, born });
+    this.jumps.set(id, events);
+  }
+
+  relocate(id: string, object: Pt, to: Pt) {
+    this.noteJump(id, object, to);
+    Object.assign(object, to);
+  }
+
   recordHist() {
+    for (const [id, events] of this.jumps) {
+      const kept = events.filter((e) => e.t >= this.elapsed - C.NET_REWIND_MAX - 0.2);
+      if (kept.length) this.jumps.set(id, kept); else this.jumps.delete(id);
+    }
     const pos = new Map<string, Pt>();
     for (const p of this.players.values()) pos.set(`p:${p.id}`, { x: p.x, y: p.y });
     for (const b of this.bosses) pos.set(`boss:${b.team}`, { x: b.x, y: b.y });
@@ -1003,8 +1086,17 @@ export class GameRoom extends Room {
     let i = h.length - 1;
     while (i > 0 && h[i - 1].t >= T) i--;
     const b = h[i], a = i > 0 ? h[i - 1] : b;
-    return things.map((t) => {
+    return things.filter((t) => !(this.jumps.get(thingId(t)) ?? []).some((e) => e.born && T < e.t)).map((t) => {
+      if (t.k === 'e') return t; // 場の物は従来どおり現在位置（位置履歴を持たない）
       const id = thingId(t), pa = a?.pos.get(id), pb = b?.pos.get(id);
+      const events = (this.jumps.get(id) ?? []).filter((e) => e.t >= (a?.t ?? -Infinity) && e.t <= (T >= (b?.t ?? 0) ? this.elapsed : (b?.t ?? this.elapsed)));
+      const next = events.find((e) => T < e.t), prev = events.filter((e) => e.t <= T).at(-1);
+      if (next || prev) {
+        const left = prev ? { t: prev.t, p: prev.after } : { t: a?.t ?? next!.t, p: pa ?? next!.before };
+        const right = next ? { t: next.t, p: next.before } : { t: Math.max(b?.t ?? this.elapsed, left.t), p: pb ?? prev!.after };
+        const k = right.t > left.t ? Math.max(0, Math.min(1, (T - left.t) / (right.t - left.t))) : 0;
+        return { ...t, x: left.p.x + (right.p.x - left.p.x) * k, y: left.p.y + (right.p.y - left.p.y) * k } as Thing;
+      }
       if (!pa || !pb || T >= b.t) return t;
       const k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1;
       return { ...t, x: pa.x + (pb.x - pa.x) * k, y: pa.y + (pb.y - pa.y) * k } as Thing;
@@ -1071,6 +1163,12 @@ export class GameRoom extends Room {
     }
     this.addFx(p, 'slash', { a, r: range, arc, who: p.id, ...(fx && { color: fx }) }); // 斬撃のエフェクト（向き・射程・角度）。fx: 技ごとの描画に差し替える。who: 自分の斬撃は画面の自キャラの位置に描く
     const lt = this.lagT(p); // 人間の近接AA: 相手の位置をその人の画面の時刻まで戻して当てる（攻撃した側は今の位置、壁は今の壁）
+    if (lt !== null && this.measure) {
+      const m = this.measure.client([...this.owners].find(([, id]) => id === p.id)?.[0] ?? p.id);
+      const requested = this.elapsed - p.viewT!;
+      m.requested.add(requested * 1000); m.actual.add((this.elapsed - lt) * 1000);
+      if (requested >= C.NET_REWIND_MAX) m.capped++;
+    }
     for (const t of lt === null ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), lt)) {
       if ((toC || t.k !== 'c') && this.inArc(p, t.x, t.y, t.r, a, range, arc) && this.reach(p, t)) this.hitThing(p, t, dmg, true);
     }
@@ -1087,7 +1185,7 @@ export class GameRoom extends Room {
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
     if (t.k === 'boss' && roleOf(p.char)?.name === 'attacker') dmg *= C.ATTACKER_BOSS_MULT;
-    if (aa) this.addFx({ x: t.x, y: t.y, team: t.o.team }, 'sweat', {});
+    if (aa) this.addFx({ x: t.x, y: t.y, team: t.o.team }, 'sweat', { target: thingId(t) });
     if (t.k === 'p') this.damagePlayer(t.o, dmg, p.id, false, aa ? '通常攻撃' : p.assist ? '技' : CHARS[p.char]?.skill.name ?? '技');
     else if (t.k === 'boss') this.damageBoss(t.o, dmg, p);
     else if (t.k === 'e') { t.o.hp! -= dmg; if (t.o.hp! <= 0) { this.removeEnt(t.o); this.cm.entDown(p, t.o, aa); } }
@@ -1157,6 +1255,7 @@ export class GameRoom extends Room {
     const others = this.bases[boss.team].map((_, i) => i).filter((i) => i !== boss.base);
     boss.base = others[Math.floor(Math.random() * others.length)];
     const b = this.bases[boss.team][boss.base], first = !boss.moved;
+    this.noteJump(`boss:${boss.team}`, boss, b);
     Object.assign(boss, { x: b.x, y: b.y, dmgAtBase: 0, moving: false, moved: true });
     this.cm.bossMoved(boss, first);
   }
@@ -1369,7 +1468,7 @@ export class GameRoom extends Room {
     if (t.k !== 'p' && !(t.k === 'e' && t.o.body === 'unit')) return;
     if (t.k === 'p' && this.effect(t.o, 'noPush')) return; // はじき無効の状態
     if (this.heavy(t)) return;
-    Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : t.o.r, this.obstacles(), false));
+    Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : t.o.r, this.obstacles(), false, (q) => this.noteJump(thingId(t), t.o, q)));
   }
 
   breakWalls(tiles: number[][]) {
@@ -1628,7 +1727,7 @@ export class GameRoom extends Room {
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
       client.send('s', {
-        me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
+        netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) } })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({

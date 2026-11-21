@@ -5,6 +5,8 @@ import { CONFIG } from '../shared/config';
 import { GameRoom } from './GameRoom';
 import * as OG from './outgame';
 
+if (process.env.NET_MEASURE !== undefined) CONFIG.NET_MEASURE = process.env.NET_MEASURE !== '0';
+
 GameRoom.logFile = 'logs/matches.jsonl'; // 試合ログ（サーバー単体テストは書かない）
 Object.assign(OG.files, { maint: 'logs/maintenance.txt', bans: 'logs/bans.json', build: process.env.SERVE_DIST ? 'dist/build.txt' : '' }); // メンテ中フラグ（あればメンテ中）・BAN一覧・配信中のビルド
 mkdirSync('logs', { recursive: true });
