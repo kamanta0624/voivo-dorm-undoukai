@@ -36,13 +36,17 @@ export type ClientSkill = {
   frames?: string[]; // 追加で読み込むドットのコマ（tools/make_dot.py が書き出す）
   fx?: Record<string, FxView>; // fx の color → 描画（共通の形の描画の代わり）
   shots?: Record<string, (g: G, sh: any, time: number) => void>; // 弾の種類 → 描画（共通の弾の描画の代わり）
+  self?(g: G, c: SelfCtx): void; // 自キャラがこのキャラで技が使える間、本人の画面にだけ毎フレーム（技の範囲の予告など）
 };
+// self の材料: me=自キャラの描画位置（予測）、s=スナップショット、myTeam、pos=他キャラの描画位置（補間）
+export type SelfCtx = { me: { x: number; y: number }; s: any; myTeam: number; time: number; pos: (id: string) => { x: number; y: number } | null };
 
 // 並び順＝描画の重なり順（先に描いたものが下）
 const MODS: Record<string, ClientSkill> = { zunko, ierutan, sayo, kiritan, aru, mochiko, hanamaru, bii, himari, whitecul, metan, itako, yurei, sora };
 export const CLIENT_SKILLS = Object.values(MODS);
 export const STATUS_VIEW: Record<string, StatusView> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.status ?? {}));
 export const ENT_VIEW: Record<string, EntView> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.ents ?? {}));
+export const SELF_VIEW: Record<string, ClientSkill['self']> = Object.fromEntries(Object.entries(MODS).filter(([, m]) => m.self).map(([k, m]) => [k, m.self])); // キャラ → 技が使える間の本人だけの描画
 export const DOT_EXTRA = Object.entries(MODS).flatMap(([k, m]) => (m.frames ?? []).map((f) => [k, f])); // [キャラ key, コマ]
 export const FX_VIEW: Record<string, FxView> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.fx ?? {}));
 export const SHOT_VIEW: Record<string, (g: G, sh: any, time: number) => void> = Object.assign({}, ...CLIENT_SKILLS.map((m) => m.shots ?? {}));

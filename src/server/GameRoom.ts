@@ -66,6 +66,7 @@ export type Player = {
   koAt: number; // 撃破された時刻（撃破の演出 KO_FX）
   hitAt: number; // 最後に被弾した時刻（Bot のリコール判断の「脅威あり」）
   lowFight: boolean; lowUntil: number; // Bot: 低HPで脅威ありのときの攻撃(true)／逃亡(false)と、その決定を維持する時刻
+  recallBreaks: number; recallBanUntil: number; // Bot: リコールの溜め中に中断された回数と、リコールを始めない時刻（BOT_RECALL_BREAKS・BOT_RECALL_BAN）
   name?: string; ip?: string; bid?: string; // 人間: プレイヤー名（自動）、IP・ブラウザ保存ID（管理ページの表示と BAN）
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
@@ -301,6 +302,7 @@ export class GameRoom extends Room {
 
   // リコールの中断: 溜めを0に戻す（Q を押し直すまで溜めない）
   cancelRecall(p: Player) {
+    if (p.bot && p.recallAt !== null && ++p.recallBreaks >= C.BOT_RECALL_BREAKS) { p.recallBreaks = 0; p.recallBanUntil = this.now + C.BOT_RECALL_BAN; } // Bot: 溜め中の中断を数え、続いたらしばらくリコールしない
     p.qAt = p.recallAt = null;
   }
 
@@ -378,7 +380,7 @@ export class GameRoom extends Room {
       assist: false, tier: 1, ult: null,
       goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
       boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false, koAt: 0,
-      hitAt: -Infinity, lowFight: false, lowUntil: -Infinity,
+      hitAt: -Infinity, lowFight: false, lowUntil: -Infinity, recallBreaks: 0, recallBanUntil: -Infinity,
     };
     this.players.set(id, p);
     return p;
@@ -760,7 +762,7 @@ export class GameRoom extends Room {
       // リコール: 溜まったら自陣の給湯室へワープ（Bot はそこでご飯を食べて回復する）
       if (p.recallAt !== null && this.now - p.recallAt >= C.RECALL_HOLD) {
         const r = C.RECALL_ROOMS[p.team];
-        p.recallAt = null;
+        p.recallAt = null; p.recallBreaks = 0;
         this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
         Object.assign(p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
         p.hp = Math.min(this.maxHp(p), p.hp + this.maxHp(p) * C.RECALL_HEAL);
@@ -1110,7 +1112,7 @@ export class GameRoom extends Room {
     v.alive = false;
     v.hp = 0;
     v.koAt = this.now;
-    v.recallAt = null;
+    v.recallAt = null; v.recallBreaks = 0;
     this.cancelStatuses(v); // KOで消える状態（タメ中に倒されたら突撃は不発。CTは消費済み）
     const killer = attacker ? this.players.get(attacker) : undefined;
     if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char, how }); // KOカットイン用（アシストは立ち絵がないので出さない）
@@ -1490,7 +1492,7 @@ export class GameRoom extends Room {
     // リコール: HPが低いとき（給湯室にいるときは使わない）。脅威あり（近くに見える敵／直近の被弾）の間は始めず、溜め中なら中断。給湯室に着いたら、HPが満タンになるまでご飯を食べる
     const low = !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP, threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
     if (threat) { if (p.recallAt !== null) this.cancelRecall(p); }
-    else if (low && p.recallAt === null) p.recallAt = this.now;
+    else if (low && p.recallAt === null && this.now >= p.recallBanUntil) p.recallAt = this.now;
     if (p.recallAt !== null) { this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
@@ -1598,6 +1600,16 @@ export class GameRoom extends Room {
     return out;
   }
 
+  // 自キャラのバフ／デバフ欄: 時間制限つきの状態の残り秒数（状態 key → 秒）。スロットの罰の減速・攻撃力低下は pen_slow・pen_weak、アシストの加速は boost。終わりのない状態（溜め中など）は含めない
+  buffView(p: Player) {
+    const out: Record<string, number> = {};
+    for (const k in p.st) { const u = p.st[k].until; if (Number.isFinite(u) && this.now < u) out[k] = u - this.now; }
+    if (this.now < p.slowUntil) out.pen_slow = p.slowUntil - this.now;
+    if (this.now < p.weakUntil) out.pen_weak = p.weakUntil - this.now;
+    if (this.now < p.boostUntil) out.boost = p.boostUntil - this.now;
+    return out;
+  }
+
   sendSnapshots() {
     const obs = this.obstacles();
     const vis = [0, 1].map((team) => ({
@@ -1616,7 +1628,7 @@ export class GameRoom extends Room {
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
       client.send('s', {
-        me: me?.id ?? null, t: this.elapsed, roster, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
+        me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) } })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({

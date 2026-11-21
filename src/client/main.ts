@@ -4,7 +4,7 @@ import { Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
-import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW } from './skills';
+import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW, SELF_VIEW } from './skills';
 import { Predictor, Interp } from '../shared/netcode';
 import MAP from '../shared/map.json';
 import { Controls } from './input';
@@ -38,6 +38,12 @@ const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 
 const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, box_assist: 0x66ccff, assist: 0x66ccff };
 const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'パワーアップ箱', box_assist: 'アシスト箱' };
 const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト召喚' };
+// バフ／デバフ欄: サーバーの buffs の key → [名前, 良い効果か]。技名は技名定義から。ここにない key は出さない
+const BUFF: Record<string, [string, boolean]> = {
+  accel: [DEFS.ierutan.skill.name, true], boost: ['加速（アシスト）', true], dance: [DEFS.sayo.skill.name, true], overload: [DEFS.bii.skill.name, true], overloadPose: ['ポーズ', true],
+  cloak: ['透明化', true], drill: [DEFS.metan.skill.name, true], lockon: ['ロックオン', true], rush: [DEFS.aru.skill.name, true], solar: [DEFS.sora.skill.name, true],
+  mochi: ['ずんだ餅', false], pen_slow: ['移動速度低下（罰）', false], pen_weak: ['攻撃力低下（罰）', false],
+};
 const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
@@ -177,6 +183,10 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .roster{position:absolute;top:5.8%;display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--z) * 2px)}
 #fx .roster.r0{left:1.2%}
 #fx .roster.r1{right:1.2%}
+#fx .buffs{position:absolute;left:1.2%;display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--z) * 1.5px);pointer-events:none}
+#fx .buffs span{font:bold calc(var(--z) * 6px) sans-serif;color:#fff;padding:calc(var(--z) * .5px) calc(var(--z) * 3px);border-radius:calc(var(--z) * 2px);text-shadow:0 0 2px #000;white-space:nowrap}
+#fx .buffs .good{background:#1f7a3acc;border:1px solid #6fe08f}
+#fx .buffs .bad{background:#8a2020cc;border:1px solid #ff8080}
 #fx .roster .rw{display:flex;gap:calc(var(--z) * 2px)}
 #fx .mem{position:relative;display:flex}
 #fx .mem .hp{position:absolute;left:2px;right:2px;bottom:2px;height:calc(var(--z) * 2.5px);background:#000b}
@@ -248,7 +258,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
@@ -794,6 +804,7 @@ class GameScene extends Phaser.Scene {
 
   // 画面上部の一覧（左＝陣営0、右＝陣営1）。どちらもアイコン4つを横並び、反省中はグレー
   // 味方: アイコンの下部に体力バー、反省中は復活までの残り秒数を重ねる。アシストは一番左のアイコンの下に（アイコン＋体力バー）。敵: アイコンだけ
+  buffHtml = '';
   rosterHud(s: any, myTeam: number, sinceSnap: number) {
     const c = css16(TEAM_COLOR[myTeam]), bar = (p: any) => `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>`;
     const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
@@ -803,6 +814,23 @@ class GameScene extends Phaser.Scene {
     const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => this.icon(r.char, 1 - myTeam, !r.alive)).join('') + '</div>';
     const html = myTeam === 0 ? [allies, foes] : [foes, allies];
     html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
+  }
+
+  // バフ／デバフ欄（自キャラだけ。常に左上の組のアイコン列の下）: 時間制限つきの状態を名前＋残り秒数で。良い効果は緑、悪い効果は赤。指名手配中は悪行ポイント
+  buffHud(s: any, mine: any, myTeam: number, sinceSnap: number) {
+    const items: [string, string, boolean][] = []; // 名前, 値, 良い効果か
+    if (mine?.alive && s.phase === 'playing') {
+      for (const [k, v] of Object.entries((s.buffs ?? {}) as Record<string, number>)) {
+        const b = BUFF[k], left = v - sinceSnap;
+        if (b && left > 0) items.push([b[0], `${Math.ceil(left)}`, b[1]]);
+      }
+      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ Lv${mine.ult.tier + 1}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
+      if (s.teams?.[myTeam]?.wanted === s.me) items.push(['指名手配', `悪行${(mine.bad ?? 0).toFixed(1)}`, false]);
+    }
+    const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
+    const el = $('.buffs'), r0 = $('.r0');
+    if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
+    el.style.top = `${r0.offsetTop + r0.offsetHeight + 4}px`;
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
@@ -1257,6 +1285,10 @@ class GameScene extends Phaser.Scene {
       for (const k in STATUS_VIEW) if (p.st?.[k]) STATUS_VIEW[k].fx?.(fxG, { x: pos.x, y: pos.y, time, v: p.st[k] });
     }
     for (const m of CLIENT_SKILLS) m.frame?.(fxG, time);
+    // 技が使える間だけの本人の画面の描画（技ボタンが OK と同じ条件: 試合中・生存・CT明け・技を使えない状態でない）
+    const selfView = mine && SELF_VIEW[mine.char];
+    if (selfView && !mine.assist && mine.alive && s.phase === 'playing' && mine.skillCd - sinceSnap <= 0 && !Object.keys(STATUS_VIEW).some((k) => mine.st?.[k] && STATUS_VIEW[k].hud))
+      selfView(fxG, { me: this.me, s, myTeam, time, pos: (id: string) => this.interp.at(id, now) });
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
     for (const sh of s.shots) {
       if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）
@@ -1296,6 +1328,7 @@ class GameScene extends Phaser.Scene {
     $('.totitle').style.display = back.style.display;
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
+    this.buffHud(s, mine, myTeam, sinceSnap);
     if (s.phase !== 'waiting') this.tokuHud(s, sinceSnap);
     $('.tk').style.display = s.phase === 'waiting' ? 'none' : 'flex';
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);

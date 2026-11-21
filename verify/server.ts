@@ -421,6 +421,15 @@ console.log('--- リコール・回復・技のCT');
   // Bot のリコール
   const b = mk('metan'); b.A.bot = true; b.A.hp = b.r.maxHp(b.A) * 0.2; b.r.botThink(b.A, b.r.obstacles());
   ok('Bot: HPが低いとリコールを使う', b.A.recallAt !== null);
+  // 溜め中に脅威（被弾）で中断されるのが BOT_RECALL_BREAKS 回続くと、BOT_RECALL_BAN 秒リコールを始めない。その後はまた始める
+  const rb = mk('metan'); const R = rb.A; R.bot = true; R.hp = rb.r.maxHp(R) * 0.2; const think = () => rb.r.botThink(R, rb.r.obstacles()); const starts: boolean[] = [];
+  let tCut = 0; for (let k = 0; k < C.BOT_RECALL_BREAKS; k++) { rb.r.now += C.BOT_RECALL_SAFE + 0.1; think(); starts.push(R.recallAt !== null); R.hitAt = tCut = rb.r.now; think(); }
+  const banUntil = R.recallBanUntil, cnt = R.recallBreaks; rb.r.now += C.BOT_RECALL_SAFE + 0.1; think(); const banned = R.recallAt === null;
+  rb.r.now = banUntil - 0.05; think(); const stillBanned = R.recallAt === null; rb.r.now = banUntil + 0.01; think(); const again = R.recallAt !== null;
+  ok(`Bot: 溜め中に${C.BOT_RECALL_BREAKS}回中断されると${C.BOT_RECALL_BAN}秒リコールを始めず、その後また始める（回数は0に戻る）`, starts.every(Boolean) && Math.abs(banUntil - (tCut + C.BOT_RECALL_BAN)) < 1e-9 && cnt === 0 && banned && stillBanned && again, { starts, cnt, banned, stillBanned, again });
+  const rz = mk('metan'); rz.A.bot = true; rz.A.recallBreaks = 2; rz.A.recallAt = rz.r.now; rz.r.damagePlayer(rz.A, 1e9, null); const koReset = rz.A.recallBreaks === 0;
+  const rs = mk('metan'); rs.A.bot = true; rs.A.recallBreaks = 2; rs.A.recallAt = rs.r.now - C.RECALL_HOLD; rs.r.updatePlayers(0.05); const okReset = rs.A.recallBreaks === 0 && inRoom(rs.A, C.RECALL_ROOMS[0]);
+  ok('Bot: 中断の回数はリコール成功・撤退で0に戻る', koReset && okReset, { koReset, okReset });
   const b2 = mk('metan'); b2.A.bot = true; Object.assign(b2.A, { x: C.MAP_W - 400, y: 300 }); b2.r.botThink(b2.A, b2.r.obstacles());
   ok('Bot: HPが減っていなければリコールしない', b2.A.recallAt === null);
   // 技のCT

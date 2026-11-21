@@ -266,6 +266,7 @@ export const CONFIG = {
   RECALL_HEAL: 0.5, // リコール完了時の回復量（最大HPに対する割合。最大HPで頭打ち）
   BOT_RECALL_HP: 0.3, // Bot: HP割合がこれ未満でリコール（脅威ありの間は始めず、溜め中に脅威ありになったら中断）
   BOT_RECALL_SAFE: 1.5, // Bot: 直近この秒数以内に被弾していたら脅威あり（射程外・視界外からの攻撃）
+  BOT_RECALL_BREAKS: 3, BOT_RECALL_BAN: 5, // Bot: リコールの溜め中に BREAKS 回中断されたら、BAN 秒間リコールを始めない（回数はリコール成功・撤退・禁止の開始で0に戻す）。仮置き
   BOT_FLEE_RATIO: 1.0, // Bot: 低HPで脅威ありのとき、狙う敵の残りHP ≤ 自分の残りHP × これなら攻撃、それ以外は給湯室へ逃亡
   BOT_FLEE_COMMIT: 1, // Bot: 攻撃・逃亡を一度決めたらこの秒数は維持
   BOT_COURIER_RANGE: 90, // Bot: コバコがこの距離以内（落とした荷物をすぐ拾える位置）のときだけ攻撃する

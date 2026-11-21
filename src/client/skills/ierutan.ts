@@ -1,7 +1,9 @@
-// あいえるたん: 加速（発動時に広がる二重の輪と放射状の線、効果中は足元の輪と上へ流れる矢印）
+// あいえるたん: 加速（発動時に広がる二重の輪と放射状の線、効果中は足元の輪と上へ流れる矢印。技が使える間は本人の画面に範囲と、範囲内の味方の頭上に▼）
 import type { ClientSkill } from './index';
+import { CONFIG as C, bodyUp } from '../../shared/config';
+import { CHARS } from '../../shared/chars';
 
-const COLOR = 0xffe060;
+const COLOR = 0xffe060, S = CHARS.ierutan.skill;
 const skill: ClientSkill = {
   status: {
     accel: {
@@ -15,6 +17,19 @@ const skill: ClientSkill = {
     },
   },
   colors: { accel: COLOR },
+  // 技が使える間: 加速の範囲（体の中心・半径 r）を半透明の円で、範囲内の味方（プレイヤー・アシスト。体の中心どうしの距離。自分は除く）の頭上に小さな▼
+  self(g, { me, s, myTeam, time, pos }) {
+    const cx = me.x, cy = me.y - bodyUp();
+    g.fillStyle(COLOR, 0.07).fillCircle(cx, cy, S.r).lineStyle(1, COLOR, 0.45).strokeCircle(cx, cy, S.r);
+    const bob = Math.sin(time / 180) * 1.5;
+    for (const p of s.players) {
+      if (p.id === s.me || p.team !== myTeam || !p.alive) continue;
+      const q = pos(p.id) ?? p, sc = p.assist ? C.ASSIST.scale : 1;
+      if (Math.hypot(q.x - cx, q.y - bodyUp(sc) - cy) > S.r) continue;
+      const y = q.y - (42 * C.DOT_SCALE * sc * 0.85 + 14) + bob; // 頭の上（HPバーの上）
+      g.fillStyle(COLOR, 0.95).fillTriangle(q.x - 4, y - 4, q.x + 4, y - 4, q.x, y + 2).lineStyle(1, 0x000000, 0.6).strokeTriangle(q.x - 4, y - 4, q.x + 4, y - 4, q.x, y + 2);
+    }
+  },
   fx: {
     accel: {
       ms: 700,
