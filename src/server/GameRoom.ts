@@ -52,7 +52,8 @@ export type Player = {
   lastHitBy: Map<string, number>;
   bot: boolean; role: 'gather' | 'raid'; path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
-  inputs: { seq: number; dx: number; dy: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
+  inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
+  viewT?: number; // 人間: 最後に処理した入力の描画時刻（クライアントの画面のサーバー時刻 elapsed。近接AAの巻き戻し判定）
   skillReadyAt: number; st: Record<string, Status>; sk: Record<string, any>; // st: 状態（key → 期限と効果）、sk: 技処理の持ち物（server/skills が使う）
   assist: boolean; tier: number; ult: Ult | null; // assist: アシストユニット（復活しない）、tier: アシストの強さ（POWER_* の添字）
   goal: string; stuckX: number; stuckY: number; stuckSince: number; penalty: Map<string, number>; // Bot: 今の目的地、詰まり判定、避ける目的地（期限）
@@ -144,7 +145,7 @@ export class GameRoom extends Room {
   cm!: Director; // 実況ディレクター（試合ごとに作り直す）
 
   messages = {
-    input: (client: Client, m: { seq: number; dx: number; dy: number }) => {
+    input: (client: Client, m: { seq: number; dx: number; dy: number; rt?: number }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (!p) return;
       p.inputs.push(m); // 1tickに1つずつ処理する（クライアントの予測と同じ刻み）
@@ -574,6 +575,7 @@ export class GameRoom extends Room {
         this.startFinale(r[0] > r[1] ? 0 : r[1] > r[0] ? 1 : 2, 'timeout', null);
       }
     }
+    if (this.phase === 'playing') this.recordHist();
     if (!send) return; // 早送り中は最後の1回だけ送る
     this.sendSnapshots();
     this.fx = [];
@@ -736,6 +738,7 @@ export class GameRoom extends Room {
         for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
           const m = p.inputs.shift()!;
           this.setInput(p.id, m.dx, m.dy);
+          if (Number.isFinite(m.rt)) p.viewT = m.rt; // この入力を送ったときの画面の時刻
           if (this.now >= p.stunUntil && !locked) Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), moveWalls(p.char, obs)));
           p.ack = m.seq;
         }
@@ -770,7 +773,10 @@ export class GameRoom extends Room {
       for (const k of STATUS_ORDER) { const s = this.stat(p, k); if (s?.regen !== undefined && p.hp < this.maxHp(p)) p.hp = Math.min(this.maxHp(p), p.hp + s.regen * dt); }
       SKILLS[p.char]?.tick?.(this, p, dt);
       // オートアタック: 照準モードで選んだ対象へ、クールタイムが明けたら自動で攻撃（移動不可の状態では攻撃しない）
+      // 人間の近接AAは、相手の位置をその人の画面の時刻まで戻して対象を選ぶ（巻き戻した対象が近接で届くときだけ。弾のモードは今の位置）
       p.tgt = this.pickTarget(p);
+      const lt = this.lagT(p), rt = lt === null ? null : this.pickTarget(p, undefined, lt);
+      if (rt && this.meleeAt(p, rt)) p.tgt = rt;
       if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id)) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
     }
   }
@@ -949,9 +955,10 @@ export class GameRoom extends Room {
   }
 
   // 照準モードで対象を選ぶ。コバコのモードは射程内のコバコを最優先。ほかはユニット（敵プレイヤー・大将・ユニット扱いの場の物）を優先し、いなければコバコ以外の対象
-  pickTarget(p: Player, R = this.atkRange(p)): Thing | null {
+  // T: 相手の位置をこのサーバー時刻（elapsed）まで戻して選ぶ（人間の近接AAの巻き戻し判定）
+  pickTarget(p: Player, R = this.atkRange(p), T?: number): Thing | null {
     const d = (t: Thing) => Math.hypot(t.x - p.x, t.y - p.y);
-    const all = this.enemyThings(p.team).filter((t) => d(t) <= R + t.r && this.targetable(t) && this.reach(p, t));
+    const all = (T === undefined ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), T)).filter((t) => d(t) <= R + t.r && this.targetable(t) && this.reach(p, t));
     const c = p.aim === 'courier' && all.find((t) => t.k === 'c');
     if (c) return c;
     const inRange = all.filter((t) => t.k !== 'c'); // コバコはコバコのモードでだけ狙う
@@ -967,6 +974,45 @@ export class GameRoom extends Room {
       return byDist(units);
     }
     return byDist(inRange);
+  }
+
+  // ---- 近接AAの巻き戻し判定（ラグ補償） ----
+  hist: { t: number; pos: Map<string, Pt> }[] = []; // tick ごとのプレイヤー・大将・コバコの位置（elapsed で記録。NET_REWIND_MAX より少し長く持つ）
+
+  recordHist() {
+    const pos = new Map<string, Pt>();
+    for (const p of this.players.values()) pos.set(`p:${p.id}`, { x: p.x, y: p.y });
+    for (const b of this.bosses) pos.set(`boss:${b.team}`, { x: b.x, y: b.y });
+    for (const c of this.couriers) pos.set(`c:${c.id}`, { x: c.x, y: c.y });
+    const last = this.hist[this.hist.length - 1];
+    if (last && last.t === this.elapsed) last.pos = pos; else this.hist.push({ t: this.elapsed, pos });
+    while (this.hist.length > 2 && this.hist[1].t < this.elapsed - C.NET_REWIND_MAX - 0.2) this.hist.shift();
+  }
+
+  // 巻き戻す時刻: 人間（アシスト・Bot 以外）で、描画時刻があれば。上限 NET_REWIND_MAX
+  lagT(p: Player): number | null {
+    if (p.bot || p.assist || p.viewT === undefined) return null;
+    return Math.min(this.elapsed, Math.max(p.viewT, this.elapsed - C.NET_REWIND_MAX));
+  }
+
+  // 相手の位置を時刻 T に戻した写し（記録の間は線形補間。記録のない相手・場の物は今の位置）。o は本物なのでダメージはそのまま入る
+  rewound(things: Thing[], T: number): Thing[] {
+    const h = this.hist;
+    let i = h.length - 1;
+    while (i > 0 && h[i - 1].t >= T) i--;
+    const b = h[i], a = i > 0 ? h[i - 1] : b;
+    return things.map((t) => {
+      const id = thingId(t), pa = a?.pos.get(id), pb = b?.pos.get(id);
+      if (!pa || !pb || T >= b.t) return t;
+      const k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1;
+      return { ...t, x: pa.x + (pb.x - pa.x) * k, y: pa.y + (pb.y - pa.y) * k } as Thing;
+    });
+  }
+
+  // その対象への通常攻撃が近接になるか（ウルトの近接の変身を含む）
+  meleeAt(p: Player, t: Thing) {
+    if (p.ult && !p.ult.pending) return !C.ULT_FORMS[p.ult.form].ranged;
+    return aaMode(p.char, Math.hypot(t.x - p.x, t.y - p.y)).kind === 'melee';
   }
 
   // 敵の対象にできるか（敵の対象にならない状態のプレイヤーは除く）
@@ -1021,8 +1067,9 @@ export class GameRoom extends Room {
       if (m.kind === 'shot') { aaShot(this.shoot(p, m.shot!, a, m.range, dmg * m.dmg, m.speed)); return; }
       dmg *= m.dmg; range = m.range; fx = m.fx;
     }
-    this.addFx(p, 'slash', { a, r: range, arc, ...(fx && { color: fx }) }); // 斬撃のエフェクト（向き・射程・角度）。fx: 技ごとの描画に差し替える
-    for (const t of this.enemyThings(p.team)) {
+    this.addFx(p, 'slash', { a, r: range, arc, who: p.id, ...(fx && { color: fx }) }); // 斬撃のエフェクト（向き・射程・角度）。fx: 技ごとの描画に差し替える。who: 自分の斬撃は画面の自キャラの位置に描く
+    const lt = this.lagT(p); // 人間の近接AA: 相手の位置をその人の画面の時刻まで戻して当てる（攻撃した側は今の位置、壁は今の壁）
+    for (const t of lt === null ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), lt)) {
       if ((toC || t.k !== 'c') && this.inArc(p, t.x, t.y, t.r, a, range, arc) && this.reach(p, t)) this.hitThing(p, t, dmg, true);
     }
   }

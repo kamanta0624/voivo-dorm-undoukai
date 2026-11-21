@@ -1010,7 +1010,7 @@ class GameScene extends Phaser.Scene {
     while (this.acc >= C.NET_STEP * 1000) {
       this.acc -= C.NET_STEP * 1000;
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
-      this.room.send('input', this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move));
+      this.room.send('input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
     }
     if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
@@ -1195,7 +1195,8 @@ class GameScene extends Phaser.Scene {
 
     const fxG = this.fxG.clear();
     // 技の範囲エフェクト
-    for (const f of this.fxQueue) {
+    for (const f0 of this.fxQueue) {
+      const f = f0.kind === 'slash' && f0.who === s.me ? { ...f0, x: this.me.x, y: this.me.y } : f0; // 自分の斬撃は画面の自キャラの位置から（向き・射程・角度はサーバーの値）
       const dv = `${f.d > 0 ? '+' : '−'}${Math.abs(f.d).toFixed(2).replace(/0$/, '')}`;
       if ((f.kind === 'slash' && !(f.color && FX_VIEW[f.color])) || f.kind === 'sweat') this.aaFx(f); // 通常攻撃の斬撃・汗（color の描画があれば技の fx の層で描く）
       else if (f.kind === 'toku') this.popup(`徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）

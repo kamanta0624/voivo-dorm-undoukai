@@ -1828,6 +1828,27 @@ console.log('--- 自分中心の範囲は体の中心（tune2）');
   ok('ウルト・罰の輪は体の中心', uf && Math.abs(uf.y - (u.A.y - up)) < 1e-9 && (!pf || Math.abs(pf.y - (pn.A.y - up)) < 1e-9), { ult: uf && uf.y, pen: pf && pf.y });
 }
 
+console.log('--- 近接AAの巻き戻し判定（lagcomp1）');
+{
+  // 追いかけ: 攻撃側 281px/秒・相手 187px/秒で同じ向き（右）。今の距離は近接の届く距離の外、画面の時刻（0.1秒＋通信遅延0.05秒前）の相手の位置なら届く
+  const chase = (rewind: boolean, human = true) => {
+    const z = mk('sayo', 'metan'); delete z.A.st.test; z.A.bot = !human; z.B.hp = 9999; Object.assign(z.A, { x: 1360, y: 900 }); Object.assign(z.B, { x: 1360 + 75 - 187 * 0.5 + 281 * 0.5, y: 900 });
+    z.A.cooldownUntil = 1e9; // 追いかけている間は攻撃しない
+    for (let i = 0; i < 10; i++) { z.r.elapsed += 0.05; z.A.x += 281 * 0.05; z.B.x += 187 * 0.05; z.r.recordHist(); }
+    const gapNow = z.B.x - z.A.x;
+    z.A.viewT = rewind ? z.r.elapsed - (C.NET_INTERP_DELAY + 0.05) : undefined; z.A.cooldownUntil = 0;
+    z.r.updatePlayers(0.05); // 入力なし（その場で）: 対象選び → 近接AA
+    return { hit: z.B.hp < 9999, gapNow: +gapNow.toFixed(1), reach: C.ATTACK_RANGE + C.PLAYER_RADIUS };
+  };
+  const on = chase(true), off = chase(false), bot = chase(true, false);
+  ok(`追いかけ（攻撃側281・相手187px/秒、今の距離 ${on.gapNow}px ＞ 届く距離 ${on.reach}px）: 画面の時刻（${C.NET_INTERP_DELAY}＋0.05秒前）まで巻き戻すと当たり、巻き戻さないと当たらない。Bot は巻き戻さない`, on.hit && !off.hit && !bot.hit && on.gapNow > on.reach, { on, off, bot });
+  // 上限: 画面の時刻が NET_REWIND_MAX より古くても、その上限までしか戻さない
+  const z = mk('sayo', 'metan'); z.r.elapsed = 5; z.A.viewT = 1; ok(`巻き戻しは最大${C.NET_REWIND_MAX}秒`, Math.abs(z.r.lagT(z.A)! - (5 - C.NET_REWIND_MAX)) < 1e-9);
+  // 自分の斬撃は who を付けて送る（クライアントが画面の自キャラの位置に描く）
+  const w = mk('sayo', 'metan'); w.r.fx = []; w.A.cooldownUntil = 0; w.r.attack('a', 0); const sl = w.r.fx.find((x: any) => x.kind === 'slash');
+  ok('斬撃のエフェクトに攻撃した人の id を付ける（自分の斬撃は画面の自キャラの位置に描く）', sl?.who === 'a');
+}
+
 console.log('--- 九州そら（ソーラーキャノン）');
 {
   const S = CHARS.sora.skill, K = S.keys as number[][], DUR = (c: number) => solarAt(c, 4), N = Math.round(DUR(5) / S.every), N30 = Math.round(DUR(30) / S.every);
