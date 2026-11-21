@@ -22,13 +22,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
   Object.assign(e, { x: p.x, y: p.y });
   if (room.stat(p, 'overload')) {
     if (room.now >= e.nextDecoy - 1e-9) { e.nextDecoy += B.every; decoy(room, p); } // 1e-9: 時刻の足し算の誤差でtickが1つずれないように
-    // 触れた敵に予約（同じ敵は1回）
-    if (room.phase === 'playing') for (const t of room.enemyThings(p.team)) {
-      const b = room.body(t), c = room.bodyOf(p); // 接触は体の中心どうし
-      if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t) || Math.hypot(b.x - c.x, b.y - c.y) > t.r + B.touch) continue;
-      const id = thingId(t);
-      if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
-    }
+    if (!room.contactTick) reserveBiiContacts(room, e); // 単体更新時は従来の終点判定
   } else if (p.st.overload) {
     // 終了: 予約がいればポーズ（硬直）、いなければ何もしない。ポーズの終わり＝爆発は技の終了時刻＋pose（予約の残り秒の表示と一致させる）
     const end = p.st.overload.until;
@@ -41,9 +35,33 @@ function update(room: GameRoom, e: Ent, dt: number) {
     for (const t of marked(room, e)) { room.hitThing(p, t, t.k === 'boss' ? B.bossDmg : B.dmg); room.addFx({ x: t.x, y: t.y, team: p.team }, 'aura', { r: t.r + 16, color: 'boom' }); }
     return room.removeEnt(e);
   }
+  marksView(room, p, e);
+}
+
+function marksView(room: GameRoom, p: Player, e: Ent) {
   // 予約の目印（両陣営に送る）。位置はクライアントが対象の描画位置から引く。at: 爆発の時刻（技の終了時刻＋pose）、left: 爆発までの残り秒、sc: 対象の表示倍率（マークの高さ）
   const at = p.st.overloadPose?.until ?? (p.st.overload?.until ?? room.now) + B.pose;
   e.v = marked(room, e).map((t) => ({ id: thingId(t), r: t.r, at, left: Math.max(0, at - room.now), sc: t.k === 'boss' ? 2 : t.k === 'p' && t.o.assist ? C.ASSIST.scale : 1 }));
+}
+
+// 両者の相対移動の最接近点。瞬間移動・出現を含む組は終点だけを見る。
+export function reserveBiiContacts(room: GameRoom, e: Ent) {
+  const p = room.players.get(e.owner);
+  if (room.phase !== 'playing' || !p?.alive || !room.stat(p, 'overload')) return;
+  const c = room.bodyOf(p), motion = room.contactTick, ownerId = `p:${p.id}`;
+  for (const t of room.enemyThings(p.team)) {
+    if ((t.k !== 'p' && t.k !== 'boss') || !room.targetable(t)) continue;
+    const id = thingId(t), b = room.body(t), c0 = motion?.starts.get(ownerId), b0 = motion?.starts.get(id);
+    let dx = b.x - c.x, dy = b.y - c.y;
+    if (c0 && b0 && !motion!.jumped.has(ownerId) && !motion!.jumped.has(id)) {
+      const x0 = b0.x - c0.x, y0 = b0.y - c0.y, vx = dx - x0, vy = dy - y0, len2 = vx * vx + vy * vy;
+      const u = len2 ? Math.max(0, Math.min(1, -(x0 * vx + y0 * vy) / len2)) : 0;
+      dx = x0 + vx * u; dy = y0 + vy * u;
+    }
+    if (Math.hypot(dx, dy) > t.r + B.touch) continue;
+    if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
+  }
+  marksView(room, p, e);
 }
 
 // 残像（おとり）をその場に置く

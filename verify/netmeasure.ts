@@ -153,7 +153,7 @@ for (const scenario of ['normal', 'stacked', 'chase', 'crossing'] as const) {
   r.recordHist(); assert.equal(r.rewound([t], 1.05).length, 0); assert.equal(r.rewound([t], 1.1).length, 1);
   console.log('PASS assist appearance');
 }
-// ビィの接触: 双方の通常速度・重複加速、tick 50/100/150ms で交差を走査。修正しない。
+// ビィの接触: 双方の通常速度・重複加速、tick 50/100/150ms で交差を走査。すべて接触を取得。
 for (const dt of [.05, .1, .15]) {
   const { r, a, b } = room(); a.char = b.char = 'bii';
   for (const p of [a, b]) { p.st.accel = { until: Infinity, speed: CHARS.ierutan.skill.speed }; p.boostUntil = Infinity; p.ult = { form: 'melee', tier: 0, until: Infinity, pending: false }; r.skill(p.id); }
@@ -162,12 +162,12 @@ for (const dt of [.05, .1, .15]) {
   r.updateEnts(0);
   const e = r.ents.find((e) => e.kind === 'overload' && e.owner === a.id)!;
   const before = e.marks.length;
-  a.x += step; b.x -= step; r.updateEnts(dt);
+  r.beginContactTick(); a.x += step; b.x -= step; r.updateEnts(dt); r.finishContactTick();
   const missed = before === 0 && e.marks.length === 0;
-  assert.equal(missed, step > reach);
+  assert.equal(missed, false);
   console.log('PASS contact reproduction', { dtMs: dt * 1000, speed: r.speedOf(a), relativeStep: step * 2, reach, missed });
 }
-// 50ms tick でも、入力待ち4件から2stepをまとめて処理する交差では接触が抜ける。
+// 50ms tick のcatchupによる2stepの交差でも接触を取得する。
 {
   const { r, a, b } = room(); a.char = b.char = 'bii';
   for (const p of [a, b]) {
@@ -176,10 +176,10 @@ for (const dt of [.05, .1, .15]) {
     p.inputs = Array.from({ length: C.NET_CATCHUP + 1 }, (_, seq) => ({ seq, dx: p === a ? 1 : -1, dy: 0 }));
   }
   const step = r.speedOf(a) * C.NET_STEP * 2; a.x = 1500 - step / 2; b.x = 1500 + step / 2;
-  r.updateEnts(0); r.updatePlayers(C.NET_STEP); r.updateEnts(C.NET_STEP);
+  r.updateEnts(0); r.beginContactTick(); r.updatePlayers(C.NET_STEP); r.updateEnts(C.NET_STEP); r.finishContactTick();
   const e = r.ents.find((e) => e.kind === 'overload' && e.owner === a.id)!;
-  assert.ok(a.x > b.x); assert.equal(e.marks.length, 0); assert.equal(r.measure!.client('a').catchup, 1);
-  console.log('PASS contact catchup reproduction', { tickMs: 50, steps: 2, relativeStep: step * 2, missed: true });
+  assert.ok(a.x > b.x); assert.equal(e.marks.length, 1); assert.equal(r.measure!.client('a').catchup, 1);
+  console.log('PASS contact catchup reproduction', { tickMs: 50, steps: 2, relativeStep: step * 2, missed: false });
 }
 C.NET_MEASURE = false; { const { r } = room(); assert.equal(r.measure, null); } C.NET_MEASURE = true;
 const h = new Histogram(); for (let i = 0; i < 100000; i++) h.add(i); assert.equal(h.buckets.length, LIMITS.length + 1);

@@ -5,6 +5,7 @@ import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slo
 import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, eyeRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
+import { reserveBiiContacts } from './skills/bii';
 import { findPath } from './pathfind';
 import { stepPlayer } from '../shared/netcode';
 import MAP from '../shared/map.json';
@@ -105,7 +106,7 @@ export class GameRoom extends Room {
   private _phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting';
   get phase() { return this._phase; }
   set phase(value: typeof this._phase) {
-    if (value !== this._phase) { this.hist = []; this.jumps.clear(); }
+    if (value !== this._phase) { this.hist = []; this.jumps.clear(); this.contactTick = null; }
     this._phase = value;
   } // intro: 開始の演出（動けない）、countdown: 開始前のカウント（開始した部屋の中だけ動ける）、finale: 決着演出（入力なし。CONFIG.FINALE）
   finale: Finale | null = null; // 決着演出の状態
@@ -595,6 +596,7 @@ export class GameRoom extends Room {
     if (this.phase === 'playing') {
       this.now += dt;
       this.timeLeft = Math.max(0, C.MATCH_TIME - this.now);
+      this.beginContactTick();
       this.updateBots();
       this.updatePlayers(dt);
       this.updateShots(dt);
@@ -609,6 +611,7 @@ export class GameRoom extends Room {
       this.updateWanted();
       this.updateReflect(dt);
       this.updateSlots();
+      this.finishContactTick();
       this.cm.tick(dt);
       if (this.timeLeft <= 0) {
         const r = this.bosses.map((b) => b.hp / C.BOSS_HP);
@@ -619,6 +622,21 @@ export class GameRoom extends Room {
     if (!send) return; // 早送り中は最後の1回だけ送る
     this.sendSnapshots();
     this.fx = [];
+  }
+
+  // ビィの接触用。tick後半の壁補正・大将移動・はじきまで含めて確定する。
+  contactTick: { starts: Map<string, Pt>; jumped: Set<string> } | null = null;
+
+  beginContactTick() {
+    const starts = new Map<string, Pt>();
+    for (const p of this.players.values()) if (p.alive) starts.set(`p:${p.id}`, this.bodyOf(p));
+    for (const b of this.bosses) starts.set(`boss:${b.team}`, this.body({ k: 'boss', o: b, x: b.x, y: b.y, r: C.BOSS_RADIUS }));
+    this.contactTick = { starts, jumped: new Set() };
+  }
+
+  finishContactTick() {
+    if (this.phase === 'playing') for (const e of this.ents) if (e.kind === 'overload') reserveBiiContacts(this, e);
+    this.contactTick = null;
   }
 
   // 結果画面: 技（R）の見た目だけ進める（ダメージ・徳・壁の破壊は起きない。部屋から出られないのは今のまま）
@@ -1050,6 +1068,7 @@ export class GameRoom extends Room {
 
   noteJump(id: string, before: Pt, after: Pt, born = false) {
     if (this.phase !== 'playing' || (!born && before.x === after.x && before.y === after.y)) return;
+    this.contactTick?.jumped.add(id);
     const events = this.jumps.get(id) ?? [];
     events.push({ t: this.elapsed, before: { x: before.x, y: before.y }, after: { x: after.x, y: after.y }, born });
     this.jumps.set(id, events);
@@ -1088,7 +1107,9 @@ export class GameRoom extends Room {
     const b = h[i], a = i > 0 ? h[i - 1] : b;
     return things.filter((t) => !(this.jumps.get(thingId(t)) ?? []).some((e) => e.born && T < e.t)).map((t) => {
       if (t.k === 'e') return t; // 場の物は従来どおり現在位置（位置履歴を持たない）
+      if (h.length && T > h[h.length - 1].t) return t;
       const id = thingId(t), pa = a?.pos.get(id), pb = b?.pos.get(id);
+      if (pb && T === b.t) return { ...t, x: pb.x, y: pb.y } as Thing;
       const events = (this.jumps.get(id) ?? []).filter((e) => e.t >= (a?.t ?? -Infinity) && e.t <= (T >= (b?.t ?? 0) ? this.elapsed : (b?.t ?? this.elapsed)));
       const next = events.find((e) => T < e.t), prev = events.filter((e) => e.t <= T).at(-1);
       if (next || prev) {
@@ -1097,7 +1118,7 @@ export class GameRoom extends Room {
         const k = right.t > left.t ? Math.max(0, Math.min(1, (T - left.t) / (right.t - left.t))) : 0;
         return { ...t, x: left.p.x + (right.p.x - left.p.x) * k, y: left.p.y + (right.p.y - left.p.y) * k } as Thing;
       }
-      if (!pa || !pb || T >= b.t) return t;
+      if (!pa || !pb || T > b.t) return t;
       const k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1;
       return { ...t, x: pa.x + (pb.x - pa.x) * k, y: pa.y + (pb.y - pa.y) * k } as Thing;
     });
