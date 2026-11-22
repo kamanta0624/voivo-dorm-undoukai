@@ -444,7 +444,7 @@ async function courierCheck(A: Tab) {
   let c0: any = null, c1: any = null;
   for (let i = 0; i < 3 && !(c0 && c1 && c0.id === c1.id); i++) { // 測っている間に巻き込まれて倒れたら出し直す
     await send(A, 'e2eCourier', { dist: 120, box: 'assist' }); // ウルト箱だと拾ったとき変身して、あとの突撃の確認で技が使えない
-    await A.until((x) => x.couriers.length > 0, 1000);
+    await A.until((x) => x.couriers.length > 0, 1000); await sleep(300); // 既にいると待たずに終わるので、出した後の位置が届くまで待ってから基準を取る（瞬間移動を巡回に数えない）
     c0 = (await A.snap()).couriers[0]; await sleep(500); c1 = (await A.snap()).couriers[0];
   }
   await A.shot('c1_courier_patrol');
@@ -455,8 +455,19 @@ async function courierCheck(A: Tab) {
     await aliveOf(A); if (i) { await send(A, 'e2eTeleport', LIBRARY); await sleep(100); } // Bot に倒されていたら復活を待って戻る
     await send(A, 'e2eCourier', { dist: 44, box: 'assist' }); await sleep(100);
     const c = (await A.snap()).couriers[0]; if (!c) continue;
-    await A.face(c.x, c.y); await send(A, 'e2eNoAuto', { on: false }); // 照準「コバコ」の自動攻撃で倒す
-    ko = await A.until((x) => !x.couriers.length, 1500); // 足元で倒すとすぐ荷物を拾うので、KOだけを見る（落とした荷物はスクショで確認）
+    await A.face(c.x, c.y);
+    // 近接の通常攻撃は相手の位置を巻き戻して判定するので、瞬間移動の前の位置に戻らなくなるまで待ってから、追いかけながら照準「コバコ」の自動攻撃で倒す
+    const t0 = Date.now(), autoAt = t0 + C.NET_REWIND_MAX * 1000 + 100;
+    let auto = false;
+    while (Date.now() - t0 < 2500) {
+      if (!auto && Date.now() >= autoAt) { await send(A, 'e2eNoAuto', { on: false }); auto = true; }
+      const s = await A.snap();
+      if (!s.couriers.length) { ko = auto; break; } // 足元で倒すとすぐ荷物を拾うので、KOだけを見る（落とした荷物はスクショで確認）
+      const m = s.players.find((p: any) => p.id === s.me); if (!m?.alive) break;
+      const q = s.couriers[0], d = Math.hypot(q.x - m.x, q.y - m.y) || 1;
+      await A.keys(d > 30 ? (q.x - m.x) / d : 0, d > 30 ? (q.y - m.y) / d : 0); await sleep(30);
+    }
+    await A.keys(0, 0);
     await send(A, 'e2eNoAuto', { on: true });
   }
   await A.shot('c2_courier_drop');
@@ -674,7 +685,7 @@ async function verifySmooth(A: Tab) {
       const auras = new Set([...sc.units.values()].map((e) => e.aura)); // パワーアップ中の背後のドット（ユニット本体ではない）
       const sprites = sc.children.list.filter((o) => o.type === 'Sprite' && !auras.has(o)); // ずんだ餅の間は絵を隠すので、隠したものも数える
       const dying = new Set(window.snap.players.filter((p) => !p.alive).map((p) => p.id)); // 撃破の演出中（左右に揺れる）
-      out.push({ t: performance.now(), T: sc.interp.renderTime(performance.now()), n: sprites.length, uniq: new Set([...sc.units.values()].map((e) => e.s)).size, units: sc.units.size, u: [...sc.units].filter(([id]) => !dying.has(id)).map(([id, e]) => [id, e.s.x, e.s.y]) });
+      out.push({ t: performance.now(), T: sc.interp.renderTime(performance.now()), n: sprites.length, uniq: new Set([...sc.units.values()].map((e) => e.s)).size, units: sc.units.size, u: [...sc.units].filter(([id, e]) => !dying.has(id) && !(e.shakeUntil && sc.time.now < e.shakeUntil)).map(([id, e]) => [id, e.s.x, e.s.y]) });
       if (out.length < 480) requestAnimationFrame(f); else res({ out, snaps });
     }
     requestAnimationFrame(f);
