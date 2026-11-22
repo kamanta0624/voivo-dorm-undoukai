@@ -363,13 +363,18 @@ async function slotCheck(A: Tab, B: Tab) {
   const gauge = await A.page.evaluate(() => [...document.querySelectorAll('#fx .tk .tv')].map((e) => e.textContent));
   const reach = A.page.waitForFunction(() => !!document.querySelector('#fx .tk .s0 .sl.reach'), null, { timeout: (C.SLOT.spin + 2) * 1000 }).then(() => true, () => false);
   const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！ずんだもん軍', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
-  const pen = [A, B].map((T) => waitText(T, '#fx .notes div', 'あんこもん軍に罰', (C.SLOT.spin + 3) * 1000));
+  // 罰の出目は SLOT.penHold の間しか出ないので、通知と同時に × の数を取る。前の（自然な罰の）通知と区別するため、今ある通知に印を付けて、印のない通知を待つ
+  await Promise.all([A, B].map((T) => T.page.evaluate(() => document.querySelectorAll('#fx .notes div').forEach((e) => ((e as HTMLElement).dataset.old = '1')))));
+  const pen = [A, B].map((T, k) => T.page.waitForFunction((k) => {
+    const t = [...document.querySelectorAll<HTMLElement>('#fx .notes div')].find((e) => !e.dataset.old && /あんこもん軍に罰/.test(e.textContent ?? ''))?.textContent;
+    const xs = document.querySelectorAll('#fx .tk .s0 .sl .ic.pen').length;
+    return t && (k || xs === 3) ? { t, xs } : false; // A は × が3つそろうまで（通知と出目の届く順は前後する）
+  }, k, { timeout: (C.SLOT.spin + 3) * 1000, polling: 'raf' }).then((h) => h.jsonValue() as Promise<{ t: string; xs: number }>, () => null));
   await send(A, 'e2eSlot', { team: 0, pen: true, chain: 0 }); await send(A, 'e2eSlot', { team: 1, win: true });
   const r = await reach; await A.shot('t1_slot_reach');
+  const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty'); // 数を取った後に撮る
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
-  const [pa, pb] = await Promise.all(pen); await sleep(300);
-  const xs = await A.page.evaluate(() => document.querySelectorAll('#fx .tk .s0 .sl .ic.pen').length);
-  await A.shot('t5_penalty');
+  const xs = ea?.xs ?? 0, pa = ea?.t ?? null, pb = eb?.t ?? null;
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
   check('スロット: 3リールが回り、2つそろうとリーチ演出、当たりは両陣営にカットイン（当てた陣営）', reels === 3 && r && !!ca?.includes('ずんだもん軍') && !!cb?.includes('ずんだもん軍'), { reels, reach: r, ca, cb });
   check('スロットの罰: ×××の出目、両陣営に通知（陣営と罰の内容）', xs === 3 && !!pa && !!pb, { xs, pa, pb });
