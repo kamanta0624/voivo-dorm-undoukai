@@ -1,0 +1,5 @@
+# Claude Code が新しい worktree へ写す gitignore 対象のファイル（実行に必要な素材。worktree 内でも gitignore のまま）
+# 32dotドット・Moiky立ち絵（npm run assets で再生成できるが、元素材は別の場所）
+public/assets/gen/
+# ルール説明の背景（ゲーム画面のスクショ）
+public/assets/tutorial/

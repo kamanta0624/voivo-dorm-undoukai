@@ -18,3 +18,5 @@ cert.pem
 *.pem
 dist.new/
 dist.old/
+# Claude Code の agent view が作る並列作業用の worktree
+.claude/worktrees/
