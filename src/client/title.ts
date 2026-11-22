@@ -102,11 +102,12 @@ function showTitle() {
   if (left) { msg(left); ss.del('leaveMsg'); }
   const pop = $('.pop'), open = (html: string) => { $('.pop .body').innerHTML = html; pop.style.display = 'flex'; };
   $('.pop button').onclick = () => (pop.style.display = 'none');
-  // 更新情報: 最新1件をタイトルに、全部は開いて読む（public/patchnotes.md、## で1件）
+  // 更新情報: 最新1件をタイトルに、全部は開いて読む（public/patchnotes.md、## で1件）。開いた画面では最新1件だけ展開し、過去の分は日付で畳む
   fetchText('patchnotes.md').then((t) => {
     const items = t.split(/^(?=## )/m).filter((x) => x.startsWith('## '));
     if (items[0]) { $('.news').innerHTML = md(items[0]); $('.news').hidden = false; }
-    $('.notes').onclick = () => open(md(t));
+    const fold = (x: string) => { const [h, ...b] = x.split('\n'); return `<details><summary>${esc(h.slice(3).trim())}</summary>${md(b.join('\n'))}</details>`; };
+    $('.notes').onclick = () => open(items.map((x, i) => (i ? fold(x) : md(x))).join(''));
   });
   $('.credits').onclick = () => fetchText('credits.md').then((t) => open(md(t)));
   $('.rules').onclick = async () => { el.style.display = 'none'; (await import('./tutorial')).start(() => (el.style.display = '')); };
