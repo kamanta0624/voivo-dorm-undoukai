@@ -19,7 +19,7 @@ const server = defineServer({
     app.use(express.urlencoded({ extended: false }));
     app.get('/status', (_req, res) => { res.set('Cache-Control', 'no-store').json(OG.status(rooms)); });
     OG.admin(app, () => rooms, all);
-    if (process.env.SERVE_DIST) app.use(express.static('dist')); // npm run share: ビルド済みクライアントを同じポートで配信
+    if (process.env.SERVE_DIST) app.use(express.static('dist')); // 公開（launchd）: ビルド済みクライアントを同じポートで配信
   },
 });
 await server.listen(Number(process.env.GAME_PORT) || CONFIG.PORT); // GAME_PORT: 公開中のサーバーと別のポートで動かすとき（開発・検証）

@@ -1,7 +1,7 @@
 #!/bin/sh
 # 公開側フォルダ（git worktree）を指定タグへ反映する: tools/deploy.sh <タグ>   例: tools/deploy.sh live-20261120-1
 # 試合中の部屋があれば中止 → メンテ中 → 公開側を指定タグへ → 依存が変わっていれば npm ci → ビルド → launchd でゲームサーバーだけ再起動 → メンテ解除
-# cloudflared は触らない。share.sh は使わない。失敗したら直前のタグへ戻す手順を表示して止まる（メンテ中のまま）
+# cloudflared（launchd の com.vvsports.tunnel）は触らない。失敗したら直前のタグへ戻す手順を表示して止まる（メンテ中のまま）
 # 環境変数（試験用に別フォルダ・別ポートで動かすとき）: LIVE_DIR=公開側フォルダ PORT=ポート LABEL=launchd のラベル（ゲームサーバーは launchd で再起動する。未登録なら何もせず止まる）
 # FORCE=1: /status で試合中か判断できない（サーバーが止まっている・旧版）ときも進める
 set -u

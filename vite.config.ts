@@ -10,7 +10,7 @@ try { hash = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 
 const d = new Date(), z = (n: number) => String(n).padStart(2, '0');
 const BUILD = `${hash} ${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
 
-// GAME_PORT・CLIENT_PORT: 公開中のサーバー（npm run share）と別のポートで開発・検証するとき。未指定なら 2567・5173
+// GAME_PORT・CLIENT_PORT: 公開中のサーバー（launchd の com.vvsports.game）と別のポートで開発・検証するとき。未指定なら 2567・5173
 const GAME_PORT = Number(process.env.GAME_PORT) || 2567;
 
 export default defineConfig({

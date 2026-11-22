@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- cloudflared（名前付きトンネル）の常駐。tools/launchd.sh tunnel-install が __〜__ を埋めて ~/Library/LaunchAgents/<ラベル>.plist に置く。落ちたら自動再起動、ログは logs/tunnel.log へ追記 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array><string>__CF__</string><string>--no-autoupdate</string><string>--config</string><string>__CONF__</string><string>tunnel</string><string>run</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>__DIR__/logs/tunnel.log</string>
+  <key>StandardErrorPath</key><string>__DIR__/logs/tunnel.log</string>
+</dict>
+</plist>

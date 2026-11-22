@@ -99,7 +99,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 - `E2E_HOOKS=1 npm run dev` で起動し、選択・技の発動を見る。e2e は `npx tsx verify/e2e.ts`
 - 新キャラは verify/golden.ts の `MATCHES` に、そのキャラを含む試合を1つ足してから `--write` する（既存の試合のハッシュが変わらないことを先に確かめる）
 - 実況: 台本（src/shared/commentary_script.json）の `parts.char`・`parts.skill` に名前と読みを足し、`npm run cm:vvproj`（VOICEVOX エンジンを起動しておく）。音声（cm:audio）は調声の後。音声のない部品は字幕だけ出る
-- `npm run share` で公開中は 2567・5173 を使わない。`GAME_PORT=2568 CLIENT_PORT=5174 E2E_HOOKS=1 npm run dev` で別ポートに起動し、e2e・スクショも `GAME_PORT=2568 CLIENT_PORT=5174 npx tsx verify/e2e.ts`（verify/lib.ts が同じ変数に従う）。止めるのは自分が起動したプロセスだけ
+- 公開中（launchd の com.vvsports.game、https://vv.club-daiman.com）は 2567・5173 を使わない。`GAME_PORT=2568 CLIENT_PORT=5174 E2E_HOOKS=1 npm run dev` で別ポートに起動し、e2e・スクショも `GAME_PORT=2568 CLIENT_PORT=5174 npx tsx verify/e2e.ts`（verify/lib.ts が同じ変数に従う）。止めるのは自分が起動したプロセスだけ
 - 技の判定を変えるとき: 変更前に、そのキャラを含まない編成の golden を取っておき、変更後も一致することを確かめてから verify/golden.txt を取り直す
 - アシストを足すと召喚の抽選（`ASSIST.units` からランダム）が変わり、アシストが出る試合の golden は変わる。足したアシストを抽選から外すと一致することで確かめる
 - 時刻の比較: テストは `now += 0.05` を重ねるので、「n 秒たったら」の判定は `>= t - 1e-9` にする（誤差で1tick遅れる）

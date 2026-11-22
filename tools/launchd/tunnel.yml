@@ -1,0 +1,7 @@
+# 名前付きトンネルの設定。tools/launchd.sh tunnel-install が __〜__ を埋めて ~/.cloudflared/<ラベル>.yml に置く（認証情報はリポジトリに入れない）
+tunnel: __UUID__
+credentials-file: __CRED__
+ingress:
+  - hostname: __HOST__
+    service: http://localhost:__PORT__
+  - service: http_status:404
