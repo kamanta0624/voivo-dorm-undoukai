@@ -83,9 +83,21 @@ while q:
 unreach = [r['id'] for r in rooms if ((r['rect'][0] + r['rect'][2]) // 2, (r['rect'][1] + r['rect'][3]) // 2) not in seen]
 assert not unreach, f'unreachable: {unreach}'
 
+# 視界だけ通す壁（clear）: glass＝アトリウム（entrance）の南の壁（角を除く）、fence＝自習室・サンルーム（library）の外周のうち建物の外に接する壁と、犬走り（corrTop）の外周の壁
+R = {r['id']: r['rect'] for r in rooms}
+at = lambda x, y: g[y][x] if 0 <= x < W and 0 <= y < H else VOID
+out4 = lambda x, y: any(at(x + dx, y + dy) == VOID for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+def perim(k):
+    x0, y0, x1, y1 = R[k]
+    return [[x, y] for y in range(y0, y1 + 1) for x in range(x0, x1 + 1) if (x in (x0, x1) or y in (y0, y1)) and g[y][x] == WALL]
+x0, y0, x1, y1 = R['entrance']
+glass = [[x, y1] for x in range(x0 + 1, x1) if g[y1][x] == WALL]
+fence = [p for k in ('library_L', 'library_R') for p in perim(k) if out4(*p)]
+fence += [p for p in perim('corrTop') if p not in fence]
+
 json.dump({'tileSize': TILE, 'width': W, 'height': H,
            'tiles': [''.join('.#'[c == WALL] if c else ' ' for c in row) for row in g],
-           'rooms': rooms}, open(sys.argv[1] if len(sys.argv) > 1 else f'{D}/map.json', 'w'), ensure_ascii=False)
+           'rooms': rooms, 'clear': {'glass': glass, 'fence': fence}},open(sys.argv[1] if len(sys.argv) > 1 else f'{D}/map.json', 'w'), ensure_ascii=False)
 
 # プレビュー: 図面に重ねる（床=陣営色、壁=黒）。図面が無ければ省略
 if not os.path.exists(f'{D}/preview/plan_1f_sym_clean.png'):

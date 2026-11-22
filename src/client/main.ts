@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
 import { Room, CloseCode } from '@colyseus/sdk';
-import { CONFIG as C, wallRects, roomLayout } from '../shared/config';
+import { CONFIG as C, wallRects, seeRects, seeThrough, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW, SELF_VIEW } from './skills';
@@ -50,8 +50,9 @@ const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
-const isWall = (x: number, y: number) => tiles[Math.floor(y / T)]?.[Math.floor(x / T)] === '#';
-const wallTile = (tx: number, ty: number) => tiles[ty]?.[tx] === '#';
+// 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）
+const wallTile = (tx: number, ty: number) => tiles[ty]?.[tx] === '#' && !seeThrough(tx, ty);
+const isWall = (x: number, y: number) => wallTile(Math.floor(x / T), Math.floor(y / T));
 let wallVer = 0; // 壁が変わるたびに増やす（視界の使い回しの判定）
 const RAY_COS = Array.from({ length: 360 }, (_, i) => Math.cos((i / 360) * Math.PI * 2)), RAY_SIN = Array.from({ length: 360 }, (_, i) => Math.sin((i / 360) * Math.PI * 2)); // 視界のレイの向き
 const SKILL_FX_COLOR: Record<string, number> = { ring: 0xff7fbf, wall: 0xffa040, rect: 0x9fe8ff, dash: 0xff4040, arc: 0xc080ff, heal: 0x66ff99, ult: 0xff66ff, assist: 0x66ccff, beam: 0xff9ad5, pen_dmg: 0xff2020, pen_slow: 0x4080ff, pen_weak: 0xa040ff, snow: 0x9fe8ff, ...SKILL_COLORS }; // snow: 波音リツの吹雪（WhiteCUL の吹雪の色） // 技ごとの色は client/skills
@@ -337,6 +338,7 @@ class GameScene extends Phaser.Scene {
   layer!: Phaser.Tilemaps.TilemapLayer;
   miniTex!: Phaser.Textures.CanvasTexture;
   walls = C.WALLS; // 自キャラの移動予測に使う壁（壁破壊で変わる）
+  seeWalls = C.SEE_WALLS; // 視界の壁（透過壁を除く。資材の表示）
   brokenN = 0;
   homes: { x: number; y: number; w: number; h: number }[][] = [[], []]; // この試合の自宅（大将の部屋）
   homesKey = '';
@@ -545,7 +547,7 @@ class GameScene extends Phaser.Scene {
     wallVer++;
     this.tileKinds.forEach((row, y) => row.forEach((v, x) => this.layer.putTileAt(v, x, y)));
     this.paintMini();
-    Object.assign(this, { walls: C.WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
+    Object.assign(this, { walls: C.WALLS, seeWalls: C.SEE_WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
     $('.kills').innerHTML = '';
   }
 
@@ -1091,6 +1093,7 @@ class GameScene extends Phaser.Scene {
       }
       this.miniTex.refresh();
       this.walls = wallRects(tiles);
+      this.seeWalls = seeRects(tiles);
       this.brokenN = s.broken.length;
     }
 
@@ -1415,7 +1418,7 @@ class GameScene extends Phaser.Scene {
     for (const w of s.wanted) ui.lineStyle(1.5, 0xff3030).strokeRect(mx + w.x * ms - 3, my + w.y * ms - 3, 7, 7);
     // 資材: 味方の視界内にあるもの（観戦者はすべて）
     const eyes = this.eyes(s, myTeam, sinceSnap);
-    const seeObs = this.walls;
+    const seeObs = this.seeWalls;
     for (const m of s.materials) {
       if (mine && !eyes.some((e) => Math.hypot(e.x - m.x, e.y - m.y) <= e.r && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
       if (m.big) ui.fillStyle(0x7fe8ff).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高性能の徳は水色で大きく

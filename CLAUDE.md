@@ -5,3 +5,4 @@
 - ~/kiritan_zunda_proto_live・launchd・cloudflared・tools/deploy.sh に触らない（公開反映は本人指示時のみ）
 - 引き継ぎ書に書かれた担当範囲外のファイルは編集しない
 - docs/handoff/done/ への移動はメインのチェックアウトでのみ行う
+- `npm run assets` は `PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python` が必要（psd_tools 入りの Python）

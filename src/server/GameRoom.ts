@@ -1,7 +1,7 @@
 import { Room, Client, ServerError, CloseCode } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { CONFIG as C, Rect, Pt, wallRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity, bodyUp } from '../shared/config';
+import { CONFIG as C, Rect, Pt, wallRects, seeRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity, bodyUp } from '../shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, eyeRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
@@ -132,6 +132,7 @@ export class GameRoom extends Room {
   fx: Fx[] = []; // このティックに起きた技のエフェクト（送信後に空にする）
   tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
   walls = C.WALLS;
+  seeWalls = C.SEE_WALLS; // 視界の壁（visibleTo 用。透過壁を除く）
   broken: number[][] = []; // 壊れた壁のタイル [x, y]
   nextId = 1;
   materialTimer = 0;
@@ -347,7 +348,7 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
+    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
     this.cm = new Director(this);
@@ -1497,6 +1498,7 @@ export class GameRoom extends Room {
     for (const [x, y] of tiles) this.tiles[y] = this.tiles[y].slice(0, x) + '.' + this.tiles[y].slice(x + 1);
     this.broken.push(...tiles);
     this.walls = wallRects(this.tiles); // 当たり判定・視界・経路探索に即反映
+    this.seeWalls = seeRects(this.tiles); // 視界の壁も同じく
   }
 
   skill(id: string) {
@@ -1732,7 +1734,7 @@ export class GameRoom extends Room {
   }
 
   sendSnapshots() {
-    const obs = this.obstacles();
+    const obs = this.seeWalls; // 敵の表示は視界の壁（透過壁を通す）
     const vis = [0, 1].map((team) => ({
       players: [...this.players.values()].filter((p) => p.team === team || ((p.alive || this.dying(p)) && this.visibleTo(team, p.x, p.y, obs))), // 撃破の演出中の敵も視界内なら送る
       bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.visibleTo(team, b.x, b.y, obs)), // 開幕中は敵大将も映す

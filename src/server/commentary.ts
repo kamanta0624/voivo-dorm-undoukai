@@ -351,7 +351,7 @@ export class Director {
     // 視界: 敵チームの視界に入った（初登場）、敵大将に接近（大将側に見えたときだけ）
     for (const p of chars) {
       if (!p.alive) { this.seen.set(p.id, false); continue; }
-      const vis = room.visibleTo(1 - p.team, p.x, p.y, obs);
+      const vis = room.visibleTo(1 - p.team, p.x, p.y, room.seeWalls); // 敵の画面に映ったか（視界の壁）
       if (vis && !this.seen.get(p.id) && now - (this.spotAt.get(p.id) ?? -Infinity) >= M.spotCd) { this.spotAt.set(p.id, now); this.event([p.id], M.attn.spot, []); }
       this.seen.set(p.id, vis);
       const boss = room.bosses[1 - p.team];

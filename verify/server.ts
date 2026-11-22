@@ -596,7 +596,7 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
     if (r.materials.length < m0) picked += m0 - r.materials.length;
     if (i % 20) continue;
     r.sendSnapshots(); checks++;
-    const obs = r.obstacles();
+    const obs = r.seeWalls; // 敵の表示は視界の壁（透過壁を通す）
     for (const id of ['c0', 'c1']) {
       const team = r.players.get(r.owners.get(id)).team, s = last[id];
       const eyes = [...[...r.players.values()].filter((p: any) => p.team === team).map((p: any) => ({ x: p.x, y: p.y, r: eyeRadius(p.char, p.alive ? null : r.now - p.koAt, p.assist) })).filter((e: any) => e.r > 0), { ...r.bosses[team], r: visionRadius() }]; // 倒されたキャラは大爆発の後に縮む視界を持つ
@@ -2058,6 +2058,51 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   // 常設の部屋は、人間が誰もいなくなったら（再接続待ちもなし）試合を打ち切って待機に戻る
   const h = room(), c = join(h, 'q'); h.startMatch(); h.beginPlay(); h.clients.splice(0); h.onLeave(c);
   ok('常設の部屋は人間が誰もいなくなったら待機に戻る（Bot だけの試合を続けない）', h.phase === 'waiting' && h.players.size === 0);
+}
+
+console.log('--- 透過壁（犬走り・サンルームの移動可能な床から検証）');
+{
+  const dogrun = [138 * T + 8, 20 * T + 8], sunroom = [142 * T + 8, 14 * T + 8];
+  for (const [name, [ax, ay], [bx, by]] of [['犬走り→サンルーム', dogrun, sunroom], ['サンルーム→犬走り', sunroom, dogrun]] as const) {
+    const { r, A, B } = mk('zunko', 'sayo');
+    Object.assign(A, { x: ax, y: ay }); Object.assign(B, { x: bx, y: by });
+    ok(`透過壁（${name}）: 両者は移動可能な床で壁に重ならない`, tileAt(r, ax, ay) === '.' && tileAt(r, bx, by) === '.' && clear(r, A, C.PLAYER_RADIUS) && clear(r, B, C.PLAYER_RADIUS));
+    const got: any = {}; r.clients.push({ sessionId: 'c0', send: (t: string, m: any) => { if (t === 's') got.s = m; } }); r.owners.set('c0', 'a');
+    r.sendSnapshots();
+    const seen = r.visibleTo(0, B.x, B.y, r.seeWalls) && got.s.players.some((p: any) => p.id === 'b');
+    const losBlocked = !lineOfSight(A.x, A.y, B.x, B.y, r.obstacles()) && !r.visibleTo(0, B.x, B.y, r.obstacles()); // 射線・Bot の照準（visibleTo に当たり判定の壁）
+    const h0 = B.hp; delete A.st.test;
+    const noTarget = r.pickTarget(A) === null;
+    r.attack('a', Math.atan2(B.y - A.y, B.x - A.x));
+    const fired = r.shots.length === 1; // 壁へ実際に撃つ。CT中の空振りで成功にしない
+    for (let i = 0; i < 20; i++) r.updateShots(0.05);
+    const m = moveBody(A.x, A.y, B.x - A.x, B.y - A.y, C.PLAYER_RADIUS, r.obstacles());
+    const moved = Math.hypot(m.x - A.x, m.y - A.y);
+    ok(`透過壁（${name}）: 柵越しの敵が視界に入り送られる。射線・Botの照準・弾・移動は遮る`, seen && losBlocked && noTarget && fired && r.shots.length === 0 && B.hp === h0 && moved < Math.hypot(bx - ax, by - ay) - 1, { seen, losBlocked, noTarget, fired, dmg: h0 - B.hp, moved: moved.toFixed(1) });
+    // 壁の両側の近距離で近接攻撃。壁を除いた対照では命中する距離・向き
+    const near = mk('sayo', 'sayo');
+    const ends = [{ x: 2228, y: 315 }, { x: 2268, y: 273 }];
+    if (ax > bx) ends.reverse();
+    Object.assign(near.A, ends[0]); Object.assign(near.B, ends[1]);
+    const aim = Math.atan2(near.B.y - near.A.y, near.B.x - near.A.x);
+    ok(`透過壁（${name}）: 近接攻撃の両者も移動可能な床`, ends.every(p => tileAt(near.r, p.x, p.y) === '.') && clear(near.r, near.A, C.PLAYER_RADIUS) && clear(near.r, near.B, C.PLAYER_RADIUS));
+    const hp = near.B.hp;
+    near.r.attack('a', aim);
+    const blocked = near.B.hp === hp;
+    near.r.walls = []; near.A.cooldownUntil = 0;
+    near.r.attack('a', aim);
+    ok(`透過壁（${name}）: 近接攻撃を遮る（壁なしの対照では命中）`, blocked && near.B.hp < hp);
+  }
+  // ガラス（アトリウムの南）: 外側は誰も立てないので、視界の判定だけ確かめる（内側の床から、ガラスの外の点が見え、射線・Bot の照準は遮る）
+  {
+    const { r, A } = mk('zunko', 'sayo'), gx = MAP.clear.glass[Math.floor(MAP.clear.glass.length / 2)][0], gy = MAP.clear.glass[0][1];
+    const ax = gx * T + 8, ay = (gy - 3) * T + 8, bx = ax, by = (gy + 2) * T + 8;
+    Object.assign(A, { x: ax, y: ay });
+    ok('透過壁（ガラス）: 内側の床から外の点が視界に入り、射線・Bot の照準は遮る', tileAt(r, ax, ay) === '.' && r.visibleTo(0, bx, by, r.seeWalls) && !r.visibleTo(0, bx, by, r.obstacles()) && lineOfSight(ax, ay, bx, by, r.seeWalls) && !lineOfSight(ax, ay, bx, by, r.obstacles()));
+  }
+  const nGlass = MAP.clear.glass.length, nFence = MAP.clear.fence.length, perim = MAP.clear.glass.every(([x, y]) => PERIMETER[y][x]);
+  const solid = [...MAP.clear.glass, ...MAP.clear.fence].every(([x, y]) => C.WALLS.some((w) => x * T + 8 > w.x && x * T + 8 < w.x + w.w && y * T + 8 > w.y && y * T + 8 < w.y + w.h) && !C.SEE_WALLS.some((w) => x * T + 8 > w.x && x * T + 8 < w.x + w.w && y * T + 8 > w.y && y * T + 8 < w.y + w.h));
+  ok(`ガラスは壊れない外周のまま（ガラス${nGlass}マス・柵${nFence}マス）。当たり判定の壁は柵・ガラスとも含む`, perim && solid && nGlass > 0 && nFence > 0, { perim, solid });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

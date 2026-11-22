@@ -46,6 +46,12 @@ export function wallRects(tiles: string[] = MAP.tiles): Rect[] {
   return out;
 }
 
+// 視界だけ通す壁（map.json の clear: glass＝アトリウムの南のガラス、fence＝屋外の部屋・犬走りの外側と、ウッドデッキと犬走りの間の柵）。移動・攻撃・弾・Bot の照準は '#' のまま遮る
+const SEE_THROUGH = new Set([...MAP.clear.glass, ...MAP.clear.fence].map(([x, y]) => y * MAP.width + x));
+export const seeThrough = (tx: number, ty: number) => SEE_THROUGH.has(ty * MAP.width + tx);
+// 視界の壁（サーバーの visibleTo・クライアントの資材の表示）: 透過壁を床として wallRects でまとめる
+export const seeRects = (tiles: string[] = MAP.tiles): Rect[] => wallRects(tiles.map((row, y) => [...row].map((c, x) => (c === '#' && seeThrough(x, y) ? '.' : c)).join('')));
+
 export const CONFIG = {
   PORT: 2567,
   TICK_HZ: 20, // サーバー判定・同期レート
@@ -108,6 +114,7 @@ export const CONFIG = {
   MAP_H: H,
   TILE: T,
   WALLS: wallRects(),
+  SEE_WALLS: seeRects(), // 視界の壁（透過壁を除く）
   BOSS_ROOM_CANDIDATES,
   BOSS_ROOM_DIST_SUM_MAX: 3774, // 3部屋の、中央（hall の中心）からの経路距離の合計の上限(px)
   HEAL_SPOTS: TEAM_KEYS.flatMap((t) => { const i = inner(room(t, 'kitchen')); return [0.2, 0.8].map((fx) => [i.x + i.w * fx, i.y + i.h * 0.5]); }), // 回復アイテム（ご飯）の場所: 給湯室（kitchen）だけに各2個（上限）。大将の拠点＝部屋の中心と重ならない位置。前半が陣営0、後半が陣営1

@@ -66,6 +66,7 @@ async function match1() {
   await B.page.waitForFunction(() => (window as any).hist.length > 0);
   await B.shot('5a_B_joined');
   mark('タブB参加');
+  await seeThroughCheck(A, B);
 
   await slotCheck(A, B);
   await tokuCheck(A, B);
@@ -401,6 +402,38 @@ async function tokuCheck(A: Tab, B: Tab) {
   await A.shot('t4_wanted'); await B.shot('t4_wanted_B_minimap');
   check('指名手配: 頭上に手配マーク、敵の視界外でも敵のミニマップに位置', !!lbl && mini >= 1, { lbl, mini });
   await send(A, 'e2eBad', { v: 0 });
+}
+
+// 透過壁: サーバーの敵表示とクライアントの視界ポリゴンを両方確認。犬走り・サンルームの移動可能な床だけを使う
+async function seeThroughCheck(A: Tab, B: Tab) {
+  const send = (T: Tab, type: string, m: any = {}) => T.page.evaluate(([t, x]) => (window as any).room.send(t, x), [type, m] as const);
+  const backA = await A.me(), backB = await B.me();
+  try {
+    for (const [name, ax, ay, bx, by] of [['dogrun_to_sunroom', 138, 20, 142, 14], ['sunroom_to_dogrun', 142, 14, 138, 20]] as const) {
+      const x = ax * 16 + 8, y = ay * 16 + 8, enemyX = bx * 16 + 8, enemyY = by * 16 + 8;
+      const alive = [await aliveOf(A), await aliveOf(B)]; // 反省中は e2eTeleport が効かないので、両者の復帰を待ってから移す
+      await send(A, 'e2eTeleport', { x, y }); await send(B, 'e2eTeleport', { x: enemyX, y: enemyY });
+      const floors = MAP.tiles[ay][ax] === '.' && MAP.tiles[by][bx] === '.';
+      const seen = await A.until((s) => s.players.some((p: any) => p.id === backB.id && Math.hypot(p.x - enemyX, p.y - enemyY) < 4) && s.players.some((p: any) => p.id === backA.id && Math.hypot(p.x - x, p.y - y) < 4), 2000);
+      await sleep(1500);
+      const mask = await A.page.evaluate(({ x, y, enemyX, enemyY, id }) => {
+        const scene = (window as any).game.scene.scenes[0], poly = scene.visPoly(x, y, 300);
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const a = poly[i], b = poly[j];
+          if ((a.y > enemyY) !== (b.y > enemyY) && enemyX < (b.x - a.x) * (enemyY - a.y) / (b.y - a.y) + a.x) inside = !inside;
+        }
+        return { inside, shown: !!scene.units.get(id)?.s.visible };
+      }, { x, y, enemyX, enemyY, id: backB.id });
+      await A.shot(`g1_see_through_${name}`);
+      const ok = floors && seen && mask.inside && mask.shown;
+      const s = await A.snap(), at = (id: string) => { const p = s.players.find((q: any) => q.id === id); return p ? [Math.round(p.x), Math.round(p.y), p.alive] : null; };
+      check(`透過壁（${name}）: 両者が移動可能な床に立ち、柵越しの敵を受信・表示する。敵の位置まで視界マスクが届く`, ok, ok ? '' : { alive, floors, seen, ...mask, A: at(backA.id), B: at(backB.id) });
+    }
+  } finally {
+    await send(A, 'e2eTeleport', { x: backA.x, y: backA.y });
+    await send(B, 'e2eTeleport', { x: backB.x, y: backB.y });
+  }
 }
 
 // コバコ: 巡回している（位置が変わる）。攻撃すると1発でKOし、荷物を落とす
