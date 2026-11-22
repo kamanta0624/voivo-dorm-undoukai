@@ -500,17 +500,33 @@ async function hanamaruCheck(A: Tab) {
   const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
   check('花丸パンチ（タメなし）: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
   // タメ: R を押し続けて離すと最大レベル（キーボード）、技ボタンを押し続けて離すとレベル2（スマホと同じ pointer の操作。離すと自動照準で発射）
+  // 敵が来にくい自陣の図書室で行う。タメ中に敵 Bot の攻撃を受けるとタメが解除される（fistCharge は cancel）ので、被弾・撃破で中断された回だけ最大3回やり直す（中断なしの失敗はやり直さない）
   const H = DEFS.hanamaru.skill, fistR = (lv: number) => (x: any) => x.ents.some((e: any) => e.kind === 'fist' && Math.abs(e.r - H.r * H.lv[lv].size) < 1e-6);
-  await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
-  await A.page.keyboard.down('r'); await sleep(H.lv[2].t * 1000 + 300);
-  const charging = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st?.fistCharge, 500); await A.shot('h1b_charge_max');
-  await A.page.keyboard.up('r'); const big = await A.until(fistR(2), 1500); await A.shot('h1c_fist_max');
-  await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000);
-  await send(A, 'e2eTeleport', kitchen); await send(A, 'e2eReady'); await sleep(200);
-  const bb = (await A.page.locator('#fx .skill').boundingBox())!;
-  await A.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await A.page.mouse.down(); await sleep(H.lv[1].t * 1000 + 300); await A.page.mouse.up();
-  const mid = await A.until(fistR(1), 1500);
-  check(`花丸パンチのタメ: R を${H.lv[2].t}秒押して離すと最大レベル（半径×${H.lv[2].size}）、技ボタンを${H.lv[1].t}秒押して離すとレベル2（半径×${H.lv[1].size}）。タメ中は状態を送る`, charging && big && mid, { charging, big, mid });
+  const meOf = (x: any) => x.players.find((p: any) => p.id === x.me);
+  let charging = false, big = false, mid = false, tries = 0;
+  const interrupted: string[] = [];
+  for (tries = 1; tries <= 3; tries++) {
+    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady'); await sleep(200);
+    let hp0 = meOf(await A.snap())?.hp ?? 0;
+    await A.page.keyboard.down('r'); await sleep(H.lv[2].t * 1000 + 300);
+    charging = await A.until((x) => !!meOf(x)?.st?.fistCharge, 500); await A.shot('h1b_charge_max');
+    let m = meOf(await A.snap());
+    await A.page.keyboard.up('r');
+    if (!m?.alive || m.hp < hp0) { interrupted.push(`R${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
+    big = await A.until(fistR(2), 1500); await A.shot('h1c_fist_max');
+    await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000);
+    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady'); await sleep(200);
+    hp0 = meOf(await A.snap())?.hp ?? 0;
+    const bb = (await A.page.locator('#fx .skill').boundingBox())!;
+    await A.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await A.page.mouse.down(); await sleep(H.lv[1].t * 1000 + 300);
+    m = meOf(await A.snap());
+    await A.page.mouse.up();
+    if (!m?.alive || m.hp < hp0) { interrupted.push(`btn${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
+    mid = await A.until(fistR(1), 1500);
+    break;
+  }
+  if (interrupted.length) log('  花丸パンチのタメ: 敵の攻撃で中断してやり直した', { interrupted, tries: Math.min(tries, 3) });
+  check(`花丸パンチのタメ: R を${H.lv[2].t}秒押して離すと最大レベル（半径×${H.lv[2].size}）、技ボタンを${H.lv[1].t}秒押して離すとレベル2（半径×${H.lv[1].size}）。タメ中は状態を送る`, charging && big && mid, { charging, big, mid, tries: Math.min(tries, 3), interrupted });
   // パッシブ: 自陣側で、今も壊れていない壁（外周以外、縦3マス）へ西向きに押し込む。前の確認や Bot が壊した壁は避ける（図書室に一番近い場所）
   const spot = pushSpot((await A.snap()).broken);
   await aliveOf(A); await send(A, 'e2eTeleport', { x: spot.x * 16 + 11, y: spot.y * 16 + 8 }); await sleep(150);
