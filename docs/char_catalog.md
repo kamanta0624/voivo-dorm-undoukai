@@ -6,7 +6,7 @@
 | 何 | どこ |
 |---|---|
 | 素材・表示の対応（名前・立ち絵） | `src/shared/chars.json` |
-| 性能定義（role・歩行・通常攻撃・技の値） | `src/shared/chars.ts` の `CHARS` |
+| 性能定義（role・stat（HP・攻撃・移動・視界）・歩行・通常攻撃・技の値） | `src/shared/chars.ts` の `CHARS` |
 | 技処理（サーバー） | `src/server/skills/<key>.ts`、登録は `index.ts` の `MODS` |
 | 技の描画（クライアント） | `src/client/skills/<key>.ts`、登録は `index.ts` の `MODS` |
 | ドットのPSD対応 | `tools/make_dot.py` の `CHARS`・`WAIST`・`EYES_ONLY` |
@@ -14,24 +14,24 @@
 | 検証 | `verify/server.ts`（技ごとの検証）、`verify/golden.ts`（全キャラのBot戦のハッシュ） |
 
 ## 性能
-HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍率 で算出（`charHp`・`charSpeed`・`charAtk`）。選択画面の段階は `charStats`。
+HP・攻撃・移動・視界の実数は各キャラの `stat` に直接書く（2026-11-22 speed1 でロール・近接補正の倍率を焼き込み。role はロール固有の効果と選択画面のロール表示だけ）。選択画面の段階は `charStats`。
 
-| key | 名前 | role | 歩行 | 通常攻撃 | 近接補正 | 固有 | 技（CT秒） |
-|---|---|---|---|---|---|---|---|
-| `hanamaru` | 満別花丸 | balance | normal | 近接 | あり | ― | 花丸パンチ（10） |
-| `whitecul` | WhiteCUL | speed | normal | 近接 | あり | ― | 吹雪（7.2） |
-| `sayo` | 小夜 | attacker | normal | 近接 | あり | ― | 疾風乱舞（8） |
-| `metan` | 四国めたん | defense | normal | 近接 | あり | ― | ドリル（4.8） |
-| `mochiko` | もち子 | defense | hover | 近接 | あり | ― | ファンネル（30） |
-| `aru` | 猫使アル | speed | normal | 近接 | あり | ― | 突撃（6） |
-| `bii` | 猫使ビィ | support | normal | 近接 | あり | ― | オーバードライブ（10） |
-| `ierutan` | あいえるたん | support | normal | 近接 | あり | ― | 加速（8） |
-| `zunko` | 東北ずん子 | attacker | normal | 近接（パンチ。ダメージ×0.9・間隔1.1秒）／遠距離（弾、射程200・間隔1.2秒・弾速800。対象が60pxより遠いとき） | なし | ― | ずんだアロー（12） |
-| `kiritan` | 東北きりたん | なし | normal | 包丁（近接）／きりたん砲（弾、射程310、対象が60より遠いとき） | なし | 移動×0.8 | 全弾斉射（7.2） |
-| `himari` | 冥鳴ひまり | attacker | normal | 近接 | あり | ― | 死神の鎌（15） |
-| `itako` | 東北イタコ | balance | normal | 近接（キツネ。間隔½・1発½） | あり | ― | 狐火（8） |
-| `yurei` | ユーレイちゃん | support | hover | 近接（間隔×2） | あり | 壊せる壁をすり抜ける（ghost） | ジャッジメント（10） |
-| `sora` | 九州そら | attacker | hover | 近接（パンチ。ダメージ×0.85・間隔1.25秒） | あり | ― | ソーラーキャノン（5） |
+| key | 名前 | role | 歩行 | 通常攻撃 | 固有 | 技（CT秒） |
+|---|---|---|---|---|---|---|
+| `hanamaru` | 満別花丸 | balance | normal | 近接 | ― | 花丸パンチ（10） |
+| `whitecul` | WhiteCUL | speed | normal | 近接 | ― | 吹雪（7.2） |
+| `sayo` | 小夜 | attacker | normal | 近接 | ― | 疾風乱舞（8） |
+| `metan` | 四国めたん | defense | normal | 近接 | ― | ドリル（4.8） |
+| `mochiko` | もち子 | defense | hover | 近接 | ― | ファンネル（30） |
+| `aru` | 猫使アル | speed | normal | 近接 | ― | 突撃（6） |
+| `bii` | 猫使ビィ | support | normal | 近接 | ― | オーバードライブ（10） |
+| `ierutan` | あいえるたん | support | normal | 近接 | ― | アップグレード（8） |
+| `zunko` | 東北ずん子 | attacker | normal | 近接（パンチ。ダメージ×0.9・間隔1.1秒）／遠距離（弾、射程200・間隔1.2秒・弾速800。対象が60pxより遠いとき） | ― | ずんだアロー（12） |
+| `kiritan` | 東北きりたん | なし | normal | 包丁（近接）／きりたん砲（弾、射程310、対象が60より遠いとき） | ― | 全弾斉射（7.2） |
+| `himari` | 冥鳴ひまり | attacker | normal | 近接 | ― | 死神の鎌（15） |
+| `itako` | 東北イタコ | balance | normal | 近接（キツネ。間隔½・1発½） | ― | 狐火（8） |
+| `yurei` | ユーレイちゃん | support | hover | 近接（間隔×2） | 壊せる壁をすり抜ける（ghost） | ジャッジメント（10） |
+| `sora` | 九州そら | attacker | hover | 近接（パンチ。ダメージ×0.85・間隔1.25秒） | ― | ソーラーキャノン（5） |
 
 ## 技の組み立て
 呼び口は `use`・`botUse`（必須）以外に使っているもの。状態の括弧内は共通処理が見る効果。
@@ -45,7 +45,7 @@ HP・移動・攻撃の実数は 基本値 × role × 近接補正 × 固有倍�
 | `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
 | `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・still・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
 | `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む。中心間 敵の半径＋touch）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・still・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の対象id・半径を `v` で送る。印の位置はクライアントが対象の描画位置から引く）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
-| `ierutan` | 範囲内の味方と自分を加速＋毎秒回復 | ― | `accel`（speed・regen）を味方に付ける | ― | status `accel` の目印（足元の輪・上へ流れる矢印）、fx `accel`（広がる二重の輪・放射線） |
+| `ierutan` | 範囲内の味方と自分をアップグレード（通常攻撃の間隔×0.8、アシストは間隔そのまま）＋毎秒回復 | ― | `upgrade`（cd・regen）を味方に付ける | ― | status `upgrade` の目印（足元の輪・上へ流れる矢印）、fx `upgrade`（広がる二重の輪・放射線） |
 | `zunko` | 発射時の照準の対象1体を追う矢（弾速900、旋回は毎秒120°まで、対象を失ったら直進、寿命0.6秒）。当たった敵をずんだ餅に（減速・技不可・与ダメ×0.5） | ― | `mochi`（speed・noSkill・atk）を敵に付ける | ―（矢は共通の弾。誘導は弾の `steer`） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾。向きは進行方向） |
 | `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射（総数12発を人数で分ける）。目標が倒れた弾は直進に切り替わる。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
 | `himari` | 発動で透明化。透明化中の Space で鎌（特大ダメージ。ディフェンス以外は一撃）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
@@ -117,3 +117,4 @@ koed「なし」は選択画面の絵をグレー化してずり落とす。
 - 2026-11-17：キャラ追加2（chars2）。東北イタコ（狐火・キツネの通常攻撃）、ユーレイちゃん（エンマビーム・壁すり抜け）を追加（itako・yurei）
 - 2026-11-19：技変更・キャラ追加3（chars3）。花丸パンチ（タメ）、オーバーロード（残像のおとり・予約）、ジャッジメント（改名・弾速×1.25）、九州そら（ソーラーキャノン）を追加、アシストに波音リツ、ひまりの鎌160、きりたんの弾数分割・目標を失った弾の直進（hanamaru・bii・yurei・sora・himari・kiritan）
 - 2026-11-21：tune1。ずん子に近接のパンチ、遠距離の間隔・弾速、ずんだアローの誘導（弾の steer）、ずんだ餅の与ダメ×0.5（状態の atk）。ビィの予約に爆発までのカウントダウン（zunko・bii）
+- 2026-11-22：極端な高速を抑える（speed1）。ロール・近接補正の倍率を廃止して各キャラの `stat` に焼き込み（HP・攻撃・視界は不変、スピード役の移動×1.3→×1.1・近接補正の移動×1.1 廃止）、白上の加速・パワーアップ近接の移動 1.3→1.1、あいえるたんの技を「アップグレード」（移動上昇→通常攻撃の間隔×0.8）に（全キャラ・ierutan）

@@ -41,7 +41,7 @@ const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'パワー
 const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト召喚' };
 // バフ／デバフ欄: サーバーの buffs の key → [名前, 良い効果か]。技名は技名定義から。ここにない key は出さない
 const BUFF: Record<string, [string, boolean]> = {
-  accel: [DEFS.ierutan.skill.name, true], boost: ['加速（アシスト）', true], dance: [DEFS.sayo.skill.name, true], overload: [DEFS.bii.skill.name, true], overloadPose: ['ポーズ', true],
+  upgrade: [DEFS.ierutan.skill.name, true], boost: ['加速（アシスト）', true], dance: [DEFS.sayo.skill.name, true], overload: [DEFS.bii.skill.name, true], overloadPose: ['ポーズ', true],
   cloak: ['透明化', true], drill: [DEFS.metan.skill.name, true], lockon: ['ロックオン', true], rush: [DEFS.aru.skill.name, true], solar: [DEFS.sora.skill.name, true],
   mochi: ['ずんだ餅', false], pen_slow: ['移動速度低下（罰）', false], pen_weak: ['攻撃力低下（罰）', false],
 };

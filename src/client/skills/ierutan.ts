@@ -1,4 +1,4 @@
-// あいえるたん: 加速（発動時に広がる二重の輪と放射状の線、効果中は足元の輪と上へ流れる矢印。技が使える間は本人の画面に範囲と、範囲内の味方の頭上に▼）
+// あいえるたん: アップグレード（発動時に広がる二重の輪と放射状の線、効果中は足元の輪と上へ流れる矢印。技が使える間は本人の画面に範囲と、範囲内の味方の頭上に▼）
 import type { ClientSkill } from './index';
 import { CONFIG as C, bodyUp } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
@@ -6,7 +6,7 @@ import { CHARS } from '../../shared/chars';
 const COLOR = 0xffe060, S = CHARS.ierutan.skill;
 const skill: ClientSkill = {
   status: {
-    accel: {
+    upgrade: {
       mark(g, { x, y, time }) {
         g.lineStyle(2, COLOR, 0.9).strokeEllipse(x, y, 28, 11);
         for (let i = 0; i < 2; i++) { // 上へ流れる矢印
@@ -16,8 +16,8 @@ const skill: ClientSkill = {
       },
     },
   },
-  colors: { accel: COLOR },
-  // 技が使える間: 加速の範囲（体の中心・半径 r）を半透明の円で、範囲内の味方（プレイヤー・アシスト。体の中心どうしの距離。自分は除く）の頭上に小さな▼
+  colors: { upgrade: COLOR },
+  // 技が使える間: アップグレードの範囲（体の中心・半径 r）を半透明の円で、範囲内の味方（プレイヤー・アシスト。体の中心どうしの距離。自分は除く）の頭上に小さな▼
   self(g, { me, s, myTeam, time, pos }) {
     const cx = me.x, cy = me.y - bodyUp();
     g.fillStyle(COLOR, 0.07).fillCircle(cx, cy, S.r).lineStyle(1, COLOR, 0.45).strokeCircle(cx, cy, S.r);
@@ -31,7 +31,7 @@ const skill: ClientSkill = {
     }
   },
   fx: {
-    accel: {
+    upgrade: {
       ms: 700,
       draw(g, f, _time, k) {
         const r1 = f.r * Math.min(1, k * 1.6), r2 = f.r * Math.max(0, Math.min(1, k * 1.6 - 0.3));

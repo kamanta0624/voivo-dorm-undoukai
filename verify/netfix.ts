@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { GameRoom, thingId } from '../src/server/GameRoom';
 import { CONFIG as C } from '../src/shared/config';
-import { CHARS } from '../src/shared/chars';
 
 function setup() {
   const r = new GameRoom(); r.setSimulationInterval = (() => {}) as any; r.lock = (() => {}) as any;
@@ -40,7 +39,7 @@ for (const [label, start, end, expected] of [
 for (const lateJump of [false, true]) {
   const { r, a, b, has } = setup(); r.skill('b');
   for (const p of [a, b]) {
-    p.st.accel = { until: Infinity, speed: CHARS.ierutan.skill.speed }; p.boostUntil = Infinity;
+    p.boostUntil = Infinity;
     p.ult = { form: 'melee', tier: 0, until: Infinity, pending: false };
     p.inputs = Array.from({ length: C.NET_CATCHUP + 1 }, (_, seq) => ({ seq, dx: p === a ? 1 : -1, dy: 0 }));
   }

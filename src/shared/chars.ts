@@ -1,5 +1,5 @@
 // キャラの性能定義（キャラ key → 定義）。素材・表示の対応表は chars.json（Python の素材生成も読む）
-// HP・移動・攻撃の実数値は書かない。共通の基本値（config.ts）× ROLES × MELEE_BONUS × mult をここの関数で算出する
+// HP・攻撃・移動・視界の実数値は各キャラの stat に書く（2026-11-22 speed1 でロール補正・近接補正を焼き込み）
 import { CONFIG as C, wallRects, Rect } from './config';
 import CHARS_JSON from './chars.json';
 import MAP from './map.json';
@@ -7,11 +7,10 @@ import MAP from './map.json';
 // 通常攻撃のモード。kind: melee=前方の扇形（ATTACK_ARC）、shot=弾。dmg: ダメージ倍率。far: 対象がこれより遠い（対象なしを含む）ときだけ使う。fx: 近接の斬撃のエフェクトを技ごとの描画（client/skills の fx）に差し替える color
 export type AaMode = { name: string; kind: 'melee' | 'shot'; range: number; cd: number; dmg: number; shot?: 'bullet' | 'cannon'; speed?: number; far?: number; fx?: string };
 export type CharDef = {
-  role?: string; // ROLES の key（なし可）
+  role?: string; // ロール（balance・attacker・speed・defense・support。ロール固有の効果と選択画面のロール表示。なし可）
+  stat: { hp: number; atk: number; speed: number; vision: number }; // 最大HP・通常攻撃の基本値・移動(px/秒)・視界半径(px)
   walk: 'normal' | 'hover'; // 歩行タイプ。normal=歩きの2コマを交互、hover=移動中は歩きの1コマ目で固定
   aa: AaMode[]; // 通常攻撃のモード（使えるもののうち最後のものを使う）
-  mult: { speed?: number }; // キャラ固有の倍率
-  melee: boolean; // 近接補正（MELEE_BONUS）の対象
   ghost?: boolean; // 壊せる壁をすり抜けて移動する（外周の壁だけ当たる。弾・視界・他キャラは変わらない）
   toku: number; // 徳の初期値の補正（陣営の全員分を足す）
   skill: { name: string; ct: number; [k: string]: any }; // 技（R）。ct=クールタイム(秒)、ほかは技処理（server/skills・client/skills）が使う値
@@ -20,41 +19,41 @@ export type CharDef = {
 };
 
 const MELEE: AaMode = { name: '近接', kind: 'melee', range: C.ATTACK_RANGE, cd: C.ATTACK_COOLDOWN_MELEE, dmg: 1 };
-const def = (d: Partial<CharDef> & Pick<CharDef, 'skill' | 'desc'>): CharDef => ({ walk: 'normal', aa: [MELEE], mult: {}, melee: true, toku: 0, ...d });
+const def = (d: Partial<CharDef> & Pick<CharDef, 'skill' | 'desc' | 'stat'>): CharDef => ({ walk: 'normal', aa: [MELEE], toku: 0, ...d });
 
 export const CHARS: Record<string, CharDef> = {
   // 花丸パンチ: 技ボタンを押している間タメ（移動可）、離した瞬間に拳を発射。タメの秒数が lv[i].t 以上でレベル i+1（最後のレベルで止まる）。拳はレベルの size 倍の半径・dmg 倍の威力・speed 倍の弾速
   // 拳: 前方へ直進（speed px/秒、range px で消える）、半径 r の拳がキャラ（1体1回）にダメージ・壁を破壊して貫通。パッシブ: 壁へ push 秒押し込み続けるとその壁を壊す（reach: 前方の壁を探すタイル数、w×d: 壊す範囲(タイル)）。Bot: 壁破壊で経路が botSave(px)以上短くなるなら使う（botCheck 秒ごとに判定。壁破壊はタメなし）。敵へはタメを botHold 秒のどれかにして撃つ
-  hanamaru: def({ desc: '押している間タメて、離すと大きな拳をまっすぐ飛ばす。タメるほど拳が大きく強く、遅くなる。当たった敵にダメージ、壁を壊して突き進む', passive: '壁に押し込み続けると、その壁を壊す', role: 'balance', skill: { name: '花丸パンチ', ct: 10, speed: 360, range: 520, r: 30, dmg: 40, reach: 3, w: 3, d: 2, push: 0.05, botSave: 320, botCheck: 0.25, lv: [{ t: 0, size: 1, dmg: 1, speed: 1 }, { t: 3, size: 1.5, dmg: 1.5, speed: 0.75 }, { t: 6, size: 2, dmg: 2.2, speed: 0.55 }], botHold: [0, 3, 6] } }),
-  whitecul: def({ desc: '前方に吹雪を起こし、範囲の敵にダメージを与えてはじき飛ばす', role: 'speed', skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
-  sayo: def({ desc: 'しばらく足が速くなり、自分のまわりの敵を斬り続ける', role: 'attacker', skill: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 } }),
+  hanamaru: def({ stat: { hp: 120, atk: 24, speed: 170, vision: 300 }, desc: '押している間タメて、離すと大きな拳をまっすぐ飛ばす。タメるほど拳が大きく強く、遅くなる。当たった敵にダメージ、壁を壊して突き進む', passive: '壁に押し込み続けると、その壁を壊す', role: 'balance', skill: { name: '花丸パンチ', ct: 10, speed: 360, range: 520, r: 30, dmg: 40, reach: 3, w: 3, d: 2, push: 0.05, botSave: 320, botCheck: 0.25, lv: [{ t: 0, size: 1, dmg: 1, speed: 1 }, { t: 3, size: 1.5, dmg: 1.5, speed: 0.75 }, { t: 6, size: 2, dmg: 2.2, speed: 0.55 }], botHold: [0, 3, 6] } }),
+  whitecul: def({ stat: { hp: 96, atk: 19.2, speed: 187, vision: 390 }, desc: '前方に吹雪を起こし、範囲の敵にダメージを与えてはじき飛ばす', role: 'speed', skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
+  sayo: def({ stat: { hp: 84, atk: 33.6, speed: 170, vision: 300 }, desc: 'しばらく足が速くなり、自分のまわりの敵を斬り続ける', role: 'attacker', skill: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 } }),
   // ドリル: dur 秒、前方（向きは移動・照準に追従）に長さ len・幅 w のドリルを出しっぱなし。触れた敵に dmg ＋自分から離れる向きへ push はじく。同じ相手には rehit 秒おき。ドリル中は通常攻撃しない（移動は可）
-  metan: def({ desc: 'しばらく前方にドリルを出し続ける。触れた敵にダメージを与えてはじく（その間は通常攻撃しない）', role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 2.4, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),
-  mochiko: def({ desc: 'ファンネル6機を出す。敵を囲んで撃つ（ファンネルは攻撃されると壊れる）', role: 'defense', walk: 'hover', skill: { name: 'ファンネル', ct: 30, n: 6, hp: 20, life: 15, sense: 250, dmg: 6, every: 1, range: 60, speed: 220, radius: 6, pathMax: 400, ring: 44, slotStep: Math.PI / 3, retarget: 0.5 } }), // pathMax: 向かう敵までの経路長の上限、ring: 敵を囲む半径、slotStep: 射撃ごとに回り込む角度、retarget: 対象と経路の見直し間隔
+  metan: def({ stat: { hp: 168, atk: 21.6, speed: 144.5, vision: 300 }, desc: 'しばらく前方にドリルを出し続ける。触れた敵にダメージを与えてはじく（その間は通常攻撃しない）', role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 2.4, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),
+  mochiko: def({ stat: { hp: 168, atk: 21.6, speed: 144.5, vision: 300 }, desc: 'ファンネル6機を出す。敵を囲んで撃つ（ファンネルは攻撃されると壊れる）', role: 'defense', walk: 'hover', skill: { name: 'ファンネル', ct: 30, n: 6, hp: 20, life: 15, sense: 250, dmg: 6, every: 1, range: 60, speed: 220, radius: 6, pathMax: 400, ring: 44, slotStep: Math.PI / 3, retarget: 0.5 } }), // pathMax: 向かう敵までの経路長の上限、ring: 敵を囲む半径、slotStep: 射撃ごとに回り込む角度、retarget: 対象と経路の見直し間隔
   // windup: タメの秒数、speed/side: 進む速さ・進行方向に垂直な移動の速さ（移動速度に対する倍率）、dur: 最大秒数、len×w: エフェクト（＝攻撃判定）の大きさ、head: 頭の中心の自キャラからの距離、smoke: 煙が消えるまでの秒数、spin: 渦の回転(ラジアン/秒)
   // fx: 見た目。渦: 筋の本数・[色, 太さ, 不透明度]（交互）・回り込む量(ラジアン)・半径（始め〜終わり）・尾へずれる量(px)。警告: 点滅の間隔・矢印の数。タメ中の白い点滅の間隔
-  aru: def({ desc: 'タメてから決めた方向へ突撃。壁を壊し、触れた敵にダメージ', role: 'speed', skill: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9, fx: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 } } }),
+  aru: def({ stat: { hp: 96, atk: 19.2, speed: 187, vision: 390 }, desc: 'タメてから決めた方向へ突撃。壁を壊し、触れた敵にダメージ', role: 'speed', skill: { name: '突撃', ct: 6, windup: 0.8, speed: 1, side: 0.4, dur: 2, len: 160, w: 126, head: 40, dmg: 60, smoke: 0.6, spin: 9, fx: { strands: 7, lines: [[0xff8a00, 6, 0.85], [0xffe14a, 4, 0.9]], turn: Math.PI * 2.6, r0: 4, r1: 70, back: 80, warnBlinkMs: 120, arrows: 5, blinkMs: 90 } } }),
   // オーバードライブ: dur 秒、移動 speed 倍・通常攻撃しない。every 秒ごとにその場へ残像（敵の通常攻撃・自動照準の対象になるおとり。decoyLife 秒か攻撃を受けると消える。HP decoyHp）を置く
   // 触れた敵（中心間 敵の半径＋touch px 以内のプレイヤー・大将）にダメージ予約（同じ敵は1回のオーバードライブで1回）。終了時に予約が1人以上いれば pose 秒ポーズで硬直してから予約の全員へ dmg（大将へは bossDmg）。途中で倒されたら不発。Bot: 敵が botRange 内なら使い、予約していない敵へ寄る
-  bii: def({ desc: 'しばらく足が速くなり、残像（おとり）を残しながら走る。触れた敵に印を付け、終わるとポーズして印の敵全員にダメージ（途中で倒されると不発）', role: 'support', skill: { name: 'オーバードライブ', ct: 10, dur: 1.5, touch: 40, speed: 1.6, every: 0.2, decoyLife: 1, decoyHp: 1, pose: 0.5, dmg: 60, bossDmg: 30, botRange: 150 } }),
-  ierutan: def({ desc: 'まわりの味方と自分の足を速くし、しばらく回復し続ける', role: 'support', skill: { name: '加速', ct: 8, r: 150, speed: 1.5, dur: 5, regen: 3 } }), // regen: 効果中の毎秒の回復量
+  bii: def({ stat: { hp: 84, atk: 14.4, speed: 170, vision: 300 }, desc: 'しばらく足が速くなり、残像（おとり）を残しながら走る。触れた敵に印を付け、終わるとポーズして印の敵全員にダメージ（途中で倒されると不発）', role: 'support', skill: { name: 'オーバードライブ', ct: 10, dur: 1.5, touch: 40, speed: 1.6, every: 0.2, decoyLife: 1, decoyHp: 1, pose: 0.5, dmg: 60, bossDmg: 30, botRange: 150 } }),
+  ierutan: def({ stat: { hp: 84, atk: 14.4, speed: 170, vision: 300 }, desc: 'まわりの味方と自分をアップグレードし、しばらく通常攻撃の間隔を短くして回復し続ける', role: 'support', skill: { name: 'アップグレード', ct: 8, r: 150, cd: 0.8, dur: 5, regen: 3 } }), // cd: 効果中の通常攻撃の間隔の倍率（アシストには掛けない）、regen: 効果中の毎秒の回復量
   // 東北ずん子: 近接のパンチと遠距離（きりたんと同じ2モード。対象が far より遠ければ遠距離）。数値は仮置き（パンチは包丁より1発が強く、DPS は花丸の通常攻撃より低い）
   // ずんだアロー: 発射時の照準の対象1体を追う矢（弾速 arrowSpeed、進行方向は毎秒 turn ラジアンまでしか曲がらない。対象が倒れた・対象にならなくなったら直進。壁・life 秒で消える）
   // 当たった敵はずんだ餅（dur 秒、移動×speed、技不可、与えるダメージ×atk。無敵の相手には効かない）。range: 対象を選ぶ射程
-  zunko: def({ desc: 'ずんだアロー（簡）を放つ。運動会中はずんだもんを呼び出さず、気合いで放っている。矢は狙った敵を追って少しだけ曲がり、当たった敵をずんだ餅にする（足が遅くなり、技が使えず、与えるダメージが半分になる）', role: 'attacker', melee: false, aa: [{ ...MELEE, name: 'パンチ', dmg: 0.9, cd: 1.1 }, { name: '遠距離', kind: 'shot', range: 200, cd: 1.2, dmg: 1, shot: 'bullet', speed: 800, far: 60 }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5, atk: 0.5, arrowSpeed: 900, turn: (Math.PI * 2) / 3, life: 0.6 } }),
+  zunko: def({ stat: { hp: 70, atk: 28, speed: 170, vision: 300 }, desc: 'ずんだアロー（簡）を放つ。運動会中はずんだもんを呼び出さず、気合いで放っている。矢は狙った敵を追って少しだけ曲がり、当たった敵をずんだ餅にする（足が遅くなり、技が使えず、与えるダメージが半分になる）', role: 'attacker', aa: [{ ...MELEE, name: 'パンチ', dmg: 0.9, cd: 1.1 }, { name: '遠距離', kind: 'shot', range: 200, cd: 1.2, dmg: 1, shot: 'bullet', speed: 800, far: 60 }], skill: { name: 'ずんだアロー', ct: 12, range: 300, dur: 4, speed: 0.5, atk: 0.5, arrowSpeed: 900, turn: (Math.PI * 2) / 3, life: 0.6 } }),
   // 足が遅い。対象が 60 より遠ければきりたん砲（弾速遅め・ダメージ控えめ）、近ければ包丁
   // 全弾斉射: 1回目でロックオン（射程 range 内の敵に近い順で lockEvery 秒ごとに1体ずつ。最大 lockMax 秒）、2回目でロックした全員へホーミング弾（総数 perTarget × volleys 発をロックした人数で均等に分け、割り切れない余りはロック順に1発ずつ足す。各自の分を volleys 回に分けて volleyGap 秒おき、1発 dmg）。CT は発射（またはロックの時間切れ）から
   // 弾道（3種を順に）: straight=直進して追う、spread=左右へゆっくり展開（spreadT 秒、spreadSpeed）→加速（accel）して目標へ、brake=前方／後方へ偏差的に速く飛ぶ（leadT 秒、leadSpeed、leadAngle）→急制動（brakeT 秒）→目標へ。速さの上限 maxSpeed、life 秒で消える、弾の半径 r。目標が着弾前に倒れた（撤退・消滅・対象にならない状態を含む）弾は、その時点の進行方向へ orphanSpeed で直進し、life の残り・壁・敵（コバコを含む。最初に当たった敵にダメージ、コバコはKO）で消える
   // 死神の鎌: 発動で透明化（dur 秒。敵の対象にならない・オートアタックしない・被弾で即死）。透明化中は対象が範囲に入ると自動で鎌（前方 range・arc、dmg、大将へは bossDmg＝旧めたんのドリルと同じ基本値30、アシストへは dmg×assistMult）。当てたら攻撃の向きへ jump px を通常移動の jumpSpeed 倍で跳ぶ（壁で止まる）。eyes: 透明化中の目のドット（tools/make_dot.py）
-  himari: def({ desc: '姿を消す。消えている間は近づいた敵を鎌で特大ダメージを与え、攻撃の向きへ跳ぶ（攻撃を受けると即やられる）', role: 'attacker', skill: { name: '死神の鎌', ct: 15, dur: 5, range: 60, arc: Math.PI / 2, dmg: 160, bossDmg: 30, assistMult: 0.5, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
+  himari: def({ stat: { hp: 84, atk: 33.6, speed: 170, vision: 300 }, desc: '姿を消す。消えている間は近づいた敵を鎌で特大ダメージを与え、攻撃の向きへ跳ぶ（攻撃を受けると即やられる）', role: 'attacker', skill: { name: '死神の鎌', ct: 15, dur: 5, range: 60, arc: Math.PI / 2, dmg: 160, bossDmg: 30, assistMult: 0.5, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
   // 東北イタコ: 通常攻撃はキツネ（狐火の見た目）。間隔は半分、1発は半分
   // 狐火: 自分中心の半径 r の円周に n 個の火の玉を出し、時計回りに spin(ラジアン/秒) で回す（dur 秒で消える）。触れた敵に dmg、同じ相手には rehit 秒おき。ballR: 火の玉の半径
   // 展開中に再発動: 射程 range 内の最寄りの敵を標的に、各火の玉は標的の方向を12時とした9時の位置で円から離れ、homeSpeed(px/秒)・旋回 turn(ラジアン/秒) で追う。命中で homeDmg を与えて消える。life 秒・壁で消える。CT は再発動（または時間切れ）から
-  itako: def({ desc: '自分のまわりに狐火を回し、触れた敵にダメージ。回っている間にもう一度使うと、狐火が近くの敵を追いかけて飛ぶ', role: 'balance', aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE / 2, dmg: 0.5, fx: 'kitsune' }], skill: { name: '狐火', ct: 8, n: 5, r: 50, spin: 3, dur: 6, ballR: 8, dmg: 8, rehit: 0.5, range: 260, homeSpeed: 360, turn: 6, homeDmg: 15, life: 3 } }),
+  itako: def({ stat: { hp: 120, atk: 24, speed: 170, vision: 300 }, desc: '自分のまわりに狐火を回し、触れた敵にダメージ。回っている間にもう一度使うと、狐火が近くの敵を追いかけて飛ぶ', role: 'balance', aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE / 2, dmg: 0.5, fx: 'kitsune' }], skill: { name: '狐火', ct: 8, n: 5, r: 50, spin: 3, dur: 6, ballR: 8, dmg: 8, rehit: 0.5, range: 260, homeSpeed: 360, turn: 6, homeDmg: 15, life: 3 } }),
   // ユーレイちゃん: 足がなく浮遊（hover）。壊せる壁をすり抜ける（ghost）。通常攻撃の間隔は2倍
   // ジャッジメント: 光弾が螺旋を描きながら直進（speed px/秒、range px、壁で消える）。当たり判定は先頭の光弾（半径 r）だけ。プレイヤーへのダメージは悪行量に比例（悪行0で minDmg、WANTED_MIN 手前で maxDmg、指名手配中は即死 killDmg）。大将・場の物には minDmg
   // 見た目: 光弾 orbs 個、螺旋の半径 spiralR・1周の長さ spiralLen(px)
-  yurei: def({ desc: '螺旋を描く光弾をまっすぐ撃つ。悪行が多い敵ほど大ダメージ、指名手配中なら一撃', passive: '壊せる壁をすり抜けて移動できる', role: 'support', walk: 'hover', ghost: true, aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE * 2 }], skill: { name: 'ジャッジメント', ct: 10, speed: 525, range: 320, r: 8, minDmg: 1, maxDmg: 50, killDmg: 999, orbs: 4, spiralR: 6, spiralLen: 40 } }),
+  yurei: def({ stat: { hp: 84, atk: 14.4, speed: 170, vision: 300 }, desc: '螺旋を描く光弾をまっすぐ撃つ。悪行が多い敵ほど大ダメージ、指名手配中なら一撃', passive: '壊せる壁をすり抜けて移動できる', role: 'support', walk: 'hover', ghost: true, aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE * 2 }], skill: { name: 'ジャッジメント', ct: 10, speed: 525, range: 320, r: 8, minDmg: 1, maxDmg: 50, killDmg: 999, orbs: 4, spiralR: 6, spiralLen: 40 } }),
   // 九州そら: 浮遊（hover）。通常攻撃はパンチ（花丸よりダメージやや高く、間隔やや長い）
   // ソーラーキャノン: 試合開始から自動でチャージ（撤退で0、発射で0。CT中も進む）。発射すると本人はその場で止まり、照射秒（keys の第5列）の間ビーム（幅 w）を照射。向きは移動入力の方へ毎秒 turn ラジアンまで変わる
   // ビームはキャラを貫通して every 秒おきに多段ヒット、壊せる壁は壊して進み、外壁・射程の端で止まる。チャージ boomFrom 秒以上なら、当たったキャラ・壁（照射開始時の壁の長方形）ごと・射程の端（外壁）に1照射1回ずつ爆発（範囲の壁も壊す。爆発のダメージは1キャラ1照射1回）
@@ -62,12 +61,12 @@ export const CHARS: Record<string, CharDef> = {
   // 最後のキーフレームの大将へは、全倍率（DAMAGE_MULT・ATTACKER_BOSS_MULT）を掛けた後の合計が bossMax になる値を別に使う。ビームが大将に当たっている間は大将の拠点移動が起きない
   // glow: そらの光（1つ・たくさんちらつく）が付くチャージ秒。Bot: チャージ botMin 秒以上で、ビームの線上に敵か大将がいれば撃つ
   sora: def({
-    desc: '試合開始から力を溜め続け、発射するとその場で止まって正面へビームを照射。キャラを貫き壁を壊して進む。溜めるほど強く遠くまで届き、爆発も起きる。4分半を超えて溜めると照射も長くなる（倒されると溜め直し）', role: 'attacker', walk: 'hover',
+    stat: { hp: 84, atk: 33.6, speed: 170, vision: 300 }, desc: '試合開始から力を溜め続け、発射するとその場で止まって正面へビームを照射。キャラを貫き壁を壊して進む。溜めるほど強く遠くまで届き、爆発も起きる。4分半を超えて溜めると照射も長くなる（倒されると溜め直し）', role: 'attacker', walk: 'hover',
     aa: [{ ...MELEE, name: 'パンチ', dmg: 0.85, cd: 1.25 }],
     skill: { name: 'ソーラーキャノン', ct: 5, turn: Math.PI / 30, w: 16, every: 0.25, beamShare: 0.6, boomFrom: 10, keys: [[5, 29, 200, 0, 0.5], [10, 45, 300, 0, 0.5], [30, 80, 450, 40, 0.5], [270, 110, 550, 60, 0.5], [294, 250, Math.ceil(Math.hypot(C.MAP_W, C.MAP_H)), 200, 5]], bossMax: 1200, glow: [30, 270], botMin: 10 },
   }),
   kiritan: def({
-    desc: '1回目で射程内の敵をロックオン、2回目でロックした全員へホーミング弾を撃ち込む', melee: false, mult: { speed: 0.8 },
+    stat: { hp: 100, atk: 20, speed: 136, vision: 300 }, desc: '1回目で射程内の敵をロックオン、2回目でロックした全員へホーミング弾を撃ち込む',
     aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 310, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.85, shot: 'cannon', speed: 300, far: 60 }],
     skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 4, volleys: 3, volleyGap: 0.3, dmg: 7.5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12, orphanSpeed: 450 },
   }),
@@ -80,10 +79,10 @@ export const PICKABLE = Object.keys(JSON_CHARS).filter((k) => JSON_CHARS[k].boss
 export const E2E_BOTS = ['hanamaru', 'whitecul', 'sayo', 'metan', 'mochiko', 'aru', 'ierutan', 'zunko', 'kiritan'];
 export const BOSS_CHAR = [0, 1].map((t) => Object.keys(JSON_CHARS).find((k) => JSON_CHARS[k].boss === t)!); // 陣営 → 大将のキャラ
 
-// キャラのロール倍率。char なし（大将）や role なしは null
-export const roleOf = (char?: string) => { const r = CHARS[char ?? '']?.role; return r ? { name: r, ...C.ROLES[r] } : null; };
-// キャラの視界半径（ロール係数込み）。char なし（大将）は基本値
-export const visionRadius = (char?: string) => C.VISION_RADIUS * (roleOf(char)?.vision ?? 1);
+// キャラのロール。char なし（大将）や role なしは null
+export const roleOf = (char?: string) => { const r = CHARS[char ?? '']?.role; return r ? { name: r } : null; };
+// キャラの視界半径。char なし（大将）・定義のないキャラ（アシスト）は基本値
+export const visionRadius = (char?: string) => CHARS[char ?? '']?.stat.vision ?? C.VISION_RADIUS;
 // 撃破後の視界半径（サーバー・クライアント共通）。ko: 撃破からの秒数（null＝生存）。大爆発までは visionRadius、その後 RESPAWN_BASE までに (1−t)^2 で0へ縮む。アシストは大爆発で0
 export const eyeRadius = (char: string, ko: number | null, assist = false) => {
   const r = visionRadius(char), K = C.KO_FX, end = K.shake + K.boom;
@@ -91,28 +90,12 @@ export const eyeRadius = (char: string, ko: number | null, assist = false) => {
   const t = (ko - end) / (C.RESPAWN_BASE - end);
   return assist || t >= 1 ? 0 : r * (1 - t) ** 2;
 };
-// 近接補正の対象か（定義のないアシストなども対象）
-export const melee = (char: string) => CHARS[char]?.melee ?? true;
 export const walkOf = (char: string) => CHARS[char]?.walk ?? 'normal';
 
 // ステータスの算出（サーバーの maxHp・speedOf・attack もこれを使う）
-export const charHp = (char: string) => {
-  let hp = C.PLAYER_HP * (roleOf(char)?.hp ?? 1);
-  if (melee(char)) hp *= C.MELEE_BONUS.hp;
-  return hp;
-};
-export const charSpeed = (char: string) => {
-  let sp = C.PLAYER_SPEED * (roleOf(char)?.speed ?? 1);
-  if (melee(char)) sp *= C.MELEE_BONUS.speed;
-  const m = CHARS[char]?.mult.speed;
-  if (m !== undefined) sp *= m;
-  return sp;
-};
-export const charAtk = (char: string) => {
-  let dmg = C.ATTACK_DAMAGE * (roleOf(char)?.atk ?? 1);
-  if (melee(char)) dmg *= C.MELEE_BONUS.atk;
-  return dmg;
-};
+export const charHp = (char: string) => CHARS[char].stat.hp;
+export const charSpeed = (char: string) => CHARS[char].stat.speed;
+export const charAtk = (char: string) => CHARS[char].stat.atk;
 // 移動の当たり判定に使う壁。ghost のキャラは外周の壁（壊せない壁）だけ。walls: 今の壁（壁破壊で変わる）
 const OUTER_WALLS = wallRects(MAP.tiles.map((row, y) => [...row].map((c, x) => (c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' ')) ? '#' : '.')).join('')));
 export const moveWalls = (char: string | undefined, walls: Rect[]) => (CHARS[char ?? '']?.ghost ? OUTER_WALLS : walls);

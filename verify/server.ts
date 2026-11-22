@@ -3,7 +3,7 @@ import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/ser
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
-import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode } from '../src/shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
@@ -16,7 +16,6 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
   console.log(cond ? 'PASS' : 'FAIL', name, typeof detail === 'string' ? detail : JSON.stringify(detail));
 };
 const T = C.TILE;
-const MB = C.MELEE_BONUS, melee = (ch: string) => CHARS[ch].melee; // 近接補正
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く。Botは盤外で無効化
 function mk(a: string, b?: string) {
@@ -135,17 +134,58 @@ console.log('--- E2E_HOOKS なしでは挙動が変わらない');
   ok('早送り倍率は1', r.speed === 1);
 }
 
-console.log('--- ロール倍率・特性');
-const roles: Record<string, string> = { hanamaru: 'balance', sayo: 'attacker', zunko: 'attacker', whitecul: 'speed', aru: 'speed', mochiko: 'defense', metan: 'defense', ierutan: 'support', bii: 'support' };
-for (const [ch, role] of Object.entries(roles)) {
-  const { r, A } = mk(ch, 'sayo'); const R = C.ROLES[role], k = melee(ch) ? MB : { hp: 1, speed: 1, atk: 1 };
-  const t = mk(ch, 'sayo'); const h0 = t.B.hp; t.r.attack('a'); if (aaMode(ch, null).kind === 'shot') t.r.updateShots(0.2); // 対象なし＝遠い扱い（ずん子は遠距離）
-  ok(`${ch}（${role}${melee(ch) ? '・近接補正' : ''}）HP${r.maxHp(A).toFixed(1)} 移動${r.speedOf(A).toFixed(1)} 攻撃${h0 - t.B.hp} 視界${visionRadius(ch)}`,
-    Math.abs(r.maxHp(A) - C.PLAYER_HP * R.hp * k.hp) < 1e-9 && Math.abs(r.speedOf(A) - C.PLAYER_SPEED * R.speed * k.speed) < 1e-9 && h0 - t.B.hp === Math.round(C.ATTACK_DAMAGE * R.atk * k.atk * C.DAMAGE_MULT) && visionRadius(ch) === C.VISION_RADIUS * R.vision);
+console.log('--- キャラの数値（speed1 でロール補正・近接補正を焼き込み）・ロールの特性');
+{
+  // [HP, 通常攻撃の基本値, 移動(px/秒), 視界]（handoff_speed1 の表。HP・攻撃・視界は変更前と同じ、移動はスピード役 1.3→1.1・近接補正 1.1 廃止の後）
+  const TABLE: Record<string, [number, number, number, number]> = {
+    hanamaru: [120, 24, 170, 300], itako: [120, 24, 170, 300], whitecul: [96, 19.2, 187, 390], aru: [96, 19.2, 187, 390],
+    sayo: [84, 33.6, 170, 300], himari: [84, 33.6, 170, 300], sora: [84, 33.6, 170, 300], zunko: [70, 28, 170, 300],
+    metan: [168, 21.6, 144.5, 300], mochiko: [168, 21.6, 144.5, 300], bii: [84, 14.4, 170, 300], ierutan: [84, 14.4, 170, 300], yurei: [84, 14.4, 170, 300],
+    kiritan: [100, 20, 136, 300],
+  };
+  const step = (v: number, th: number[]) => 1 + th.filter((t) => v >= t).length;
+  ok('表に全キャラ（選べるキャラ）がある', PICKABLE.every((ch) => TABLE[ch]) && Object.keys(TABLE).length === PICKABLE.length, PICKABLE.filter((ch) => !TABLE[ch]));
+  for (const ch of PICKABLE) {
+    const [hp, atk, sp, vis] = TABLE[ch];
+    const { r, A } = mk(ch, 'sayo');
+    const t = mk(ch, 'kiritan'); t.B.hp = 9999; t.A.tgt = null; const h0 = t.B.hp; t.r.attack('a'); for (let i = 0; i < 10; i++) t.r.updateShots(0.05); // 対象なし＝遠い扱い（ずん子・きりたんは遠距離）。相手はロールなし（被ダメ軽減なし）
+    const m = aaMode(ch, null), st = charStats(ch);
+    const hit = Math.round(atk * m.dmg * C.DAMAGE_MULT), dealt = h0 - t.B.hp;
+    const stOk = st.hp === step(hp, STAT_STEPS.hp) && st.speed === step(sp, STAT_STEPS.speed) && st.aa.every((x, i) => x.atk === step((atk * CHARS[ch].aa[i].dmg) / CHARS[ch].aa[i].cd, STAT_STEPS.atk));
+    ok(`${ch}（${CHARS[ch].role ?? 'ロールなし'}）HP${r.maxHp(A)} 攻撃${atk}（1発${dealt}） 移動${r.speedOf(A)} 視界${visionRadius(ch)}・選択画面の段階 HP${st.hp} 移動${st.speed} 攻撃${st.aa.map((x) => x.atk).join('/')}`,
+      r.maxHp(A) === hp && charAtk(ch) === atk && dealt === hit && r.speedOf(A) === sp && visionRadius(ch) === vis && stOk, { dealt, hit });
+  }
+}
+{
+  // アシストの HP・攻撃・移動は変更前（speed1 の前に測った値）と同じ。[最大HP, 1発, 移動]（強さ 0〜3）
+  const BEFORE: Record<string, [number, number, number][]> = {
+    kurono: [[245, 10, 85], [350, 15, 85], [490, 20, 85], [700, 29, 85]], shirakami: [[245, 10, 85], [350, 15, 85], [490, 20, 85], [700, 29, 85]],
+    aoyama: [[245, 10, 85], [350, 15, 85], [490, 20, 85], [700, 29, 85]], ritsu: [[490, 10, 42.5], [700, 15, 42.5], [980, 20, 42.5], [1400, 29, 42.5]],
+  };
+  const got: any = {};
+  const same = Object.entries(BEFORE).every(([u, rows]) => rows.every(([hp, hit, sp], tier) => {
+    const z = mk('sayo', 'metan'); const a = z.r.summonAssist(0, tier, u); Object.assign(a, { x: 1552, y: 900, face: 0 }); a.tgt = null;
+    Object.assign(z.B, { x: 1552 + 30, y: 900, hp: 9999 }); z.r.attack(a.id);
+    got[u + tier] = [z.r.maxHp(a), 9999 - z.B.hp, z.r.speedOf(a)];
+    return z.r.maxHp(a) === hp && 9999 - z.B.hp === hit && z.r.speedOf(a) === sp;
+  }));
+  ok('アシストの最大HP・攻撃・移動は変更前と同じ（全アシスト・強さ4段階）', same && Object.keys(got).length === 16, got);
+}
+{
+  // 加速の重なり（白上 ×1.1・パワーアップ近接 ×1.1）での最高速度: スピード役の通常移動 約226px/秒、小夜・ビィの技中 約329px/秒
+  const top = (ch: string, useSkill: boolean) => {
+    const z = mk(ch, 'metan'); delete z.A.st.test; z.A.sk = z.A.sk ?? {};
+    if (useSkill) { z.r.skill('a'); }
+    z.A.boostUntil = z.r.now + 10; z.A.ult = { form: 'melee', tier: 0, left: 20 };
+    return z.r.speedOf(z.A);
+  };
+  const w = top('whitecul', false), a = top('aru', false), sy = top('sayo', true), bi = top('bii', true);
+  ok(`最高速度: スピード役 ${w.toFixed(1)}・${a.toFixed(1)}px/秒（約226）、小夜の技中 ${sy.toFixed(1)}・ビィの技中 ${bi.toFixed(1)}px/秒（約329）`,
+    Math.abs(w - 187 * 1.1 * 1.1) < 1e-9 && Math.round(w) === 226 && a === w && Math.abs(sy - 170 * 1.6 * 1.1 * 1.1) < 1e-9 && Math.round(sy) === 329 && Math.abs(bi - sy) < 1e-9 && C.ASSIST.units.shirakami.boost === 1.1 && C.ULT_FORMS.melee.speed === 1.1, { w, a, sy, bi });
 }
 {
   const a = mk('sayo', 'hanamaru'); a.r.attack('a');
-  const D = 28 * MB.atk * C.DAMAGE_MULT; // sayo の通常攻撃（近接補正・全体の倍率込み）
+  const D = CHARS.sayo.stat.atk * C.DAMAGE_MULT; // sayo の通常攻撃（全体の倍率込み）
   ok('balance: 近くに味方なしで被ダメ-20%', a.r.maxHp(a.B) - a.B.hp === Math.round(D * 0.8));
   const d = mk('sayo', 'metan'); d.r.attack('a');
   ok('defense: 被ダメ-20%', d.r.maxHp(d.B) - d.B.hp === Math.round(D * 0.8));
@@ -192,7 +232,7 @@ console.log('--- オートアタック（射程・CT・移動中・照準モー�
 console.log('--- 攻撃力の底上げ・大将の部屋の距離');
 {
   const { r, A, B } = mk('hanamaru', 'sayo'); r.attack('a');
-  ok(`通常攻撃に全体の倍率×${C.DAMAGE_MULT}`, r.maxHp(B) - B.hp === Math.round(C.ATTACK_DAMAGE * MB.atk * C.DAMAGE_MULT));
+  ok(`通常攻撃に全体の倍率×${C.DAMAGE_MULT}`, r.maxHp(B) - B.hp === Math.round(CHARS.hanamaru.stat.atk * C.DAMAGE_MULT));
   const s = mk('whitecul', 'sayo'); s.r.skill('a'); ok('技にも全体の倍率', s.r.maxHp(s.B) - s.B.hp === Math.round(CHARS.whitecul.skill.dmg * C.DAMAGE_MULT));
   const pass = ROOM_COMBOS.filter((c) => c.sum <= C.BOSS_ROOM_DIST_SUM_MAX);
   ok(`大将の部屋の組み合わせ ${ROOM_COMBOS.length}通り中 ${pass.length}通りが上限${C.BOSS_ROOM_DIST_SUM_MAX}px以下`, ROOM_COMBOS.length === 20 && pass.length >= 1 && pass.length < 20, ROOM_DIST);
@@ -248,12 +288,26 @@ console.log('--- ウルト・アシスト・回復アイテム');
   ok(`ご飯は給湯室（kitchen）だけに左右${C.HEAL_SPOTS.length / 2}個ずつ（上限2）、左右対称`, pts.length === C.HEAL_SPOTS.length && pts.length === 4 && pts.every(([x, y]: number[]) => pts.some(([x2, y2]: number[]) => Math.abs(x2 - (C.MAP_W - x)) < 1 && y2 === y) && roomKindAt(Math.floor(x / T), Math.floor(y / T)) === 'kitchen'));
 }
 
-console.log('--- 技の変更（ierutan の加速）・きりたん');
+console.log('--- 技の変更（ierutan のアップグレード）・きりたん');
 {
-  const ie = mk('ierutan'); ie.A.hp = 30; ie.r.skill('a'); const sp0 = ie.r.speedOf(ie.A); ie.r.updatePlayers(1);
-  ok(`ierutan の加速: 移動×${CHARS.ierutan.skill.speed}、毎秒${CHARS.ierutan.skill.regen}回復`, Math.abs(sp0 - C.PLAYER_SPEED * MB.speed * CHARS.ierutan.skill.speed) < 1e-9 && Math.abs(ie.A.hp - 33) < 1e-9);
+  const S = CHARS.ierutan.skill;
+  const ie = mk('ierutan'); ie.A.hp = 30; const sp0 = ie.r.speedOf(ie.A), cd0 = ie.r.atkCooldown(ie.A); ie.r.skill('a'); const sp1 = ie.r.speedOf(ie.A), cd1 = ie.r.atkCooldown(ie.A); ie.r.updatePlayers(1);
+  ok(`ierutan のアップグレード: 通常攻撃の間隔×${S.cd}、移動は変わらない、毎秒${S.regen}回復`, sp1 === sp0 && Math.abs(cd1 - cd0 * S.cd) < 1e-9 && Math.abs(ie.A.hp - 33) < 1e-9, { sp0, sp1, cd0, cd1, hp: ie.A.hp });
+  // 味方の近接・遠距離・パワーアップ中の通常攻撃の間隔が 0.8 倍。アシストは変わらない。実際の攻撃の間隔（cooldownUntil）でも確認
+  const z = mk('ierutan', 'metan'); delete z.A.st.test;
+  const add = (id: string, char: string) => { z.r.addPlayer(id, 0, false); const q = z.r.players.get(id); Object.assign(q, { char, alive: true, x: 1552 + 20, y: 900 }); q.st.test = NOAUTO(); return q; };
+  const mel = add('m1', 'hanamaru'), rng = add('r1', 'kiritan'), ult = add('u1', 'sayo'); ult.ult = { form: 'melee', tier: 0, left: 20 }; rng.tgt = null;
+  const as = z.r.summonAssist(0, 1, 'kurono'); Object.assign(as, { x: 1552 + 20, y: 900 });
+  const cds = () => [mel, rng, ult, as].map((q: any) => z.r.atkCooldown(q));
+  const b0 = cds(); z.r.skill('a'); const b1 = cds();
+  z.r.now += 0.01; const gap = (q: any) => { q.cooldownUntil = 0; z.r.attack(q.id, 0); return q.cooldownUntil - z.r.now; };
+  const g = [mel, rng, ult, as].map(gap);
+  const want = [C.ATTACK_COOLDOWN_MELEE * S.cd, C.ATTACK_COOLDOWN_RANGED * S.cd, C.ATTACK_COOLDOWN_MELEE * S.cd, C.ATTACK_COOLDOWN_MELEE];
+  ok(`アップグレード中: 味方の近接 ${want[0]}秒・遠距離 ${want[1]}秒・パワーアップ中 ${want[2]}秒（各0.8倍）、アシストは ${want[3]}秒のまま（効果は付く: ${!!as.st.upgrade}）`,
+    [mel, rng, ult, as].every((q: any) => !!q.st.upgrade) && b1.every((v, i) => Math.abs(v - want[i]) < 1e-9) && g.every((v, i) => Math.abs(v - want[i]) < 1e-9) && b0[3] === b1[3], { b0, b1, g });
+  ok('アップグレード中も味方の移動は変わらない', [mel, rng, ult].every((q: any) => { const s0 = z.r.speedOf(q); const u = q.st.upgrade; delete q.st.upgrade; const s1 = z.r.speedOf(q); q.st.upgrade = u; return s0 === s1; }));
   const k = mk('kiritan', 'metan'); k.A.aim = 'nearest'; delete k.A.st.test;
-  ok(`きりたん: 足が遅い（×${CHARS.kiritan.mult.speed}）`, k.r.speedOf(k.A) === C.PLAYER_SPEED * CHARS.kiritan.mult.speed!);
+  ok('きりたん: 足が遅い（136px/秒。旧 mult.speed 0.8 を焼き込み）', k.r.speedOf(k.A) === 136);
   Object.assign(k.B, { x: 1552 + 200 }); k.r.updatePlayers(0.05);
   ok('きりたん: 遠い敵にはきりたん砲（弾速遅め）', k.r.shots.length === 1 && k.r.shots[0].kind === 'cannon' && k.r.shots[0].sp < C.BULLET_SPEED);
   const k2 = mk('kiritan', 'metan'); k2.A.aim = 'nearest'; delete k2.A.st.test; k2.r.updatePlayers(0.05);
@@ -303,7 +357,7 @@ console.log('--- バランス調整（回復アイテム間隔・近接補正・
   ok(`ご飯はコバコなしで、欠けた置き場所ごとに${C.HEAL_RESPAWN}秒で再出現（上限は置き場所の数${C.HEAL_SPOTS.length}。1個ごとに徳${C.TOKU.eat}）`, h.r.couriers.length === 0 && n0 === C.HEAL_SPOTS.length - 1 && n1 === n0 && n2 === C.HEAL_SPOTS.length && n3 === n2 && back && Math.abs(h.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.eat)) < 1e-9, { n0, n1, n2, n3 });
   ok('回復量は旧の2倍（30→60）', C.HEAL_ITEM_AMOUNT === 60);
   const z = mk('zunko'), k = mk('kiritan'), s = mk('sayo');
-  ok('近接補正は zunko・kiritan 以外（HP×1.2・移動×1.1・攻撃×1.2）', z.r.maxHp(z.A) === 70 && k.r.maxHp(k.A) === 100 && Math.abs(s.r.maxHp(s.A) - 84) < 1e-9 && MB.hp === 1.2 && MB.speed === 1.1 && MB.atk === 1.2);
+  ok('近接補正・ロールの倍率は廃止（数値は各キャラの stat に焼き込み済み）', z.r.maxHp(z.A) === 70 && k.r.maxHp(k.A) === 100 && s.r.maxHp(s.A) === 84 && !('MELEE_BONUS' in C) && !('ROLES' in C));
   const u = mk('sayo'); u.A.ult = { form: 'melee', tier: 1, until: u.r.now + 20, pending: false };
   ok(`ウルト変身中の最大HPは旧倍率の0.8倍×強さ（近接 1.8→1.44、レベル2は×${C.ULT_HP_MULT[1]}）`, Math.abs(u.r.maxHp(u.A) - 84 * 1.8 * 0.8 * C.ULT_HP_MULT[1]) < 1e-9);
   ok(`パワーアップのシールド（ULT_HP_MULT）: Lv4=旧Lv3 0.98、Lv2・3は旧×0.7、Lv1据え置き、攻撃の倍率 POWER_MULT は不変 ${JSON.stringify(C.ULT_HP_MULT)}`, [0.49, 0.7 * 0.7, 0.98 * 0.7, 0.98].every((v, i) => Math.abs(C.ULT_HP_MULT[i] - v) < 1e-9) && JSON.stringify(C.POWER_MULT) === JSON.stringify([0.49, 0.7, 0.98, 1.4]));
@@ -1821,12 +1875,12 @@ console.log('--- 自分中心の範囲は体の中心（tune2）');
 {
   const up = bodyUp(), upA = bodyUp(C.ASSIST.scale);
   ok(`体の中心は足元から ${up.toFixed(1)}px 上（ドットの高さ42 × (0.85−0.5) × DOT_SCALE）、アシスト・大将は2倍`, Math.abs(up - 42 * 0.35 * C.DOT_SCALE) < 1e-9 && Math.abs(upA - up * C.ASSIST.scale) < 1e-9);
-  // あいえるたん: 輪の中心＝体の中心。円の縁ちょうど（体の中心どうしの距離＝r）の味方は加速、r を少し超えたら加速しない。アシスト（2倍）も体の中心で測る
+  // あいえるたん: 輪の中心＝体の中心。円の縁ちょうど（体の中心どうしの距離＝r）の味方は対象、r を少し超えたら対象外。アシスト（2倍）も体の中心で測る
   const S = CHARS.ierutan.skill, z = mk('ierutan'); z.r.fx = [];
   const ally = (id: string, x: number, y: number, assist = false) => { z.r.addPlayer(id, 0, false); const q = z.r.players.get(id); Object.assign(q, { char: assist ? 'aoyama' : 'sayo', alive: true, x, y, assist }); q.st.test = NOAUTO(); return q; };
   const cy = 900 - up, e1 = ally('e1', 1552 + S.r, 900), e2 = ally('e2', 1552 - S.r - 0.5, 900), a1 = ally('a1', 1552, cy - S.r + upA - 1, true), a2 = ally('a2', 1552, 900 + S.r - 1 + upA - up, true);
-  z.r.skill('a'); const f = z.r.fx.find((x: any) => x.color === 'accel');
-  ok('あいえるたんの加速: 輪の中心は体の中心。縁ちょうどの味方は加速、縁の外は加速しない（アシストも体の中心どうしで測る: 足元では内でも体で外なら加速しない、その逆は加速）', f && f.x === 1552 && Math.abs(f.y - cy) < 1e-9 && !!e1.st.accel && !e2.st.accel && !a1.st.accel && !!a2.st.accel, { f: f && [f.x, f.y], e1: !!e1.st.accel, e2: !!e2.st.accel, a1: !!a1.st.accel, a2: !!a2.st.accel });
+  z.r.skill('a'); const f = z.r.fx.find((x: any) => x.color === 'upgrade');
+  ok('あいえるたんのアップグレード: 輪の中心は体の中心。縁ちょうどの味方は対象、縁の外は対象外（アシストも体の中心どうしで測る: 足元では内でも体で外なら対象外、その逆は対象）', f && f.x === 1552 && Math.abs(f.y - cy) < 1e-9 && !!e1.st.upgrade && !e2.st.upgrade && !a1.st.upgrade && !!a2.st.upgrade, { f: f && [f.x, f.y], e1: !!e1.st.upgrade, e2: !!e2.st.upgrade, a1: !!a1.st.upgrade, a2: !!a2.st.upgrade });
   // 小夜の舞: 大将（2倍）も体の中心で測る。輪は体の中心
   const sy = mk('sayo'); sy.r.fx = []; const R = CHARS.sayo.skill.r, b = sy.r.bosses[1], bu = bodyUp(2);
   Object.assign(b, { x: 1552, y: 900 - up + bu + R + C.BOSS_RADIUS - 1 }); const bh = b.hp; sy.r.skill('a'); sy.r.now += 0.01; sy.r.updatePlayers(0.05);
@@ -1864,7 +1918,7 @@ console.log('--- 九州そら（ソーラーキャノン）');
   const S = CHARS.sora.skill, K = S.keys as number[][], DUR = (c: number) => solarAt(c, 4), N = Math.round(DUR(5) / S.every), N30 = Math.round(DUR(30) / S.every);
   const run = (z: any, sec: number, input?: [number, number]) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; if (input) [z.A.inDx, z.A.inDy] = input; z.r.updatePlayers(0.05); } };
   const fire = (z: any, charge: number, a = 0) => { z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.A.face = a; z.A.tgt = null; z.r.skill('a'); };
-  ok('選択画面に出る。浮遊（hover）、近接のパンチ（花丸よりダメージやや高く、間隔やや長い）', PICKABLE.includes('sora') && CHARS.sora.walk === 'hover' && CHARS.sora.melee
+  ok('選択画面に出る。浮遊（hover）、近接のパンチ（花丸よりダメージやや高く、間隔やや長い）', PICKABLE.includes('sora') && CHARS.sora.walk === 'hover' && aaMode('sora', null).kind === 'melee'
     && charAtk('sora') * CHARS.sora.aa[0].dmg > charAtk('hanamaru') && CHARS.sora.aa[0].cd > CHARS.hanamaru.aa[0].cd && Math.round(charAtk('sora') * CHARS.sora.aa[0].dmg) === 29, { sora: charAtk('sora') * CHARS.sora.aa[0].dmg, hanamaru: charAtk('hanamaru') });
   // チャージ: 試合開始から進む。撤退で0から、発射で0、CT 中も進む
   const c = mk('sora', 'metan'); Object.assign(c.B, { x: -999, y: -999 }); run(c, 10); const c10 = c.A.sk.charge;

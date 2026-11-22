@@ -41,10 +41,10 @@ try {
     const target = await b.evaluate(() => (window as any).snap.me);
     await send(b, 'e2eChar', { char: 'ierutan' }); await send(b, 'e2eReady');
     await send(b, 'skill');
-    await b.waitForFunction(() => (window as any).snap.players.find((p: any) => p.id === (window as any).snap.me)?.st.accel, null, { timeout: 4000 });
-    await send(b, 'e2eChar', { char: 'metan' }); // 加速を保ち、低HPの大ヒット演出で汗が隠れない相手にする
+    await b.waitForFunction(() => (window as any).snap.players.find((p: any) => p.id === (window as any).snap.me)?.st.upgrade, null, { timeout: 4000 });
+    await send(b, 'e2eChar', { char: 'metan' }); // アップグレードを保ち、低HPの大ヒット演出で汗が隠れない相手にする
     await b.waitForFunction(() => (window as any).snap.players.find((p: any) => p.id === (window as any).snap.me)?.char === 'metan');
-    assert.ok(await b.evaluate(() => (window as any).snap.players.find((p: any) => p.id === (window as any).snap.me).st.accel));
+    assert.ok(await b.evaluate(() => (window as any).snap.players.find((p: any) => p.id === (window as any).snap.me).st.upgrade));
     // 両画面で、動いている対象の汗が実際の描画位置と一致したフレームを止めて撮影。
     const watches = pages.map((page) => page.evaluate((id) => new Promise<any>((resolve, reject) => {
       const w = window as any, start = performance.now(); let previousX: number | null = null;
@@ -53,11 +53,11 @@ try {
         const f = scene?.sweatFx.find((f: any) => f.target === `p:${id}`);
         const p = w.snap.players.find((p: any) => p.id === id), unit = scene?.units.get(id)?.s;
         const moved = unit && previousX !== null && Math.abs(unit.x - previousX) > .1; previousX = unit?.x ?? null;
-        if (f && unit && moved && p?.st.accel && scene.time.now - f.born >= 100 && performance.now() - start > 300) {
+        if (f && unit && moved && p?.st.upgrade && scene.time.now - f.born >= 100 && performance.now() - start > 300) {
           const result = { self: w.snap.me === id, target: id, speed: p.spd, moving: moved, targetX: unit.x, targetY: unit.y, serverX: p.x, sweatX: f.sp.x, sweatY: f.sp.y, alpha: f.sp.alpha };
           w.game.loop.sleep(); resolve(result); return;
         }
-        if (performance.now() - start > 12000) { reject(new Error('加速中の対象に汗が出なかった')); return; }
+        if (performance.now() - start > 12000) { reject(new Error('アップグレード中の対象に汗が出なかった')); return; }
         requestAnimationFrame(check);
       }; requestAnimationFrame(check);
     }), target));

@@ -11,7 +11,7 @@ description: キャラの追加・技の差し替え・性能や技の数値調�
 
 ## 進め方
 1. `docs/char_catalog.md` を読む。作りたい技に近い手本を「技の型と手本」から選ぶ。状態 key・場の物の種類が既存と重ならない名前を決める
-2. `docs/add_char.md` の手順どおりに実装する。共通処理（GameRoom.ts・main.ts・geom.ts・config.ts）にキャラ key・状態 key・場の物の種類を書かない。技の数値は chars.ts の `skill` に置く
+2. `docs/add_char.md` の手順どおりに実装する。共通処理（GameRoom.ts・main.ts・geom.ts・config.ts）にキャラ key・状態 key・場の物の種類を書かない。技の数値は chars.ts の `skill`、HP・攻撃・移動・視界は `stat` に置く（ロールの倍率・近接補正は無い）
 3. `docs/add_char.md` の「確認」を通す。仕様を変えたら verify/golden.txt を取り直す
 4. 一覧と手順書を更新する（下）。実装と同じコミットに含める
 

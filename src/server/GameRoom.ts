@@ -81,9 +81,9 @@ type Warn = { id: number; team: number; owner: string; x: number; y: number; r: 
 type Material = { id: number; x: number; y: number; hi: boolean; big?: boolean }; // hi: 裏側に出た高ポイントの資材、big: コバコが置いた高性能の徳
 type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?: boolean }; // kind: heal（回復アイテム）/ box_ult / box_assist（コバコの荷物）。team は常に -1。e2e: テスト用の仕掛けで置いたもの
 type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void; steer?: (s: Shot, dt: number) => void; aa?: boolean; courier?: boolean }; // steer: 毎tick 進む前に向き（vx・vy）を変える（誘導する技が渡す）。boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）、aa: 通常攻撃の弾、courier: コバコに当たる（通常攻撃の弾はコバコを狙うときだけ）
-// 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可（still: その場で止まる lock。自キャラの見た目を補間に切り替えない）、atk: 与えるダメージの倍率、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、cancel: KO・試合終了で消える、hidden: 敵の対象にならない、fragile: 被弾で即死、noAuto: オートアタックしない
+// 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、cd: 通常攻撃の間隔の倍率（アシストには掛けない）、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可（still: その場で止まる lock。自キャラの見た目を補間に切り替えない）、atk: 与えるダメージの倍率、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、cancel: KO・試合終了で消える、hidden: 敵の対象にならない、fragile: 被弾で即死、noAuto: オートアタックしない
 // at: 付与した時刻（技処理が使う）、view: スナップショットで送る描画用の値
-export type Status = { until: number; at?: number; speed?: number; regen?: number; noSkill?: boolean; lock?: boolean; still?: boolean; atk?: number; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; noAaDmg?: boolean; view?: () => any };
+export type Status = { until: number; at?: number; speed?: number; cd?: number; regen?: number; noSkill?: boolean; lock?: boolean; still?: boolean; atk?: number; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; noAaDmg?: boolean; view?: () => any };
 // 場の物（技が出す物）。kind: 種類（server/skills の ENTS）、body: unit=ユニット扱い（自動照準の優先・はじき可）、null=攻撃対象にならない。ほかの項目は種類ごとの持ち物。v: スナップショットで送る描画用の値（あれば）
 export type Ent = { id: number; kind: string; team: number; owner: string; x: number; y: number; r: number; hp?: number; body: 'unit' | null; [k: string]: any };
 type Fx = { id: number; kind: string; team: number; x: number; y: number; [k: string]: any };
@@ -1154,10 +1154,11 @@ export class GameRoom extends Room {
     return Math.abs(a) <= arc / 2;
   }
 
-  // 通常攻撃の間隔: 使うモードの間隔（ウルト中は近接）
+  // 通常攻撃の間隔: 使うモードの間隔（ウルト中は近接）× 状態の間隔倍率（アシストには掛けない）
   atkCooldown(p: Player) {
-    if (p.ult && !p.ult.pending) return C.ATTACK_COOLDOWN_MELEE;
-    return aaMode(p.char, p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) : null).cd;
+    let cd = p.ult && !p.ult.pending ? C.ATTACK_COOLDOWN_MELEE : aaMode(p.char, p.tgt ? Math.hypot(p.tgt.x - p.x, p.tgt.y - p.y) : null).cd;
+    if (!p.assist) for (const k of STATUS_ORDER) { const s = this.stat(p, k); if (s?.cd !== undefined) cd *= s.cd; }
+    return cd;
   }
 
   // courier: コバコにも当てる（照準モードがコバコのとき。Bot のコバコ攻撃は true を渡す）
@@ -1169,7 +1170,7 @@ export class GameRoom extends Room {
     const a = aim ?? p.face, toC = courier ?? p.aim === 'courier';
     if (SKILLS[p.char]?.attack?.(this, p, a)) return; // 技による通常攻撃の上書き
     const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC });
-    let dmg = p.assist ? C.ATTACK_DAMAGE * (roleOf(p.char)?.atk ?? 1) * C.POWER_MULT[p.tier] : charAtk(p.char);
+    let dmg = p.assist ? C.ATTACK_DAMAGE * C.POWER_MULT[p.tier] : charAtk(p.char);
     let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC, fx: string | undefined;
     if (p.ult && !p.ult.pending) {
       const f = C.ULT_FORMS[p.ult.form];

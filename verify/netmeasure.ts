@@ -130,11 +130,11 @@ console.log('PASS artificial network', JSON.stringify(Object.fromEntries(Object.
   const net = JSON.parse(rows[0]).net; assert.equal(net.clients.a.rtt.n, 0); assert.deepEqual(net.missingClients, ['b']);
   GameRoom.logFile = ''; rmSync(dir, { recursive: true });
 }
-// 加速の重複・追走・すれ違い: 既存の速度式と巻き戻し判定を再現。
+// 加速の重複（白上・パワーアップ近接）・追走・すれ違い: 既存の速度式と巻き戻し判定を再現。
 for (const scenario of ['normal', 'stacked', 'chase', 'crossing'] as const) {
   const { r, a, b } = room();
   if (scenario === 'stacked') {
-    b.st.accel = { until: Infinity, speed: CHARS.ierutan.skill.speed }; b.boostUntil = Infinity;
+    b.boostUntil = Infinity;
     b.ult = { form: 'melee', tier: 0, until: Infinity, pending: false };
   }
   const speed = r.speedOf(b), direction = scenario === 'crossing' ? -1 : 1;
@@ -156,7 +156,7 @@ for (const scenario of ['normal', 'stacked', 'chase', 'crossing'] as const) {
 // ビィの接触: 双方の通常速度・重複加速、tick 50/100/150ms で交差を走査。すべて接触を取得。
 for (const dt of [.05, .1, .15]) {
   const { r, a, b } = room(); a.char = b.char = 'bii';
-  for (const p of [a, b]) { p.st.accel = { until: Infinity, speed: CHARS.ierutan.skill.speed }; p.boostUntil = Infinity; p.ult = { form: 'melee', tier: 0, until: Infinity, pending: false }; r.skill(p.id); }
+  for (const p of [a, b]) { p.boostUntil = Infinity; p.ult = { form: 'melee', tier: 0, until: Infinity, pending: false }; r.skill(p.id); }
   const step = r.speedOf(a) * dt, reach = C.PLAYER_RADIUS + CHARS.bii.skill.touch;
   a.x = 1500 - step / 2; b.x = 1500 + step / 2;
   r.updateEnts(0);
@@ -171,7 +171,7 @@ for (const dt of [.05, .1, .15]) {
 {
   const { r, a, b } = room(); a.char = b.char = 'bii';
   for (const p of [a, b]) {
-    p.st.accel = { until: Infinity, speed: CHARS.ierutan.skill.speed }; p.boostUntil = Infinity;
+    p.boostUntil = Infinity;
     p.ult = { form: 'melee', tier: 0, until: Infinity, pending: false }; r.skill(p.id);
     p.inputs = Array.from({ length: C.NET_CATCHUP + 1 }, (_, seq) => ({ seq, dx: p === a ? 1 : -1, dy: 0 }));
   }

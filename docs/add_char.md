@@ -7,7 +7,7 @@
 | ファイル | 項目 | 追加 | 技の差し替え |
 |---|---|---|---|
 | `src/shared/chars.json` | `name`・`dir`（立ち絵フォルダ）・`select`・`ko`・`koed`（表情。null はグレー化してずり落ちる）。大将だけ `boss` | 1行 | ― |
-| `src/shared/chars.ts` | `CHARS` に1項目: `role`・`walk`・`aa`（通常攻撃のモード）・`mult`・`melee`・`toku`・`skill`（`name`・`ct`・技の値） | 1項目 | `skill` を書き換え |
+| `src/shared/chars.ts` | `CHARS` に1項目: `role`・`stat`（`hp`・`atk`・`speed`・`vision`）・`walk`・`aa`（通常攻撃のモード）・`toku`・`skill`（`name`・`ct`・技の値） | 1項目 | `skill` を書き換え |
 | `src/server/skills/<key>.ts` | 技処理（下の「呼び口」）。`export default` で `Skill` を返す | 新規 | 書き換え |
 | `src/server/skills/index.ts` | `import` と `MODS` に1つ | 2行 | ― |
 | `src/client/skills/<key>.ts` | 状態・場の物の描画、技のエフェクトの色。描画が要るときだけ | 必要なら新規 | 書き換え |
@@ -26,7 +26,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 
 ## 性能定義（chars.ts）
 
-- HP・移動・攻撃の実数値は書かない。共通の基本値（config.ts）× `ROLES[role]` × `MELEE_BONUS`（`melee` のとき）× `mult` を `charHp`・`charSpeed`・`charAtk` が算出する
+- HP・攻撃（通常攻撃の基本値）・移動(px/秒)・視界(px)は `stat` に実数で書く（`charHp`・`charAtk`・`charSpeed`・`visionRadius` はこれを返すだけ）。ロールの倍率・近接補正は 2026-11-22 speed1 で廃止。`role` はロール固有の効果（balance の孤立時軽減・defense の軽減・attacker の大将×2）と選択画面のロール表示に使う
 - `aa`: 通常攻撃のモードの配列。使えるモードのうち最後のものを使う。`kind`: `melee`（前方の扇形）／`shot`（弾。`shot` に弾の種類、`speed` に弾速）。`dmg`: ダメージ倍率、`cd`: 間隔、`range`: 射程、`far`: 対象がこれより遠い（対象なしを含む）ときだけ使う。省略時は近接1モード
 - `walk`: `'normal'`（歩きの2コマを交互）／`'hover'`（移動中は歩きの1コマ目で固定、止まると棒立ち）
 - `aa` の `fx`: 近接の通常攻撃の斬撃を、client/skills の `fx.<fx>` の描画に差し替える（判定は変わらない。例: イタコのキツネ `kitsune`）
@@ -59,7 +59,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 
 - 状態の key・場の物の種類は全キャラで重ねない（既存の技を複製したときは付け替える。重なると移動倍率が二重に掛かる）
 - 付ける: `q.st.<key> = { until: room.now + 秒, <効果>: 値 }`。他人にも自分にも同じ形で付ける。値は自分の技の定義から渡す
-- 効果（共通処理が見る）: `speed`（移動倍率）・`regen`（毎秒回復）・`noSkill`（技不可）・`lock`（移動不可）・`noAttack`（攻撃不可）・`invincible`（無敵。敵の状態も付かない）・`noPush`（はじき無効）・`cancel`（KO・試合終了で消える）・`hidden`（敵の対象にならない: オートアタック・Bot・追尾・ロックオン・大将の反撃）・`fragile`（被弾で即死）・`noAuto`（オートアタックしない。Space は `attack` 呼び口へ）
+- 効果（共通処理が見る）: `speed`（移動倍率）・`cd`（通常攻撃の間隔の倍率。アシストには掛けない）・`regen`（毎秒回復）・`noSkill`（技不可）・`lock`（移動不可）・`noAttack`（攻撃不可）・`invincible`（無敵。敵の状態も付かない）・`noPush`（はじき無効）・`cancel`（KO・試合終了で消える）・`hidden`（敵の対象にならない: オートアタック・Bot・追尾・ロックオン・大将の反撃）・`fragile`（被弾で即死）・`noAuto`（オートアタックしない。Space は `attack` 呼び口へ）
 - 期限のない状態（`until: Infinity`）は技処理が `delete p.st.<key>` で消す
 - `view: () => 値` を付けると、その値がスナップショットで送られる（なければ `true`）。クライアントは `p.st.<key>` で受け取る
 - 技固有のデータ（向き・当てた相手など）は `p.sk` に置く

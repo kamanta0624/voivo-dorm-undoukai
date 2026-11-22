@@ -549,7 +549,7 @@ export class Director {
     const who = ev.find((id) => id === this.focus);
     if (who) this.focusSay([who], [this.say('play_dodge', { B: this.char(who), 技: p.char })]);
   }
-  // 技ごとの判定範囲（進路・警告帯・範囲）と、技が続いているか。吹雪（即時）・加速（ダメージなし）・ファンネル（撃墜で別に実況）・死神の鎌（透明化中は見えない）は対象外
+  // 技ごとの判定範囲（進路・警告帯・範囲）と、技が続いているか。吹雪（即時）・アップグレード（ダメージなし）・ファンネル（撃墜で別に実況）・死神の鎌（透明化中は見えない）は対象外
   private zone(p: Player): { active: () => boolean; zone: () => string[] } | null {
     const room = this.room, S = CHARS[p.char]?.skill, foes = (list: any[]) => list.filter((t) => t.k === 'p' && !t.o.assist).map((t) => t.o.id as string);
     const R = C.PLAYER_RADIUS;

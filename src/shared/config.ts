@@ -129,19 +129,11 @@ export const CONFIG = {
   ATTACK_COOLDOWN_MELEE: 1, // 通常攻撃（オート・手動とも）の間隔: 近接
   ATTACK_COOLDOWN_RANGED: 1.5, // 遠距離（弾のモード）
   VISION_RADIUS: 300,
-  // ロールごとの倍率（キャラの role は chars.ts）
-  ROLES: {
-    balance: { hp: 1, speed: 1, atk: 1, vision: 1 },
-    attacker: { hp: 0.7, speed: 1, atk: 1.4, vision: 1 },
-    speed: { hp: 0.8, speed: 1.3, atk: 0.8, vision: 1.3 },
-    defense: { hp: 1.4, speed: 0.85, atk: 0.9, vision: 1 },
-    support: { hp: 0.7, speed: 1, atk: 0.6, vision: 1 },
-  } as Record<string, { hp: number; speed: number; atk: number; vision: number }>,
+  // ロール固有の効果（キャラの role は chars.ts。HP・攻撃・移動・視界は各キャラの stat）
   BALANCE_ALONE_RADIUS: 200, // balance: この半径に味方がいないとき被ダメ軽減
   BALANCE_ALONE_CUT: 0.2,
   DEFENSE_CUT: 0.2, // defense: 被ダメ軽減
   ATTACKER_BOSS_MULT: 2, // attacker: 大将へのダメージ倍率（技にも掛かる）
-  MELEE_BONUS: { hp: 1.2, speed: 1.1, atk: 1.2 }, // 近接補正: chars.ts の melee のキャラの最大HP・移動・通常攻撃に掛ける（引き撃ち対策）
   BULLET_SPEED: 600, // 弾・矢の速さ(px/秒)
   BULLET_RADIUS: 4,
   AIM_MODES: ['nearest', 'lowhp', 'boss', 'courier'], // 照準モード（Tabで順に切り替え）。courier: コバコ最優先（ほかのモードでは通常攻撃がコバコに当たらない）
@@ -248,7 +240,7 @@ export const CONFIG = {
   ULT_DURATION: 20, // ウルトの効果時間(秒)
   // 変身先: hp=最大HP倍率 def=被ダメ倍率 speed=移動倍率 atk=攻撃倍率 range=射程 arc=攻撃の角度 ranged=弾を撃つ
   ULT_FORMS: {
-    melee: { name: '近接', hp: 1.44, def: 0.7, speed: 1.3, atk: 1.2, range: 45, arc: Math.PI / 3 },
+    melee: { name: '近接', hp: 1.44, def: 0.7, speed: 1.1, atk: 1.2, range: 45, arc: Math.PI / 3 },
     ranged: { name: '遠距離', hp: 0.88, def: 1, speed: 1, atk: 1.5, range: 280, arc: Math.PI / 2, ranged: true },
     area: { name: '近接範囲', hp: 1.6, def: 0.6, speed: 0.8, atk: 1.1, range: 80, arc: Math.PI * 2 },
   } as Record<string, { name: string; hp: number; def: number; speed: number; atk: number; range: number; arc: number; ranged?: boolean }>,
@@ -258,7 +250,7 @@ export const CONFIG = {
     hp: 5, speed: 0.5, scale: 2, max: 1, // scale: 表示倍率（DOT_SCALE に対する倍率。大将と同じ）、max: 各陣営で同時に出せる数（超える召喚は今のアシストの強化になる）
     units: {
       kurono: { name: '玄野武宏', sense: 200, every: 6, r: 128, warn: 1, dmg: 40 }, // 周囲に敵がいるとき、自分中心の範囲攻撃（warn 秒の予告のあと）
-      shirakami: { name: '白上虎太郎', sense: 200, every: 6, heal: 30, boost: 1.3, dur: 4 }, // 周囲に味方がいるとき、周囲の味方と自分を回復＋移動速度上昇
+      shirakami: { name: '白上虎太郎', sense: 200, every: 6, heal: 30, boost: 1.1, dur: 4 }, // 周囲に味方がいるとき、周囲の味方と自分を回復＋移動速度上昇
       aoyama: { name: '青山龍星', sense: 250, every: 6, r: 64, warn: 1, dmg: 50 }, // 周囲に敵がいるとき、一番近い敵の位置に範囲攻撃（予告の位置は発動時点で固定）
       ritsu: { name: '波音リツ', sense: 200, every: 6, r: 128, warn: 1, dmg: 30, push: 60, hpMult: 2, speedMult: 0.5, heavy: true }, // 周囲に敵がいるとき、自分中心の吹雪（warn 秒の予告のあと。ダメージ＋外向きに push はじく。はじく距離は強さを掛けない）。hpMult・speedMult: HP・移動速度の倍率（他のアシストに対する）。heavy: はじかれない（めたんのドリルは逆にめたんをはじく）
     } as Record<string, any>,
@@ -295,7 +287,7 @@ export const CONFIG = {
   BOT_PENALTY_TIME: 15, // 詰まった目的地・訪れた部屋を避ける秒数
   LOITER_RADIUS: 64, // 留まり回数の計測: この半径以内に LOITER_TIME 秒以上
   LOITER_TIME: 10,
-  BOT_SKILL_SENSE: 300, // Botが技を使う判定に使う敵との距離（加速・ずんだアローなど）
+  BOT_SKILL_SENSE: 300, // Botが技を使う判定に使う敵との距離（アップグレード・ずんだアローなど）
 
   // 実況（docs/commentary_spec.md）。すべて仮
   CM: {
