@@ -48,8 +48,8 @@ export const CHARS: Record<string, CharDef> = {
   himari: def({ stat: { hp: 84, atk: 33.6, speed: 170, vision: 300 }, desc: '姿を消す。消えている間は近づいた敵を鎌で特大ダメージを与え、攻撃の向きへ跳ぶ（攻撃を受けると即やられる）', role: 'attacker', skill: { name: '死神の鎌', ct: 15, dur: 5, range: 60, arc: Math.PI / 2, dmg: 160, bossDmg: 30, assistMult: 0.5, jump: C.PLAYER_RADIUS * 2 * 5, jumpSpeed: 2 } }),
   // 東北イタコ: 通常攻撃はキツネ（狐火の見た目）。間隔は半分、1発は半分
   // 狐火: 自分中心の半径 r の円周に n 個の火の玉を出し、時計回りに spin(ラジアン/秒) で回す（dur 秒で消える）。触れた敵に dmg、同じ相手には rehit 秒おき。ballR: 火の玉の半径
-  // 展開中に再発動: 射程 range 内の最寄りの敵を標的に、各火の玉は標的の方向を12時とした9時の位置で円から離れ、homeSpeed(px/秒)・旋回 turn(ラジアン/秒) で追う。命中で homeDmg を与えて消える。life 秒・壁で消える。CT は再発動（または時間切れ）から
-  itako: def({ stat: { hp: 120, atk: 24, speed: 170, vision: 300 }, desc: '自分のまわりに狐火を回し、触れた敵にダメージ。回っている間にもう一度使うと、狐火が近くの敵を追いかけて飛ぶ', role: 'balance', aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE / 2, dmg: 0.5, fx: 'kitsune' }], skill: { name: '狐火', ct: 8, n: 5, r: 50, spin: 3, dur: 6, ballR: 8, dmg: 8, rehit: 0.5, range: 260, homeSpeed: 360, turn: 6, homeDmg: 15, life: 3 } }),
+  // 展開中に再発動: 射程 range 内の最寄りの敵を標的に、各火の玉は標的の方向を12時とした9時の位置で円から離れ、homeSpeed(px/秒)・旋回 turn(ラジアン/秒) で追う。命中で homeDmg を与えて消える。life 秒・壁・イタコが倒れた・今のイタコの体の中心から leash px より離れた・追尾を始めてから homeRange px 進んだ、のどれかでも消える（逃げながら飛ばす戦法の対策）。CT は再発動（または時間切れ）から
+  itako: def({ stat: { hp: 120, atk: 24, speed: 170, vision: 300 }, desc: '自分のまわりに狐火を回し、触れた敵にダメージ。回っている間にもう一度使うと、狐火が近くの敵を追いかけて飛ぶ', role: 'balance', aa: [{ ...MELEE, cd: C.ATTACK_COOLDOWN_MELEE / 2, dmg: 0.5, fx: 'kitsune' }], skill: { name: '狐火', ct: 8, n: 5, r: 50, spin: 3, dur: 6, ballR: 8, dmg: 8, rehit: 0.5, range: 180, homeSpeed: 360, turn: 6, homeDmg: 15, life: 3, leash: 260, homeRange: 360 } }),
   // ユーレイちゃん: 足がなく浮遊（hover）。壊せる壁をすり抜ける（ghost）。通常攻撃の間隔は2倍
   // ジャッジメント: 光弾が螺旋を描きながら直進（speed px/秒、range px、壁で消える）。当たり判定は先頭の光弾（半径 r）だけ。プレイヤーへのダメージは悪行量に比例（悪行0で minDmg、WANTED_MIN 手前で maxDmg、指名手配中は即死 killDmg）。大将・場の物には minDmg
   // 見た目: 光弾 orbs 個、螺旋の半径 spiralR・1周の長さ spiralLen(px)

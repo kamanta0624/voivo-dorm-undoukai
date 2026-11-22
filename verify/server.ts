@@ -1648,9 +1648,42 @@ console.log('--- 東北イタコ（通常攻撃・狐火）');
   const want9 = -Math.PI / 2; // 標的は真右（0）→ 9時は真上
   ok(`各火の玉は9時（標的が右なら真上）で離れ、順に標的へ飛んで命中して消える（${seen.size}個）`, seen.size === S.n && leave.every(([a]) => Math.abs(Math.atan2(Math.sin(a - want9), Math.cos(a - want9))) < 1e-9) && ents(h.r, 'foxfire').length === 0 && 9999 - h.B.hp === S.n * Math.round(S.homeDmg * C.DAMAGE_MULT) && far.hp === 9999, { leave, dmg: 9999 - h.B.hp });
   // 飛行中に標的が倒れたら、そのまま直進して寿命・壁で消える
-  const l = mk('itako', 'sayo'); Object.assign(l.B, { x: 1552 + 200, hp: 9999 }); l.r.skill('a'); l.r.skill('a'); for (let i = 0; i < 20; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
+  const l = mk('itako', 'sayo'); Object.assign(l.B, { x: 1552 + 150, hp: 9999 }); l.r.skill('a'); l.r.skill('a'); for (let i = 0; i < 20; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
   l.B.alive = false; const homing = ents(l.r, 'foxfire').filter((f: any) => f.mode === 'home').length; for (let i = 0; i < 80; i++) { l.r.now += 0.05; l.r.updateEnts(0.05); }
   ok('飛行中に標的が倒れたら直進して寿命・壁で消える（離れる前の火の玉は消える）', homing > 0 && ents(l.r, 'foxfire').length === 0);
+  // itako2: 追尾はイタコの近くでしか働かない（標的を選ぶ範囲 range・今のイタコからの leash・追尾を始めてからの距離 homeRange・イタコが倒れたら消える）
+  const R = C.PLAYER_RADIUS, one = Math.round(S.homeDmg * C.DAMAGE_MULT);
+  const launch = (bx: number) => { const z = mk('itako', 'sayo'); Object.assign(z.B, { x: 1552 + bx, y: 900, hp: 9999 }); z.r.skill('a'); tick(z, 0.2); z.r.skill('a'); return z; };
+  const outR = launch(S.range + R + 5), inR = launch(S.range + R - 5);
+  ok(`itako2: 標的を選ぶ範囲は ${S.range}px（＋相手の半径）。外の敵には再発動しても追尾しない、内側なら追尾する`, S.range === 180
+    && ents(outR.r, 'foxfire').every((f: any) => f.mode === 'orbit' && !f.tgt) && outR.A.skillReadyAt <= outR.r.now
+    && ents(inR.r, 'foxfire').every((f: any) => f.tgt === 'p:b'));
+  // 追尾中、イタコが標的と反対へ、標的はイタコから離れる向きへ、どちらも 170px/秒で動く → 今のイタコから leash より離れて消える（命中しない）。leash・homeRange の確認は壁なし（壁で消えるのと区別する）
+  const runAway = (z: any, sec: number, move: (i: number) => void) => {
+    const last = new Map<number, { went: number; d: number }>();
+    for (let i = 0; i < Math.round(sec / 0.05); i++) {
+      move(i); z.r.now += 0.05; z.r.updateEnts(0.05);
+      const c = z.r.bodyOf(z.A);
+      for (const f of ents(z.r, 'foxfire')) if (f.mode === 'home') last.set(f.id, { went: f.went, d: Math.hypot(f.x - c.x, f.y - c.y) });
+    }
+    return [...last.values()];
+  };
+  const lz = launch(170); lz.r.walls = []; const lw = runAway(lz, 3.5, () => { lz.A.x -= 170 * 0.05; lz.B.x += 170 * 0.05; });
+  ok(`itako2: 追尾中にイタコが標的と反対へ動き、${S.leash}px より離れたら消える（命中しない）`, S.leash === 260 && lw.length === S.n && ents(lz.r, 'foxfire').length === 0 && lz.B.hp === 9999
+    && lw.every((x) => x.went < S.homeRange && x.d > S.leash - S.homeSpeed * 0.05), lw);
+  // イタコは動かず、標的がイタコのまわりを火の玉より速く回って逃げ続ける（leash の内側）→ 追尾を始めてから homeRange 進んで消える
+  const rz = launch(150); rz.r.walls = []; const cx = rz.A.x, cy0 = rz.A.y; let ang = 0; // 狐火の周回と逆向きに回る（全弾が順に円から離れる）
+  const rw = runAway(rz, 3.5, () => { ang -= (420 / 150) * 0.05; Object.assign(rz.B, { x: cx + Math.cos(ang) * 150, y: cy0 + Math.sin(ang) * 150 }); });
+  ok(`itako2: イタコが動かず、標的が逃げ続けて ${S.homeRange}px 進んでも当たらなければ消える`, S.homeRange === 360 && rw.length === S.n && ents(rz.r, 'foxfire').length === 0 && rz.B.hp === 9999
+    && rw.every((x) => x.went >= S.homeRange - S.homeSpeed * 0.05 && x.d <= S.leash), rw);
+  // 追尾中にイタコが倒れたら消える
+  const dz = launch(170); let homed = 0;
+  for (let i = 0; i < 40 && !homed; i++) { dz.r.now += 0.05; dz.r.updateEnts(0.05); homed = ents(dz.r, 'foxfire').filter((f: any) => f.mode === 'home').length; }
+  dz.A.alive = false; const hpD = dz.B.hp; dz.r.now += 0.05; dz.r.updateEnts(0.05);
+  ok('itako2: 追尾中にイタコが倒れたら消える', homed > 0 && ents(dz.r, 'foxfire').length === 0 && dz.B.hp === hpD, { homed });
+  // 近くの標的には今までどおり命中する（1発 homeDmg 15 × 全体の倍率）
+  const nz = launch(100); for (let i = 0; i < 60; i++) { nz.r.now += 0.05; nz.r.updateEnts(0.05); }
+  ok(`itako2: 近くの標的には今までどおり全弾命中（1発 homeDmg ${S.homeDmg} × 全体の倍率 ${C.DAMAGE_MULT} = ${one}）`, S.homeDmg === 15 && 9999 - nz.B.hp === S.n * one && ents(nz.r, 'foxfire').length === 0, { dmg: 9999 - nz.B.hp });
   // 当たりは相手の体の中心で測る（tune3）: 体の中心が周回の円の上にいる相手には当たり、円から離れていれば当たらない。プレイヤー・アシスト・大将（2倍）とも
   const body = (kind: string, onCircle: boolean) => {
     const w = mk('itako', 'sayo'); Object.assign(w.B, { x: -999, y: -999 }); const cy = 900 - bodyUp(), gap = onCircle ? 0 : S.r;

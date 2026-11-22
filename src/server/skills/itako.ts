@@ -42,7 +42,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
       if (!t) return room.removeEnt(e); // 標的が倒れた・見えなくなった: 離れる前の火の玉は消える
       const tb = room.body(t), ob = room.bodyOf(o), at9 = Math.atan2(tb.y - ob.y, tb.x - ob.x) - Math.PI / 2; // 標的の方向を12時としたときの9時（体の中心どうし）
       if ((((at9 - prev) % TAU) + TAU) % TAU <= S.spin * dt) { // この tick で9時を通った: 円から離れる（接線＝標的の方向）
-        e.ang = at9; e.mode = 'home'; e.a = at9 + Math.PI / 2; e.t = 0;
+        e.ang = at9; e.mode = 'home'; e.a = at9 + Math.PI / 2; e.t = 0; e.went = 0;
       }
     }
     const c = room.bodyOf(o);
@@ -58,8 +58,9 @@ function update(room: GameRoom, e: Ent, dt: number) {
     }
   }
   // ホーミング: 標的へ向きを turn ずつ変えて進む。命中で消える。標的が消えたらそのまま直進し、寿命・壁で消える
+  // イタコが倒れた・今のイタコの体の中心から leash より離れた・追尾を始めてから homeRange 進んだ、でも消える（追尾はイタコの近くでしか働かない）
   e.t += dt;
-  if (e.t > S.life) return room.removeEnt(e);
+  if (e.t > S.life || !o.alive) return room.removeEnt(e);
   const t = find(room, e.team, e.tgt);
   const tb = t && room.body(t); // 標的の体の中心へ
   if (tb) {
@@ -73,6 +74,8 @@ function update(room: GameRoom, e: Ent, dt: number) {
     const g = ground(e);
     if (room.walls.some((w) => inRect(g.x, g.y, w))) return room.removeEnt(e);
     if (t && tb && dist(tb, e) <= t.r + e.r) { room.hitThing(o, t, S.homeDmg); return room.removeEnt(e); }
+    e.went += m;
+    if (e.went >= S.homeRange || dist(room.bodyOf(o), e) > S.leash) return room.removeEnt(e);
   }
 }
 
