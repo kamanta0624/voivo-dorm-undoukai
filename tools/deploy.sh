@@ -5,6 +5,8 @@
 # 環境変数（試験用に別フォルダ・別ポートで動かすとき）: LIVE_DIR=公開側フォルダ PORT=ポート LABEL=launchd のラベル（ゲームサーバーは launchd で再起動する。未登録なら何もせず止まる）
 # FORCE=1: /status で試合中か判断できない（サーバーが止まっている・旧版）ときも進める
 set -u
+# launchd の plist と同じ Node を使う（呼び出し元のシェルの PATH に依存しない）
+PATH="${HOME}/.nvm/versions/node/v24.22.1/bin:${PATH}"; export PATH
 TAG=${1:?使い方: tools/deploy.sh <タグ>}
 DEV=$(cd "$(dirname "$0")/.." && pwd)
 LIVE=${LIVE_DIR:-${HOME}/kiritan_zunda_proto_live}
