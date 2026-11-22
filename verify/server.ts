@@ -5,6 +5,7 @@ import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
+import { solarPct } from '../src/shared/solar';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
 import { stepPlayer } from '../src/shared/netcode';
@@ -1988,9 +1989,15 @@ console.log('--- 九州そら（ソーラーキャノン）');
     && charAtk('sora') * CHARS.sora.aa[0].dmg > charAtk('hanamaru') && CHARS.sora.aa[0].cd > CHARS.hanamaru.aa[0].cd && Math.round(charAtk('sora') * CHARS.sora.aa[0].dmg) === 29, { sora: charAtk('sora') * CHARS.sora.aa[0].dmg, hanamaru: charAtk('hanamaru') });
   // チャージ: 試合開始から進む。撤退で0から、発射で0、CT 中も進む
   const c = mk('sora', 'metan'); Object.assign(c.B, { x: -999, y: -999 }); run(c, 10); const c10 = c.A.sk.charge;
-  c.r.damagePlayer(c.A, 1e9, 'b'); c.r.now = c.A.respawnAt; c.r.updatePlayers(0.05); run(c, 2); const cKo = c.A.sk.charge;
-  c.A.skillReadyAt = 0; fire(c, 40); const c0 = c.A.sk.charge; run(c, S.ct - 0.5); const cCt = c.A.sk.charge, inCt = c.A.skillReadyAt > c.r.now;
+  c.r.damagePlayer(c.A, 1e9, 'b'); c.r.now = c.A.respawnAt; c.r.updatePlayers(0.05); run(c, 0.05); const pKo = Math.round(solarPct(c.r.statusView(c.A).solarCharge)); run(c, 1.95); const cKo = c.A.sk.charge;
+  c.A.skillReadyAt = 0; fire(c, 40); const c0 = c.A.sk.charge, p0 = Math.round(solarPct(c0)); run(c, S.ct - 0.5); const cCt = c.A.sk.charge, inCt = c.A.skillReadyAt > c.r.now;
   ok(`チャージ: 試合開始から進み、撤退で0から、発射で0、CT${S.ct}秒の間も進む`, Math.abs(c10 - 10) < 0.06 && Math.abs(cKo - 2) < 0.11 && c0 === 0 && inCt && Math.abs(cCt - (S.ct - 0.5)) < 0.06, { c10, cKo, c0, cCt });
+  ok('技ボタンの％: 発射後・撤退後は0%', p0 === 0 && pKo === 0, { p0, pKo });
+  { // ％: 30秒の総ダメージを100%。0〜5秒は比例、5秒以降は総ダメージ÷30秒の総ダメージ（威力と同じ solarAt）
+    const want = (c: number) => Math.round(((c < 5 ? (c / 5) * solarAt(5, 1) : solarAt(c, 1)) / solarAt(30, 1)) * 100);
+    const got = [0, 2.5, 5, 10, 20, 30, 270, 294].map((c) => ({ c, got: Math.round(solarPct(c)), want: want(c) }));
+    ok('技ボタンの％: 威力と同じ補間から出る（0秒0%・30秒100%・それ以降も同じ式で100%超え）', got.every((g) => g.got === g.want) && got[0].got === 0 && got[5].got === 100 && got[7].got > got[6].got && got[6].got > 100, got);
+  }
   ok('チャージの光の状態を送る（チャージ秒）', c.r.statusView(c.A).solarCharge === c.A.sk.charge);
   ok('キーフレームの間は線形補間（20秒→総ダメージ62.5）、5秒より前は5秒の値、最大は294秒', solarAt(20, 1) === 62.5 && solarAt(0, 1) === K[0][1] && solarAt(294, 2) === K[K.length - 1][2] && solarAt(400, 3) === K[K.length - 1][3]);
   // 照射秒: チャージ270秒までは0.5秒、270秒から最大（294秒）まで0.5秒→5秒へ線形に伸びる。本人が止まる時間も同じ
