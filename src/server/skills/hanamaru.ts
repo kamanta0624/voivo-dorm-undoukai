@@ -1,6 +1,6 @@
 // 満別花丸: 花丸パンチ（押している間タメ、離すと拳を発射。前方へ直進、キャラにダメージ・壁を壊して貫通。タメのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
 import type { GameRoom, Player, Ent } from '../GameRoom';
-import { PERIMETER, thingId } from '../GameRoom';
+import { unbreakable, thingId } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C, Pt, Rect } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
@@ -26,13 +26,14 @@ function breakTiles(room: GameRoom, p: Pt, a: number, from?: number[]): number[]
   for (let j = 0; j < H.d; j++) {
     for (let i = -Math.floor(H.w / 2); i <= Math.floor(H.w / 2); i++) {
       const x = sx + dx * j + (dy ? i : 0), y = sy + dy * j + (dx ? i : 0);
-      if (room.tiles[y]?.[x] === '#' && !PERIMETER[y][x]) out.push([x, y]);
+      if (room.tiles[y]?.[x] === '#' && !unbreakable(x, y)) out.push([x, y]);
     }
   }
   return out;
 }
 
-// 拳: 直進し（f.sp px/秒）、キャラ（1体1回）に f.dmg、壁は壊して貫通（半径 f.r）。射程を飛ぶか外周の壁に当たると消える。結果画面では壁を壊さない
+// 拳: 直進し（f.sp px/秒）、キャラ（1体1回）に f.dmg、壁は壊して貫通（半径 f.r）。射程を飛ぶか、芯（半径 H.core、タメで変わらない）が壊せない壁に触れると消える
+// 芯の外側だけが壊せない壁に触れているなら壊さずに飛び続ける（狭い通路でも撃てる）。結果画面では壁を壊さない
 function updateFist(room: GameRoom, f: Ent, dt: number) {
   const owner = room.players.get(f.owner);
   let step = Math.min(f.sp * dt, f.left), gone = !owner;
@@ -41,8 +42,10 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
     f.x += Math.cos(f.a) * d; f.y += Math.sin(f.a) * d; f.left -= d; step -= d;
     const tiles: number[][] = [];
     for (let ty = Math.floor((f.y - f.r) / T); ty <= Math.floor((f.y + f.r) / T); ty++) for (let tx = Math.floor((f.x - f.r) / T); tx <= Math.floor((f.x + f.r) / T); tx++) {
-      if (room.tiles[ty]?.[tx] !== '#' || !circleRect(f.x, f.y, f.r, { x: tx * T, y: ty * T, w: T, h: T })) continue;
-      if (PERIMETER[ty]?.[tx] ?? true) gone = true; else tiles.push([tx, ty]);
+      const b = { x: tx * T, y: ty * T, w: T, h: T };
+      if (room.tiles[ty]?.[tx] !== '#' || !circleRect(f.x, f.y, f.r, b)) continue;
+      if (!unbreakable(tx, ty)) tiles.push([tx, ty]);
+      else if (circleRect(f.x, f.y, H.core, b)) gone = true;
     }
     if (gone) break;
     if (tiles.length && room.phase === 'playing') {
@@ -70,7 +73,7 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   for (let ty = Math.floor((ny - R) / T); ty <= Math.floor((ny + R) / T); ty++) {
     for (let tx = Math.floor((nx - R) / T); tx <= Math.floor((nx + R) / T); tx++) {
       const b = { x: tx * T, y: ty * T, w: T, h: T };
-      const w = room.tiles[ty]?.[tx] === '#' && !PERIMETER[ty][tx] && circleRect(nx, ny, R, b) ? room.walls.find((o) => b.x >= o.x && b.x < o.x + o.w && b.y >= o.y && b.y < o.y + o.h) : undefined;
+      const w = room.tiles[ty]?.[tx] === '#' && !unbreakable(tx, ty) && circleRect(nx, ny, R, b) ? room.walls.find((o) => b.x >= o.x && b.x < o.x + o.w && b.y >= o.y && b.y < o.y + o.h) : undefined;
       if (w && circleBody(nx, ny, R, w) && !circleBody(p.x, p.y, R, w)) blockers.push([tx, ty]);
     }
   }

@@ -38,12 +38,12 @@ HP・攻撃・移動・視界の実数は各キャラの `stat` に直接書く�
 
 | key | 技の中身 | 呼び口 | 状態 | 場の物 | クライアント描画 |
 |---|---|---|---|---|---|
-| `hanamaru` | 押している間タメ、離すと拳を発射（タメのレベルで大きさ・威力・弾速）。直進する拳がキャラに1回ずつダメージ、壁を壊して貫通。パッシブ：壁へ押し込み続けると壊す | `release`（離して発射）、`tick`・`ended`（Bot が離す）、`afterMove`（押し込み）、`botMove`（壁破壊で近道。タメなし）。`use` が false を返してCTを自前で入れる | `fistCharge`（cancel） | `fist`（対象外、視界外は送らない） | status `fistCharge`（頭上のゲージとレベルの玉、技ボタンに「タメ」）、ents `fist`（大きさはサーバーの `r`） |
+| `hanamaru` | 押している間タメ、離すと拳を発射（タメのレベルで大きさ・威力・弾速）。直進する拳がキャラに1回ずつダメージ、壁を壊して貫通。芯（`core`、タメで不変）が壊せない壁に触れると消える（外側が触れるだけなら飛び続ける）。パッシブ：壁へ押し込み続けると壊す | `release`（離して発射）、`tick`・`ended`（Bot が離す）、`afterMove`（押し込み）、`botMove`（壁破壊で近道。タメなし）。`use` が false を返してCTを自前で入れる | `fistCharge`（cancel） | `fist`（対象外、視界外は送らない） | status `fistCharge`（頭上のゲージとレベルの玉、技ボタンに「タメ」）、ents `fist`（大きさはサーバーの `r`） |
 | `whitecul` | 前方の長方形にダメージ＋はじき | ― | ― | ― | fx `blizzard`（長方形に雪の粒・白い筋） |
 | `sayo` | 一定時間、移動が速くなり自分中心の円に周期ダメージ | `tick`、`ended` | `dance`（speed） | ― | status `dance` の目印、fx `dance`（周期ごとの斬線・命中の印） |
 | `metan` | 一定時間、前方（移動・照準に追従）にドリルを出しっぱなし。触れた敵にダメージ＋はじき、同じ相手には一定間隔で再ヒット。ドリル中は通常攻撃しない | `afterMove`（ドリルの当たり） | `drill`（noAttack） | ― | status `drill`（回転するドリル・流れる縞・先端の火花） |
 | `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
-| `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ | `afterMove`、`ended` | `charge`（lock・still・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
+| `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ。壊せない壁では止まらず、体は壁に沿って滑る（正面なら dur まで留まる） | `afterMove`、`ended` | `charge`（lock・still・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
 | `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む。中心間 敵の半径＋touch）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・still・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の対象id・半径を `v` で送る。印の位置はクライアントが対象の描画位置から引く）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
 | `ierutan` | 範囲内の味方と自分をアップグレード（通常攻撃の間隔×0.8、アシストは間隔そのまま）＋毎秒回復 | ― | `upgrade`（cd・regen）を味方に付ける | ― | status `upgrade` の目印（足元の輪・上へ流れる矢印）、fx `upgrade`（広がる二重の輪・放射線） |
 | `zunko` | 発射時の照準の対象1体を追う矢（弾速900、旋回は毎秒120°まで、対象を失ったら直進、寿命0.6秒）。当たった敵をずんだ餅に（減速・技不可・与ダメ×0.5） | ― | `mochi`（speed・noSkill・atk）を敵に付ける | ―（矢は共通の弾。誘導は弾の `steer`） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾。向きは進行方向） |
@@ -119,3 +119,4 @@ koed「なし」は選択画面の絵をグレー化してずり落とす。
 - 2026-11-21：tune1。ずん子に近接のパンチ、遠距離の間隔・弾速、ずんだアローの誘導（弾の steer）、ずんだ餅の与ダメ×0.5（状態の atk）。ビィの予約に爆発までのカウントダウン（zunko・bii）
 - 2026-11-22：極端な高速を抑える（speed1）。ロール・近接補正の倍率を廃止して各キャラの `stat` に焼き込み（HP・攻撃・視界は不変、スピード役の移動×1.3→×1.1・近接補正の移動×1.1 廃止）、白上の加速・パワーアップ近接の移動 1.3→1.1、あいえるたんの技を「アップグレード」（移動上昇→通常攻撃の間隔×0.8）に（全キャラ・ierutan）
 - 2026-11-22：狐火の追尾を短くする（itako2）。標的を選ぶ範囲 260→180、追尾中の火の玉は今のイタコから260px（leash）より離れた・追尾を始めてから360px（homeRange）進んだ・イタコが倒れた、で消える（itako）
+- 2026-11-23：壊せない壁の近くでも撃てる（wallskill1）。花丸パンチは芯（半径15、`core`）が壊せない壁に触れたときだけ消える。アルの突撃は壊せない壁で止まらず、体は壁に沿って滑り dur まで続く。壊せない壁の判定は GameRoom.ts の `unbreakable`（hanamaru・aru）

@@ -17,6 +17,8 @@ const T = C.TILE;
 const BAD_DECAY = (-C.TOKU.courier * C.BAD_MULT.courier) / C.BAD_DECAY_SEC; // 反省中に毎秒減る悪行ポイント（config の BAD_DECAY_SEC）
 // マップ外周の壁（外 ' ' か地図の端に接する壁）は壊せない
 export const PERIMETER = MAP.tiles.map((row, y) => [...row].map((c, x) => c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '))));
+// 壊せない壁か（技の範囲が触れても壊さない壁。地図の外も含む）。今は外周だけ
+export const unbreakable = (tx: number, ty: number) => PERIMETER[ty]?.[tx] ?? true;
 
 // 経路の長さ(px)
 export const pathLength = (from: Pt, to: Pt, obstacles = C.WALLS, walls = C.WALLS) => {
