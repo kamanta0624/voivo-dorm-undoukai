@@ -884,8 +884,9 @@ console.log('--- アルの突撃（タメ・方向・壁とバリケードの破
   const broke = z.r.broken.filter(([, y]: number[]) => y === 26).length;
   ok(`壁を壊して進む（study の南壁を${broke}マス、壊した壁は床になる）`, broke >= 4 && z.r.tiles[26][12] === '.' && z.A.y > 26 * T + 16 && JSON.stringify(z.r.walls) !== JSON.stringify(C.WALLS));
   ok(`壁を壊したら徳${C.TOKU.wall}（1回の突撃で1回）`, Math.abs(z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9);
-  z = aru(248, 120, 0, -1); z.r.skill('a'); step(z, AR.windup + 0.3);
-  ok('マップ外周の壁は壊さず、そこで突撃が終わる', z.r.broken.length === 0 && !z.A.st.rush && z.A.y >= 3 * T);
+  z = aru(248, 120, 0, -1); z.r.skill('a'); step(z, AR.windup + 0.3); const mid = !!z.r.stat(z.A, 'rush');
+  step(z, AR.dur);
+  ok(`マップ外周の壁は壊さず、正面からぶつかっても突撃は${AR.dur}秒続く（壁の手前で止まる）`, z.r.broken.length === 0 && mid && !z.r.stat(z.A, 'rush') && z.A.y >= 3 * T && clear(z.r, z.A), { y: z.A.y });
   // 触れた敵に大ダメージ、同じ相手には1回だけ
   z = aru(1400, 900, 1, 0, 'metan'); Object.assign(z.B, { x: 1500, y: 900, hp: 9999 }); delete z.B.st.rush; z.r.skill('a'); step(z, AR.windup + 1.0);
   ok(`触れた敵に${AR.dmg}（×全体の倍率・被ダメ軽減）を1回だけ`, 9999 - z.B.hp === Math.round(AR.dmg * C.DAMAGE_MULT * 0.8), { dmg: 9999 - z.B.hp });
@@ -1252,6 +1253,38 @@ console.log('--- 花丸（パッシブの押し込み・花丸パンチ）');
   // タメ中に倒されたら不発（KO でタメが消える）
   const ko = mk('hanamaru', 'metan'); ko.r.skill('a'); ko.r.damagePlayer(ko.A, 1e9, 'b'); ko.r.skillUp('a');
   ok('タメ中に倒されたらタメは消え、拳は出ない', !ko.A.st.fistCharge && ents(ko.r, 'fist').length === 0);
+}
+
+console.log('--- 壊せない壁の近く（犬走りの通路で花丸パンチ・アルの突撃）');
+{
+  // 犬走り（y=19〜23 タイル、高さ80px）。x=53〜84・109〜140 は上下とも外周、x=85〜108 は南が壊せる壁（扉あり）
+  const H = CHARS.hanamaru.skill, AR = CHARS.aru.skill, cy = 21.5 * T, top = 19 * T;
+  ok('通路の条件: 高さ80pxで上下が外周（壊せない壁）', 24 * T - top === 80 && [53, 84, 109, 140].every((x) => PERIMETER[18][x] && PERIMETER[24][x]) && !PERIMETER[24][90] && tileAt(mk('hanamaru').r, 90 * T + 8, 24 * T + 8) === '#');
+  const punch = (x: number, y: number, a: number, hold: number, ex?: number, ey?: number) => {
+    const z = mk('hanamaru', 'metan'); Object.assign(z.A, { x, y, face: a }); z.A.tgt = null;
+    if (ex !== undefined) Object.assign(z.B, { x: ex, y: ey, hp: 9999 }); else Object.assign(z.B, { x: -999, y: -999 });
+    z.r.skill('a'); z.r.now += hold; z.r.skillUp('a'); const f = ents(z.r, 'fist')[0], ys: number[] = [];
+    for (let i = 0; i < 400 && ents(z.r, 'fist').length; i++) { ys.push(f.y); upd(z.r, 'fist', 0.01); }
+    return { z, f, ys, dmg: 9999 - z.B.hp };
+  };
+  for (const [hold, name] of [[0, 'タメなし'], [H.lv[2].t, '最大タメ']] as [number, string][]) {
+    const q = punch(1120, cy, 0, hold, 1120 + 480, cy);
+    ok(`花丸パンチ（${name}、半径${q.f.r}）: 外周に挟まれた通路に沿って射程いっぱい（${H.range}px）まで飛び、通路の先の敵に当たる`, q.f.left <= 1e-9 && Math.abs(q.f.x - (1120 + H.range)) < 1e-6 && q.dmg > 0, { left: q.f.left, x: q.f.x, dmg: q.dmg });
+    const per = q.z.r.broken.filter(([x, y]: number[]) => PERIMETER[y][x]).length, inner = q.z.r.broken.filter(([, y]: number[]) => y === 24).length;
+    ok(`花丸パンチ（${name}）: 範囲内の壊せる壁は壊れ、外周は壊れない`, per === 0 && (q.f.r + cy > 24 * T ? inner > 0 : inner === 0), { per, inner });
+  }
+  const h = punch(1800, cy, -Math.PI / 2, 0), gone = h.f.y, touched = h.ys.filter((y) => y - h.f.r < top);
+  ok(`花丸パンチ: 外周に正面から撃つと、芯（半径${H.core}）が外周に触れた位置で消える（拳の外側が触れただけでは消えない）`, ents(h.z.r, 'fist').length === 0 && gone - H.core <= top && gone - H.core > top - 8 && touched.length > 0 && h.z.r.broken.length === 0, { gone, touched: touched.length });
+  // アル
+  const step = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); } };
+  const dash = (x: number, y: number, a: number, b?: string) => { const z = mk('aru', b); z.A.bot = true; Object.assign(z.A, { x, y, dx: Math.cos(a), dy: Math.sin(a) }); z.A.tgt = null; z.r.skill('a'); z.A.dx = z.A.dy = 0; return z; };
+  let z = dash(1800, cy, 0, 'metan'); Object.assign(z.B, { x: 1800 + 300, y: cy, hp: 9999 }); step(z, AR.windup + 0.05); const mid = !!z.r.stat(z.A, 'rush'); step(z, AR.dur);
+  ok('アルの突撃: 外周に挟まれた通路（幅126の範囲＞80px）でも止まらず通路に沿って進み、通路の先の敵に当たる', mid && z.A.x > 1800 + 300 && Math.abs(z.A.y - cy) < 1e-6 && z.B.hp < 9999 && z.r.broken.length === 0, { x: z.A.x, y: z.A.y, hp: z.B.hp });
+  z = dash(1120, cy, 0); step(z, AR.windup + AR.dur);
+  const per = z.r.broken.filter(([x, y]: number[]) => PERIMETER[y][x]).length, inner = z.r.broken.filter(([, y]: number[]) => y === 24).length;
+  ok('アルの突撃: 範囲内の壊せる壁（通路の南の壁）は壊れ、外周は壊れない', inner > 0 && per === 0, { per, inner });
+  z = dash(1800, cy, Math.PI / 6); step(z, AR.windup + 0.6); const x1 = z.A.x, y1 = z.A.y, on = !!z.r.stat(z.A, 'rush'); step(z, 0.4);
+  ok('アルの突撃: 外周に斜めに当たると、壁に沿って滑って進む（突撃は続く）', on && !!z.r.stat(z.A, 'rush') && z.A.x > x1 + 20 && Math.abs(z.A.y - y1) < 1e-6 && y1 < 24 * T && clear(z.r, z.A), { x1, y1, x: z.A.x, y: z.A.y });
 }
 
 console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');

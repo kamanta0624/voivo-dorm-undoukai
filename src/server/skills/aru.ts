@@ -1,6 +1,6 @@
 // 猫使アル: 突撃（タメ → 決めた方向へ突進。範囲の壁を壊し、触れた敵に1回ずつ当たる。タメ中・突撃中は動けず攻撃しない、突撃中は無敵）
 import type { GameRoom, Player } from '../GameRoom';
-import { PERIMETER, thingId } from '../GameRoom';
+import { unbreakable, thingId } from '../GameRoom';
 import type { Skill } from './index';
 import { CONFIG as C } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
@@ -27,17 +27,16 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
   const side = Math.max(-1, Math.min(1, (-ix * uy + iy * ux) / il)); // 移動入力の垂直成分
   const nx = p.x + ux * sp * S.speed * dt - uy * side * sp * S.side * dt, ny = p.y + uy * sp * S.speed * dt + ux * side * sp * S.side * dt;
   if (room.phase === 'ended') { Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, [...room.obstacles(), ...cage(room.cageOf(p)!)], false)); return; } // 結果画面: 部屋の中を動くだけ
-  // 進んだ先のエフェクトの範囲に入る壁タイル（外周に当たったら壊さずそこで終わる）
+  // 進んだ先のエフェクトの範囲に入る壁タイル（壊せない壁は壊さずに無視する）
   const tiles: number[][] = [];
-  let stop = false;
   const R = S.len + S.w;
   for (let ty = Math.floor((ny - R) / T); ty <= Math.floor((ny + R) / T); ty++) for (let tx = Math.floor((nx - R) / T); tx <= Math.floor((nx + R) / T); tx++) {
     if (room.tiles[ty]?.[tx] !== '#' || !inDashShape(S, tx * T + T / 2, ty * T + T / 2, nx, ny, a, T / 2)) continue;
-    if (PERIMETER[ty][tx]) stop = true; else tiles.push([tx, ty]);
+    if (!unbreakable(tx, ty)) tiles.push([tx, ty]);
   }
-  if (stop) { delete p.st.rush; return; }
   if (tiles.length) { room.breakWalls(tiles); if (!p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); } }
-  Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), false, (q) => room.noteJump(`p:${p.id}`, p, q)));
+  // 体が壁に止められたら壁に沿って滑る（正面なら前に進まず、dur まで突撃を続ける）
+  Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), true, (q) => room.noteJump(`p:${p.id}`, p, q)));
   for (const t of room.enemyThings(p.team)) {
     if (p.sk.hit.has(thingId(t)) || !inDashShape(S, t.x, t.y, p.x, p.y, a, t.r)) continue;
     p.sk.hit.add(thingId(t));
