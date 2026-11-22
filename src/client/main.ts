@@ -4,6 +4,7 @@ import { Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, seeRects, seeThrough, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
+import { solarPct } from '../shared/solar';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW, SELF_VIEW } from './skills';
 import { ClientMeasure } from '../shared/netmeasure';
 import { Predictor, Interp } from '../shared/netcode';
@@ -180,6 +181,10 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .skill{isolation:isolate}
 #fx .skill i{position:absolute;inset:0;background:conic-gradient(#000b var(--p), transparent 0)}
 #fx .skill b,#fx .skill span{position:relative}
+#fx .skill s{display:none;position:absolute;left:0;right:0;bottom:0;height:var(--g);background:#ffb020aa} /* そらのチャージのゲージ（下から溜まる。100%超えは色が変わる）。CT の暗い扇形はこの上に重なる */
+#fx .skill s.over{background:linear-gradient(#ff4020cc,#ffb020aa)}
+#fx .skill small{display:none;position:relative;font:900 calc(var(--z) * 7px)/1.1 sans-serif;color:#fff;-webkit-text-stroke:calc(var(--z) * .3px) #000}
+#fx .skill.charge s,#fx .skill.charge small{display:block}
 #fx .skill b{font-size:calc(var(--z) * 11px)}
 html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .roster{position:absolute;top:5.8%;display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--z) * 2px)}
@@ -260,7 +265,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><i></i><span class="sn"></span><b></b><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
@@ -1401,6 +1406,14 @@ class GameScene extends Phaser.Scene {
       setText($('.skill b'), hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK');
       $('.skill i').style.setProperty('--p', `${(cd / sk.ct) * 360}deg`);
       skEl.style.borderColor = cd > 0 || hud ? '#888' : '#ffe066';
+      // そらのチャージ: 技ボタンのゲージと％（本人だけ。撤退中は0%）。スナップショットの値のまま（間を足すと届いたときに数字が戻ることがある）
+      const ch = mine.st?.solarCharge;
+      skEl.classList.toggle('charge', mine.char === 'sora');
+      if (mine.char === 'sora') {
+        const pct = mine.alive && ch !== undefined ? Math.round(solarPct(Number(ch))) : 0;
+        setText($('.skill small'), `${pct}%`);
+        const g = $('.skill s'); g.style.setProperty('--g', `${Math.min(100, pct)}%`); g.classList.toggle('over', pct > 100);
+      }
     }
     { const t = `照準<br>${AIM_SHORT[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}`; if ($('.aimb').innerHTML !== t) $('.aimb').innerHTML = t; }
     // ミニマップ

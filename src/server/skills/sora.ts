@@ -5,17 +5,10 @@ import type { Skill } from './index';
 import { CONFIG as C, Rect } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
 import { circleRect } from '../../shared/geom';
+import { solarAt } from '../../shared/solar';
 
 const S = CHARS.sora.skill, T = C.TILE, K = S.keys as number[][];
-const BOSS_LAST = S.bossMax / (C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT); // 最大チャージの大将への総ダメージ（倍率を掛ける前）。全倍率の後で bossMax になる
-
-// チャージ秒 → キーフレームの線形補間。col: 1=総ダメージ 2=射程 3=爆発半径 4=照射秒。boss: 大将への総ダメージ（最後のキーフレームだけ BOSS_LAST）
-export function solarAt(charge: number, col: number, boss = false) {
-  const v = (i: number) => (boss && col === 1 && i === K.length - 1 ? BOSS_LAST : K[i][col]);
-  if (charge <= K[0][0]) return v(0);
-  for (let i = 1; i < K.length; i++) if (charge <= K[i][0]) return v(i - 1) + ((v(i) - v(i - 1)) * (charge - K[i - 1][0])) / (K[i][0] - K[i - 1][0]);
-  return v(K.length - 1);
-}
+export { solarAt }; // 補間は shared/solar.ts（技ボタンの％と共通）
 
 // 照射の状態（発射時に決める）
 type Beam = { a: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置
