@@ -25,7 +25,7 @@ const CSS = `
 .mfx-h.high{border-radius:1px;transform:rotate(45deg)}
 .mfx-h.saki::after{content:'★';position:absolute;left:50%;top:-8px;transform:translateX(-50%);color:#ffe14d;font-size:7px;text-shadow:0 0 3px #ff0}
 .mfx-mode{white-space:nowrap}
-.mfx-mode .ct{color:#ffd700}.mfx-mode .back{color:#ff8080}
+.mfx-mode .ct{color:#ffd700}.mfx-mode .mback{color:#ff8080}
 .mfx-label{position:absolute;left:100%;top:50%;transform:translate(4px,-50%);white-space:nowrap;font:900 7px sans-serif;color:#ffd700;text-shadow:0 0 3px #000,0 0 3px #000}
 .mfx-toast{position:absolute;left:50%;top:44%;transform:translateX(-50%);white-space:pre;text-align:center;font:900 12px sans-serif;color:#ffd700;-webkit-text-stroke:.5px #000;text-shadow:0 0 4px #000;animation:mfxfade 1.6s linear forwards;pointer-events:none}
 .mfx-toast.bad{color:#ff6060}
@@ -103,7 +103,7 @@ export class ModernFx {
     this.spinning = [false, false, false]; this.allSpin = false;
     reels.forEach((k, i) => this.setReel(i, k));
     this.sl.classList.remove('reach'); this.sl.classList.toggle('win', outcome === 'win');
-    this.label.textContent = outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : '';
+    this.label.textContent = outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : outcome === 'pen' ? '罰' : '';
   }
   // 結果を見せたあと、次の抽選まで回して見せる
   idle(now: number) { this.spinAt = now; this.spinning = [true, true, true]; this.label.textContent = ''; this.sl.classList.remove('win'); }
@@ -114,7 +114,7 @@ export class ModernFx {
     this.holdsEl.innerHTML = (cur ? one(cur, ' cur') : '<span class="mfx-h cur" style="background:#333"></span>') + hs.map((h) => one(h)).join('');
   }
   mode(m: Mode, backLeft: number, lv: string) {
-    this.modeEl.innerHTML = (m === 'ct' ? '<span class="ct">フィーバータイム！</span>' : m === 'back' ? `<span class="back">引き戻し 残り${backLeft}</span>` : '通常') + ` ／ ${lv}`;
+    this.modeEl.innerHTML = (m === 'ct' ? '<span class="ct">フィーバータイム！</span>' : m === 'back' ? `<span class="mback">引き戻し 残り${backLeft}</span>` : '通常') + ` ／ ${lv}`;
   }
 
   // 先バレ: 枠が一瞬光る＋音（カスタムで OFF なら何もしない）

@@ -356,28 +356,30 @@ const HALL = { x: 1552, y: 952 }; // 中央の hall の中（広いので突撃�
 const LIBRARY = { x: 40 * 16, y: 19 * 16 }; // 自陣の図書室（敵が来にくい。コバコの確認に使う）
 const aliveOf = (T: Tab) => T.until((x) => x.players.find((p: any) => p.id === x.me)?.alive, 16000);
 
-// 徳のゲージとスロット: 回転中 → 自陣は罰の出目（××でリーチ → ×××、両陣営に通知、効果の目印）、敵陣は当たり（両陣営にカットイン）
+// 徳のゲージとスロット（クラシック。handoff_tune5）: 保留4つ・色、自陣はリーチ（外れ）→ 罰の出目（×××、両陣営に通知）、敵陣の当選は両陣営にお知らせ（当てた陣営）
 async function slotCheck(A: Tab, B: Tab) {
   if (C.SLOT_MODE === 'modern') return slotCheckModern(A, B);
   await A.shot('t0_slot_spin');
-  const reels = await A.page.evaluate(() => document.querySelectorAll('#fx .tk .s0 .sl .ic').length);
+  const look = await A.page.evaluate(() => ({ reels: document.querySelectorAll('#fx .tk .s0 .mfx-ic').length, holds: [...document.querySelectorAll<HTMLElement>('#fx .tk .s0 .mfx-h:not(.cur)')].map((e) => e.style.background) }));
   const gauge = await A.page.evaluate(() => [...document.querySelectorAll('#fx .tk .tv')].map((e) => e.textContent));
-  const reach = A.page.waitForFunction(() => !!document.querySelector('#fx .tk .s0 .sl.reach'), null, { timeout: (C.SLOT.spin + 2) * 1000 }).then(() => true, () => false);
-  const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！ずんだもん軍', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
+  await send(A, 'e2eSlot', { team: 0, reach: true, chain: 0 });
+  const r = await A.page.waitForFunction(() => !!document.querySelector('#fx .tk .s0 .mfx-sl.reach'), null, { timeout: (C.SLOT.spin + 2) * 1000 }).then(() => true, () => false);
+  await A.shot('t1_slot_reach');
   // 罰の出目は SLOT.penHold の間しか出ないので、通知と同時に × の数を取る。前の（自然な罰の）通知と区別するため、今ある通知に印を付けて、印のない通知を待つ
   await Promise.all([A, B].map((T) => T.page.evaluate(() => document.querySelectorAll('#fx .notes div').forEach((e) => ((e as HTMLElement).dataset.old = '1')))));
   const pen = [A, B].map((T, k) => T.page.waitForFunction((k) => {
     const t = [...document.querySelectorAll<HTMLElement>('#fx .notes div')].find((e) => !e.dataset.old && /あんこもん軍に罰/.test(e.textContent ?? ''))?.textContent;
-    const xs = document.querySelectorAll('#fx .tk .s0 .sl .ic.pen').length;
+    const xs = document.querySelectorAll('#fx .tk .s0 .mfx-ic.pen').length;
     return t && (k || xs === 3) ? { t, xs } : false; // A は × が3つそろうまで（通知と出目の届く順は前後する）
   }, k, { timeout: (C.SLOT.spin + 3) * 1000, polling: 'raf' }).then((h) => h.jsonValue() as Promise<{ t: string; xs: number }>, () => null));
-  await send(A, 'e2eSlot', { team: 0, pen: true, chain: 0 }); await send(A, 'e2eSlot', { team: 1, win: true });
-  const r = await reach; await A.shot('t1_slot_reach');
-  const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty'); // 数を取った後に撮る
+  await send(A, 'e2eSlot', { team: 0, pen: true });
+  const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty');
+  const cut = [waitText(A, '#fx .mfx-toast', 'ずんだもん軍.*大当たり', (C.SLOT.spin + 3) * 1000), waitText(B, '#fx .mfx-toast', '^大当たり', (C.SLOT.spin + 3) * 1000)];
+  await send(A, 'e2eSlot', { team: 1, win: true });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
   const xs = ea?.xs ?? 0, pa = ea?.t ?? null, pb = eb?.t ?? null;
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
-  check('スロット: 3リールが回り、2つそろうとリーチ演出、当たりは両陣営にカットイン（当てた陣営）', reels === 3 && r && !!ca?.includes('ずんだもん軍') && !!cb?.includes('ずんだもん軍'), { reels, reach: r, ca, cb });
+  check(`スロット: 3リール・保留${C.SLOT_MODERN.holds}つ（色つき）、リーチ演出、当選は両陣営にお知らせ（敵陣は陣営名つき）`, look.reels === 3 && look.holds.length === C.SLOT_MODERN.holds && look.holds.every(Boolean) && r && !!ca && !!cb, { look, reach: r, ca, cb });
   check('スロットの罰: ×××の出目、両陣営に通知（陣営と罰の内容）', xs === 3 && !!pa && !!pb, { xs, pa, pb });
 }
 
@@ -410,7 +412,7 @@ async function tokuCheck(A: Tab, B: Tab) {
   check(`頭上に徳の増減だけ（「${txt}」）`, txt === `徳+${C.TOKU.material}`, txt);
   // 裏側（図書室）の資材: 高ポイント。地面の箱・ミニマップ・頭上の表示で区別できる
   await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await sleep(150);
-  await A.page.waitForFunction(() => !document.querySelector('#fx .notes div, #fx .scut'), null, { timeout: 8000 }).catch(() => {}); // スクショ用: 通知・カットインが消えるまで
+  await A.page.waitForFunction(() => !document.querySelector('#fx .notes div, #fx .mfx-toast'), null, { timeout: 8000 }).catch(() => {}); // スクショ用: 通知・お知らせが消えるまで
   await send(A, 'e2eMaterial'); await sleep(400);
   const look = await scene(A, '({ ground: sc.g.commandBuffer.includes(0xff7ad9), mini: sc.ui.commandBuffer.includes(0xff7ad9), hi: s.materials.filter((m) => m.hi).length })');
   await A.shot('t3b_material_hi');

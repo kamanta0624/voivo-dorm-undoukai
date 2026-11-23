@@ -68,7 +68,7 @@ export const CHARS: Record<string, CharDef> = {
   kiritan: def({
     stat: { hp: 100, atk: 20, speed: 136, vision: 300 }, desc: '1回目で射程内の敵をロックオン、2回目でロックした全員へホーミング弾を撃ち込む',
     aa: [{ ...MELEE, name: '包丁', dmg: 1.2 }, { name: 'きりたん砲', kind: 'shot', range: 310, cd: C.ATTACK_COOLDOWN_RANGED, dmg: 0.85, shot: 'cannon', speed: 300, far: 60 }],
-    skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 4, volleys: 3, volleyGap: 0.3, dmg: 7.5, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12, orphanSpeed: 450 },
+    skill: { name: '全弾斉射', ct: 7.2, range: 310, lockEvery: 0.1, lockMax: 3, perTarget: 4, volleys: 3, volleyGap: 0.3, dmg: 6, r: 4, life: 3, maxSpeed: 650, straightSpeed: 450, spreadT: 0.35, spreadSpeed: 70, accel: 1400, leadT: 0.3, leadSpeed: 520, leadAngle: 0.5, brakeT: 0.12, orphanSpeed: 450 },
   }),
 };
 

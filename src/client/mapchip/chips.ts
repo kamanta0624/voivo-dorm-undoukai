@@ -48,6 +48,15 @@ export const ROOMS: Record<string, { name: string; kind: string; floor?: Chip; f
 export const FLOOR_DEFAULT: Chip = KIND.open.floor;
 // 建物の外（map.json の ' '）: 屋外と同じ土
 export const OUTSIDE: Chip = KIND.outdoor.floor;
+// 建物の外（立ち入り不可）の色調（handoff_tune5。仮置き。/maptest の「外の色調」で比べて本人が選ぶ）。土の上に重ねるだけで素材は加工しない
+// dark: 暗く、gray: 彩度を落として少し暗く、hatch: 暗く＋斜線
+export const OUTSIDE_TONES = {
+  dark: { name: '暗く', sat: false, dim: 0.5, hatch: false },
+  gray: { name: '灰色', sat: true, dim: 0.3, hatch: false },
+  hatch: { name: '斜線', sat: false, dim: 0.4, hatch: true },
+} as const;
+export type OutsideTone = keyof typeof OUTSIDE_TONES;
+export const OUTSIDE_TONE: OutsideTone = 'gray'; // 試合で使う色調
 
 // 絨毯: 部屋の内側に重ねる（壁際は床が見える）。9分割の左上 [列, 行]（3×3 の角・辺・中）。inset: 壁からの空き（マス）
 export const RUGS: Record<string, { chip: Chip; inset: number }> = {

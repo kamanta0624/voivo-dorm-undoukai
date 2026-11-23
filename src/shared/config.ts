@@ -107,7 +107,6 @@ export const CONFIG = {
   INTRO_GAP: 40, // 開始演出で study に横並びにする間隔(px)
   INTRO_ZOOM: 2.5, // 開始演出のカメラの拡大率
   INTRO_CAM_MS: 600 / INTRO_SPEED, // 開始演出のカメラの寄り・戻りの時間
-  SLOT_CUTIN_MS: 2000, // スロットの当たり・連チャンのカットインの長さ
   SLOT_REEL_MS: 70, // 回転中のリールの絵柄が切り替わる間隔
 
   MAP_W: W,
@@ -203,8 +202,9 @@ export const CONFIG = {
       dur: 8, // 移動速度・攻撃力の低下の秒数
     },
   },
-  SLOT_MODE: 'modern' as 'modern' | 'classic', // 試合のスロット: modern＝SLOT_MODERN（handoff_slot3）、classic＝SLOT（現行）
+  SLOT_MODE: 'classic' as 'modern' | 'classic', // 試合のスロット: classic＝抽選・払い出しは SLOT、保留・色・先バレ・リーチ演出はモダンの見た目（handoff_tune5）、modern＝SLOT_MODERN（handoff_slot3）
   // モダン（転落スペック）のスロット。handoff_slot2。単体画面（slot.html）と試合（SLOT_MODE が modern のとき）で使う。値はすべて仮置き
+  // クラシックでも保留の数・色・先バレ・リーチ演出の選択率と秒数・リールの絵柄はここの値を使う（当否は SLOT）
   // 確率は徳 5 の基準値。徳 t で 当選 × 2^((t−5)/win)、転落 × 2^((5−t)/fall)。t < lowBelow で当選 × lowWin・転落 × lowFall
   SLOT_MODERN: {
     interval: { normal: 2, ct: 1, back: 0.5 }, // 抽選間隔(秒)。通常・チャンスタイム（CT）・引き戻し

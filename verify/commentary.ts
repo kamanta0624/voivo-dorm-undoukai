@@ -12,8 +12,7 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
   console.log(cond ? 'PASS' : 'FAIL', name, typeof detail === 'string' ? detail : JSON.stringify(detail));
 };
 const M = C.CM;
-const SLOT_MODE0 = C.SLOT_MODE;
-(C as any).SLOT_MODE = 'classic'; // 現行の確認はクラシックのスロット・コバコの荷物で（handoff_slot3。モダンは最後に確かめる）
+(C as any).SLOT_MODE = 'classic'; // 現行の確認はクラシックのスロット・コバコの荷物で（モダンは最後に確かめる）
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く（verify/server.ts の mk と同じ）。実況のメッセージを集める
 function mk(a: string, b?: string) {
@@ -691,7 +690,7 @@ console.log('--- 台本・部品');
 
 console.log('--- モダンのスロット（handoff_slot3）');
 {
-  (C as any).SLOT_MODE = SLOT_MODE0;
+  (C as any).SLOT_MODE = 'modern';
   const { r, keys, got } = mk('sayo', 'metan');
   r.payModern(0, { group: 'odd', add: 2 }, true, 0); r.payModern(0, { group: 'even', add: 0 }, false, 1);
   r.penaltyModern(1, 1); r.penaltyModern(1, 2);

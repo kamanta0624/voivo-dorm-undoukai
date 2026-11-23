@@ -1,6 +1,6 @@
 // マップのチップ描画（本体 main.ts と試験ページ /maptest で共通）。素材は public/assets/mapchip/（管理外。加工せず描画時に切り出す）
 import MAP from '../../shared/map.json';
-import { KIND, ROOMS, FLOOR_DEFAULT, OUTSIDE, RUGS, WALL } from './chips';
+import { KIND, ROOMS, FLOOR_DEFAULT, OUTSIDE, OUTSIDE_TONE, OUTSIDE_TONES, RUGS, WALL, type OutsideTone } from './chips';
 import { ITEMS, PLACE } from './furniture';
 
 const T = MAP.tileSize; // 16px（チップと同じ）
@@ -23,8 +23,8 @@ const roomAt = (x: number, y: number) => {
 const floorOf = (rm: ReturnType<typeof roomAt>) => (rm ? rm.floor ?? KIND[rm.kind].floor : FLOOR_DEFAULT);
 const faceOf = (rm: ReturnType<typeof roomAt>) => (rm ? rm.face ?? KIND[rm.kind].face : KIND.open.face);
 
-// マス [x0..x1]×[y0..y1] の範囲だけ描き直す（g はマップ全体・1倍）。tiles は試合中のタイル（壊れた壁は '.'）。p なしは単色
-export function paintMap(g: CanvasRenderingContext2D, p: Pics | null, tiles: string[], x0 = 0, y0 = 0, x1 = MAP.width - 1, y1 = MAP.height - 1) {
+// マス [x0..x1]×[y0..y1] の範囲だけ描き直す（g はマップ全体・1倍）。tiles は試合中のタイル（壊れた壁は '.'）。p なしは単色。tone: 建物の外の色調
+export function paintMap(g: CanvasRenderingContext2D, p: Pics | null, tiles: string[], x0 = 0, y0 = 0, x1 = MAP.width - 1, y1 = MAP.height - 1, tone: OutsideTone = OUTSIDE_TONE) {
   x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(MAP.width - 1, x1); y1 = Math.min(MAP.height - 1, y1);
   g.save(); g.beginPath(); g.rect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T); g.clip();
   // 範囲の1マス外まで回す（壁の正面は1マス下へはみ出す）
@@ -52,6 +52,14 @@ export function paintMap(g: CanvasRenderingContext2D, p: Pics | null, tiles: str
   };
   // 床・建物の外（壁の下も土にしておく: 柵・ガラスの透ける所）
   each((x, y) => chip(tiles[y][x] === '.' ? floorOf(roomAt(x, y)) : OUTSIDE, x, y));
+  // 立ち入り不可（建物の外と、柵・ガラスの下に透ける土）の色調: 彩度を落とす・暗くする・斜線
+  const tn = OUTSIDE_TONES[tone];
+  each((x, y) => {
+    if (tiles[y][x] === '.') return;
+    if (tn.sat) { g.globalCompositeOperation = 'saturation'; g.fillStyle = '#808080'; g.fillRect(x * T, y * T, T, T); g.globalCompositeOperation = 'source-over'; }
+    g.fillStyle = `rgba(0,0,0,${tn.dim})`; g.fillRect(x * T, y * T, T, T);
+    if (tn.hatch) { g.save(); g.beginPath(); g.rect(x * T, y * T, T, T); g.clip(); g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 2; g.beginPath(); for (let k = -T; k <= T; k += 8) { g.moveTo(x * T + k, y * T + T); g.lineTo(x * T + k + T, y * T); } g.stroke(); g.restore(); }
+  });
   // 絨毯（9分割。部屋の内側から inset マス空ける）
   for (const [id, rug] of Object.entries(RUGS)) {
     const r = MAP.rooms.find((q) => q.id === id)!, rx0 = r.rect[0] + rug.inset, ry0 = r.rect[1] + rug.inset, rx1 = r.rect[2] - rug.inset, ry1 = r.rect[3] - rug.inset;

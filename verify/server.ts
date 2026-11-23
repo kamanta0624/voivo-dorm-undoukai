@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/server/GameRoom';
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
-import { CONFIG as C, roomLayout, roomKindAt, slotRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
+import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { solarPct } from '../src/shared/solar';
@@ -573,7 +573,7 @@ console.log('--- バランス（ending1）');
   ok('POWER_WEIGHTS: レベル3・4はコバコから出ない [30, 40, 0, 0]', JSON.stringify(C.POWER_WEIGHTS) === JSON.stringify([30, 40, 0, 0]));
   ok('連チャン確率: レベル3へ 0.35、レベル4へ 0.15', C.SLOT.chain === 0.35 && C.SLOT.chainBreak === 0.15);
   const K = CHARS.kiritan, cannon = K.aa.find((m) => m.name === 'きりたん砲')!, knife = K.aa.find((m) => m.name === '包丁')!;
-  ok('きりたん: 包丁は不変（近接・ダメージ1.2）、きりたん砲 射程310・ダメージ0.85、全弾斉射 射程310・1発7.5', knife.kind === 'melee' && knife.dmg === 1.2 && knife.range === C.ATTACK_RANGE && cannon.range === 310 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 7.5);
+  ok('きりたん: 包丁は不変（近接・ダメージ1.2）、きりたん砲 射程310・ダメージ0.85、全弾斉射 射程310・1発6（tune5）', knife.kind === 'melee' && knife.dmg === 1.2 && knife.range === C.ATTACK_RANGE && cannon.range === 310 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 6);
   ok('めたんのドリル: 持続2.4秒', CHARS.metan.skill.dur === 2.4);
   ok('コバコの徳: 1部屋に2個、上限9は据え置き', C.COURIER_DROP.n === 2 && C.COURIER_DROP.cap === 9);
   const box: number[] = [0, 0, 0, 0]; for (let i = 0; i < 20000; i++) box[lottery(C.POWER_WEIGHTS)]++;
@@ -2242,7 +2242,63 @@ console.log('--- モダンのスロット（handoff_slot3）');
   }
   {
     (C as any).SLOT_MODE = 'classic'; const q = room(); (C as any).SLOT_MODE = SLOT_MODE0;
-    ok('クラシックに切り替えると、モダンのスロットを作らず現行のスロットが回る（現行の確認はクラシックで実行して結果不変）', q.teams.every((t: any) => t.m === null) && !q.modern);
+    ok('クラシックに切り替えると、モダンのスロットを作らずクラシック（保留つき）が回る', q.teams.every((t: any) => t.m === null && t.slot.holds.length === M.holds) && !q.modern);
+  }
+}
+
+console.log('--- クラシックのスロット（保留・演出。handoff_tune5）');
+{
+  const M = C.SLOT_MODERN;
+  const room = () => {
+    const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; q.unlock = () => {}; const sent: any[] = [];
+    Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => sent.push([t, m, q.now]) }] });
+    q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay(); q.sent = sent; q.teams[1].slot.start = 1e9;
+    return q;
+  };
+  const run = (q: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { q.now += 0.05; q.updateSlots(); } };
+  ok('既定はクラシック（保留つき）', C.SLOT_MODE === 'classic');
+  // 保留: 常に4つ。1回転ごとに先頭を消化して1つ積む。当否は積んだ時点の徳
+  {
+    const q = room(), sl = q.teams[0].slot; q.teams[0].toku = 10;
+    for (let i = 0; i < M.holds; i++) { q.slotMiss = false; q.now += C.SLOT.spin; sl.cur = null; q.startSpin(0); } // 徳10 で積み直す
+    const before = sl.holds.map((h: any) => h);
+    q.teams[0].toku = 0; const got: any[] = [];
+    for (let i = 0; i < M.holds; i++) { q.startSpin(0); got.push(sl.cur); }
+    ok(`保留は常に${M.holds}つ。回転のたびに先頭を消化して1つ積む（積んだ時点の徳の当否のまま回る）`, got.every((h, i) => h === before[i]) && sl.holds.length === M.holds && sl.holds.every((h: any) => !before.includes(h)));
+    const N = 20000, cnt = (toku: number) => { q.teams[0].toku = toku; let w = 0, p = 0; for (let i = 0; i < N; i++) { const h = q.classicHold(0); if (h.outcome === 'win') w++; if (h.outcome === 'pen') p++; } return [w / N, p / N]; };
+    const res = [0, 5, 10].map(cnt), tol = (v: number) => 3 * Math.sqrt((v * (1 - v)) / N) + 0.002;
+    ok(`保留の当否は旧クラシックの確率のまま（当たり ${res.map((x) => (x[0] * 100).toFixed(1)).join('/')}%・罰 ${res.map((x) => (x[1] * 100).toFixed(1)).join('/')}%、徳0/5/10）`, res.every(([w, p], i) => { const t = [0, 5, 10][i]; return Math.abs(w - slotRate(t)) < tol(slotRate(t)) && Math.abs(p - penaltyRate(t)) < tol(penaltyRate(t)); }));
+    const hs = Array.from({ length: 4000 }, () => q.classicHold(0)), bad = hs.filter((h: any) => h.outcome === 'win' ? !(h.reels[0] === h.reels[1] && h.reels[1] === h.reels[2] && h.reels[0] >= 1) : h.outcome === 'pen' ? h.reels.some((v: number) => v !== -1) || h.saki || h.act : (h.reels[0] === h.reels[1]) !== !!h.act);
+    ok(`出目: 当たりは9絵柄の3つそろい、罰は ×××（先バレ・リーチなし）、外れはリーチのときだけ2つそろう`, bad.length === 0, bad.slice(0, 3));
+  }
+  // リーチ・全回転は回転の終わり（SLOT.spin 秒）を変えず、演出の秒数だけ前から
+  for (const [res, act] of [['miss', 'plain'], ['win', 'allSpin'], ['miss', 'fish']] as const) {
+    const q = room(); q.slotChain = 0; q.startSpin(0, res, act); const t0 = q.now; run(q, C.SLOT.spin + 0.1);
+    const ev = q.sent.filter(([t, m]: any) => t === 'mslot' && m.team === 0 && m.type !== 'saki'), sec = act === 'allSpin' ? M.allSpinSec : M.reach[act].sec;
+    const sp = ev.find(([, m]: any) => m.type === 'spin'), st = ev.find(([, m]: any) => m.type === 'stop');
+    ok(`${act}: 演出は回転の終わりの${sec}秒前から、結果は${C.SLOT.spin}秒で出る`, !!sp && sp[1].act === act && Math.abs(sp[2] - (t0 + C.SLOT.spin - sec)) < 0.06 && Math.abs(sp[1].sec - sec) < 0.06 && !!st && Math.abs(st[2] - (t0 + C.SLOT.spin)) < 0.06 && st[1].outcome === res, ev.map(([, m, t]: any) => [m.type, +(t - t0).toFixed(2)]));
+  }
+  // 払い出し・罰の表示中は消化を止める
+  {
+    const q = room(), sl = q.teams[0].slot; q.slotChain = 1; const cb = C.SLOT.chainBreak; (C.SLOT as any).chainBreak = 1;
+    q.startSpin(0, 'win'); run(q, C.SLOT.spin + 0.05); const h0 = [...sl.holds]; run(q, C.SLOT.gap * 2);
+    const stopped = sl.payoutAt !== null && sl.holds.every((h: any, i: number) => h === h0[i]) && q.classicView(sl).cur === null && q.classicView(sl).chain >= 2;
+    (C.SLOT as any).chainBreak = cb;
+    const p = room(), pl = p.teams[0].slot; p.startSpin(0, 'pen'); run(p, C.SLOT.spin + 0.05); const p0 = [...pl.holds]; run(p, C.SLOT.penHold - 0.2);
+    const held = pl.holdUntil > 0 && pl.holds.every((h: any, i: number) => h === p0[i]); run(p, 0.3);
+    ok('連チャンの払い出し・罰の出目の表示中は保留の消化を止める（終わったら次の回転）', stopped && held && pl.holdUntil === 0 && pl.cur !== null && pl.start > C.SLOT.spin, { stopped, held });
+  }
+  // 先バレは積んだ時点で自陣へ。表示は保留4つと回っている保留
+  {
+    const q = room(); let sk = 0, made = 0;
+    for (let i = 0; i < 3000; i++) { q.sent.length = 0; q.startSpin(0); made++; if (q.sent.some(([t, m]: any) => t === 'mslot' && m.type === 'saki')) { sk++; if (!q.teams[0].slot.holds.at(-1).saki) made = -1e9; } }
+    const v = q.classicView(q.teams[0].slot);
+    ok(`先バレは保留を積んだときに通知（${sk}/3000 回）。表示: 保留${M.holds}つ・回っている保留・陣営の種類`, sk > 0 && made > 0 && v.kind === 'classic' && v.holds.length === M.holds && Array.isArray(v.cur), { sk, v });
+  }
+  // 実況のリーチ（既存のクラシックの判定）: リーチの出目の回転で言う
+  {
+    const q = room(); q.startSpin(0, 'miss', 'plain');
+    ok('リーチの出目は2つそろう（実況の既存のリーチの判定に乗る）', q.teams[0].slot.reels[0] === q.teams[0].slot.reels[1] && q.teams[0].slot.reels[1] !== q.teams[0].slot.reels[2]);
   }
 }
 

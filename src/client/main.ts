@@ -226,18 +226,6 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .tk .tg{position:relative;width:calc(var(--z) * 54px);height:calc(var(--z) * 5px);background:#000b;outline:1px solid var(--c)}
 #fx .tk .tg i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
 #fx .tk .tv{color:#fff;font:bold calc(var(--z) * 5.5px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
-#fx .tk .sl{position:relative;display:flex;gap:1px;background:#1b1b28;border:2px solid var(--c);padding:1px;border-radius:3px}
-#fx .tk .sl .ic{width:calc(var(--z) * 15px);height:calc(var(--z) * 15px);border-color:#555}
-#fx .tk .sl.reach{animation:reach .25s steps(2) infinite}
-#fx .tk .sl.win{border-color:#ffd700;box-shadow:0 0 calc(var(--z) * 6px) #ffd700}
-#fx .tk .sl b{position:absolute;left:50%;top:100%;transform:translateX(-50%);white-space:nowrap;font:900 calc(var(--z) * 7px) sans-serif;color:#ffd700;text-shadow:0 0 3px #000,0 0 3px #000}
-@keyframes reach{0%{border-color:#ff3030;box-shadow:0 0 calc(var(--z) * 5px) #ff3030}100%{border-color:#ffd700;box-shadow:none}}
-#fx .scut{position:absolute;left:0;right:0;top:40%;padding:.4em 0;text-align:center;background:linear-gradient(90deg,transparent,var(--c) 30%,var(--c) 70%,transparent);animation:cutfade var(--d) linear forwards}
-#fx .scut b{display:block;font:900 calc(var(--z) * 22px) sans-serif;color:#ffd700;-webkit-text-stroke:calc(var(--z) * 1px) #000;text-shadow:0 0 8px #000;animation:pop .3s ease-out}
-#fx .scut span{display:block;font:bold calc(var(--z) * 9px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
-#fx .tk .sl .ic.pen{background:#3a0d0d;color:#ff4040;font:900 calc(var(--z) * 13px)/calc(var(--z) * 15px) sans-serif;text-align:center}
-#fx .tk .sl.pen{border-color:#a00000;box-shadow:0 0 calc(var(--z) * 6px) #ff2020}
-#fx .tk .sl b.pb{color:#ff4040}
 #fx .tk .rf{margin-left:.5em;color:#9fe8ff}
 #fx .tk .mh{zoom:calc(var(--z) * .85)}
 #fx .mfxl{position:absolute;left:0;top:0;width:${C.VIEW_W}px;height:${C.VIEW_H}px;zoom:var(--z);pointer-events:none} /* モダンのスロットの演出・お知らせ（論理解像度。slot_modern_fx） */
@@ -538,7 +526,7 @@ class GameScene extends Phaser.Scene {
       room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
       room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
-      room.onMessage('slot', (m: any) => this.slotCutin(m.team, m.chain, m.kind, m.tier));
+      room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier));
       room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト レベルアップ: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
       room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
       room.onMessage('mslot', (m: any) => this.mslotEv(m));
@@ -734,35 +722,11 @@ class GameScene extends Phaser.Scene {
     return [...moveWalls(m?.char, this.walls), ...(m?.cage ? cage(m.cage) : [])];
   }
 
-  // スロットの当たり・連チャンのカットイン（両陣営）: 当てた陣営と連チャン数、払い出し
-  slotCutin(team: number, chain: number, kind: string, tier: number) {
-    fx.querySelector('.scut')?.remove();
-    const el = document.createElement('div');
-    el.className = 'scut';
-    el.style.setProperty('--d', `${C.SLOT_CUTIN_MS}ms`);
-    el.style.setProperty('--c', css16(TEAM_COLOR[team]) + 'cc');
-    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : `${chain}連チャン！`}</b><span>${TEAM_NAME[team]}　${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）</span>`;
-    fx.appendChild(el);
-    setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
-  }
-
-  // 徳のゲージとスロット（左＝陣営0、右＝陣営1）。リールは回転中は自陣のキャラのアイコンが回り、決まった時刻に左から止まる
-  tokuHud(s: any, sinceSnap: number) {
+  // 徳のゲージとスロット（左＝陣営0、右＝陣営1）。クラシック・モダンとも保留つきの表示（modernHud）
+  tokuHud(s: any) {
     [0, 1].forEach((t, k) => {
-      const tm = s.teams[t], sl = tm.slot, chars = s.roster.filter((r: any) => r.team === t).map((r: any) => r.char);
-      if (tm.m) return this.modernHud(s, t, k, tm, chars);
-      const idle = s.phase !== 'playing'; // GAME START までは止めたまま
-      const p = sl.payout || idle ? 1 : Math.min(1, (C.SLOT.spin - Math.max(0, sl.left - sinceSnap)) / C.SLOT.spin);
-      const tick = Math.floor(performance.now() / C.SLOT_REEL_MS);
-      const shown = sl.reels.map((r: number, i: number) => (p >= C.SLOT.stops[i] ? r : (tick + i * 2) % Math.max(1, chars.length)));
-      const reach = !idle && !sl.payout && p >= C.SLOT.stops[1] && p < 1 && sl.reels[0] === sl.reels[1];
-      const win = !idle && (sl.payout || (p >= 1 && sl.win));
-      const pen = !idle && p >= 1 && sl.pen;
-      const reel = (r: number) => (r < 0 ? '<span class="ic pen">×</span>' : this.icon(chars[r] ?? chars[0], t)); // 罰の絵柄は ×
-      const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
-      const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i style="width:${(tm.toku / C.TOKU_MAX) * 100}%"></i></div><div class="tv">徳 ${tm.toku.toFixed(1)}${rf}</div>`
-        + `<div class="sl${reach ? ' reach' : ''}${win ? ' win' : ''}${pen ? ' pen' : ''}" style="--c:${css16(TEAM_COLOR[t])}">${shown.map(reel).join('')}${reach ? '<b>リーチ！</b>' : win ? `<b>大当たり${sl.chain > 1 ? ` ${sl.chain}連` : ''}</b>` : pen ? '<b class="pb">罰</b>' : ''}</div>`;
-      if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k}`).innerHTML = html; }
+      const tm = s.teams[t], chars = s.roster.filter((r: any) => r.team === t).map((r: any) => r.char);
+      this.modernHud(s, t, k, tm, chars);
     });
   }
 
@@ -793,9 +757,10 @@ class GameScene extends Phaser.Scene {
       this.mfxView[k] = v;
       const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
       f.holds(m.holds.map(h), m.cur && h(m.cur));
-      f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
+      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり ${m.chain}連` : '';
+      else f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
     }
-    if (t === this.mfxMine) { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
+    if (t === this.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
       const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`;
       fe.style.display = on ? 'block' : 'none';
       if (fe.textContent !== txt) fe.textContent = txt;
@@ -825,6 +790,11 @@ class GameScene extends Phaser.Scene {
     const as = A.new ? `アシスト ${L(A.tier)} 登場` : `アシスト ${A.add ? `+${A.add} → ` : ''}${L(A.tier)}${A.add ? '' : ' 耐久アップ'}`;
     this.mslotToast(m.team, `${m.first ? '大当たり！' : `${m.chain}連チャン！`}\n${pw}\n${as}`);
     if (m.team === this.mfxMine) this.mfx[m.team]?.beep();
+  }
+  // クラシックの払い出し（両陣営）: 当選の音（自陣だけ）と画面中央のお知らせ（敵陣は陣営名つき）
+  slotWin(team: number, chain: number, kind: string, tier: number) {
+    this.mslotToast(team, `${chain === 1 ? '大当たり！' : `${chain}連チャン！`}\n${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）`);
+    if (team === this.mfxMine) this.mfx[team]?.beep();
   }
   mslotToast(team: number, text: string, bad = false) {
     const f = this.mfx[this.mfxMine] ?? this.mfx[0];
@@ -1489,7 +1459,7 @@ class GameScene extends Phaser.Scene {
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
     this.buffHud(s, mine, myTeam, sinceSnap);
-    if (s.phase !== 'waiting') this.tokuHud(s, sinceSnap);
+    if (s.phase !== 'waiting') this.tokuHud(s);
     $('.tk').style.display = s.phase === 'waiting' ? 'none' : 'flex';
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);
     this.staging(s, mine, myTeam, sinceSnap);

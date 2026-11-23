@@ -12,7 +12,7 @@ import MAP from '../shared/map.json';
 import { Director } from './commentary';
 import { ServerMeasure, clientReport, LIMITS } from '../shared/netmeasure';
 import * as OG from './outgame';
-import { ModernSlot, type Ev as MEv, type Pay } from '../shared/slot_modern';
+import { ModernSlot, dress, type Ev as MEv, type Pay } from '../shared/slot_modern';
 
 const T = C.TILE;
 // 強さの倍率の表（POWER_MULT・ULT_HP_MULT）の添字 tier の値。表の最後（Lv4）を超えた Lv4+N は Lv4 の値から +lvStep ずつ（handoff_slot3。クラシックは超えない）
@@ -78,7 +78,8 @@ export type Player = {
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 export type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number; holdUntil: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻、holdUntil: この時刻までは拠点移動を始めない（技が止める）
-type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number }; // start: 回転の開始時刻、reels: この回転の結果（陣営のキャラの添字。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）
+type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number; holds: CHold[]; cur: CHold | null; reachSent: boolean }; // start: 回転の開始時刻、reels: この回転の結果（リールの絵柄の番号 1〜9。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）。holds: 保留（先頭が次の回転）、cur: 今の回転の保留、reachSent: リーチ・全回転の演出を送った
+type CHold = { outcome: 'win' | 'miss' | 'pen'; color: number; saki: boolean; act: string | null; reels: number[] }; // クラシックの保留: 積んだ時点の徳で当否を決め、見た目（色・先バレ・演出）はモダンの選択率（handoff_tune5）
 // 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
 type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
 type Team = { toku: number; wanted: string | null; slot: Slot; m: ModernSlot | null; powerTier: number }; // toku: 徳、wanted: 指名手配中のプレイヤーid。m: モダンのスロット（SLOT_MODE が modern のとき）、powerTier: モダンのパワーアップの陣営のレベル（POWER_* の添字。Lv4 以降は 3+N）
@@ -270,8 +271,7 @@ export class GameRoom extends Room {
         if (!sl) return;
         const ms = this.teams[m.team].m; // モダン: 次に回る保留を差し替える（pen＝転落、reach＝リーチのみの演出つき）
         if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.reach ? 'plain' : null }); return; }
-        this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss');
-        if (!m.win && m.reach) sl.reels = [0, 0, 1];
+        this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss', !m.win && !m.pen ? (m.reach ? 'plain' : null) : undefined);
         if (m.chain !== undefined) this.slotChain = m.chain;
       },
       // 自分の陣営にアシストを召喚する（near: 自分の隣に出す）
@@ -367,7 +367,8 @@ export class GameRoom extends Room {
       const base = Math.floor(Math.random() * this.bases[t].length); // 候補部屋からランダムに出現
       const b = this.bases[t][base];
       this.bosses.push({ team: t, base, x: b.x, y: b.y, hp: C.BOSS_HP, dmgAtBase: 0, target: null, cooldownUntil: 0, moved: false, moving: false, shotAt: 0, holdUntil: 0 });
-      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [0, 1, 2], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0 }, m: this.modern ? new ModernSlot(C.SLOT_MODERN, C.TOKU_INIT) : null, powerTier: 0 });
+      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [1, 2, 3], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0, holds: [], cur: null, reachSent: false }, m: this.modern ? new ModernSlot(C.SLOT_MODERN, C.TOKU_INIT) : null, powerTier: 0 });
+      if (!this.modern) this.teams[t].slot.holds = Array.from({ length: C.SLOT_MODERN.holds }, () => this.classicHold(t));
     }
   }
 
@@ -1348,18 +1349,33 @@ export class GameRoom extends Room {
 
   // ---- スロット ----
 
-  // 回転を始める。結果はこの時点で1回のくじで決める（当たり・罰の確率は徳で決まる、残りは外れ）。罰は ×××、外れは3つそろわない並び
-  startSpin(team: number, result?: 'win' | 'pen' | 'miss') {
+  // 保留を1つ作る: 当否はこの時点の徳で1回のくじ（当たり・罰の確率は徳で決まる、残りは外れ）。見た目はモダンの選択率。act を渡すとその演出（null＝リーチなし）
+  // 出目はリールの絵柄の番号（見た目だけ。払い出しとは連動しない）。罰は ×××、リーチの外れは2つそろえて3つ目をずらす、リーチなしの外れは1つ目と2つ目を違える
+  classicHold(team: number, result?: CHold['outcome'], act?: string | null): CHold {
     const toku = this.teams[team].toku, u = Math.random(), pw = slotRate(toku);
-    const res = result ?? (this.slotMiss ? 'miss' : u < pw ? 'win' : u < pw + penaltyRate(toku) ? 'pen' : 'miss');
-    const sl = this.teams[team].slot, n = Math.max(2, [...this.players.values()].filter((p) => p.team === team && !p.assist).length);
-    const r = () => Math.floor(Math.random() * n);
+    const outcome = result ?? (u < pw ? 'win' : u < pw + penaltyRate(toku) ? 'pen' : 'miss');
+    const d = dress(C.SLOT_MODERN, outcome, Math.random);
+    if (act !== undefined) d.act = act;
+    const n = C.SLOT_MODERN.reel.syms.length, r = () => 1 + Math.floor(Math.random() * n);
     let reels: number[];
-    if (res === 'win') { const k = r(); reels = [k, k, k]; }
-    else if (res === 'pen') reels = [-1, -1, -1];
-    else do reels = [r(), r(), r()]; while (reels[0] === reels[1] && reels[1] === reels[2]);
-    Object.assign(sl, { start: this.now, reels, win: res === 'win', pen: res === 'pen', chain: 0, tier: 0, payoutAt: null, holdUntil: 0 });
+    if (outcome === 'win') { const k = r(); reels = [k, k, k]; }
+    else if (outcome === 'pen') reels = [-1, -1, -1];
+    else { const a = r(), b = 1 + ((a + Math.floor(Math.random() * (n - 1))) % n); reels = d.act ? [a, a, b] : [a, b, r()]; }
+    return { outcome, ...d, reels };
   }
+
+  // 回転を始める: 先頭の保留を消化して1つ積む（先バレはここで自陣へ）。result を渡すとその結果に差し替える（e2e・検証用）
+  startSpin(team: number, result?: CHold['outcome'], act?: string | null) {
+    const sl = this.teams[team].slot;
+    let h = sl.holds.shift() ?? this.classicHold(team);
+    const add = this.classicHold(team); sl.holds.push(add);
+    if (add.saki) this.mslot(team, { type: 'saki' });
+    if (result) h = this.classicHold(team, result, act);
+    else if (this.slotMiss && h.outcome !== 'miss') h = this.classicHold(team, 'miss'); // e2e: 技の検証中は外れに固定
+    Object.assign(sl, { start: this.now, reels: h.reels, win: h.outcome === 'win', pen: h.outcome === 'pen', chain: 0, tier: 0, payoutAt: null, holdUntil: 0, cur: h, reachSent: false });
+  }
+
+  mslot(team: number, msg: any) { for (const c of this.clients) c.send('mslot', { team, ...msg }); }
 
   // 罰: その陣営の生存者全員（アシストを除く）に、抽選した1つを掛ける。徳は変わらない。両陣営に通知
   penalty(team: number) {
@@ -1390,10 +1406,15 @@ export class GameRoom extends Room {
   // 回転が終わったら: 当たりなら徳が下がり、払い出し（連チャンは間を空けて続ける）。外れなら次の回転
   updateSlots() {
     this.teams.forEach((t, team) => {
-      const sl = t.slot;
+      const sl = t.slot, h = sl.cur;
       if (sl.payoutAt === null) {
+        if (h?.act && !sl.reachSent && !sl.holdUntil) { // リーチ・全回転: 演出の秒数だけ前から（回転の終わりは変えない）
+          const M = C.SLOT_MODERN, sec = h.act === 'allSpin' ? M.allSpinSec : M.reach[h.act].sec, end = sl.start + C.SLOT.spin;
+          if (this.now >= end - sec) { sl.reachSent = true; this.mslot(team, { type: 'spin', reels: sl.reels, act: h.act, sec: end - this.now, win: sl.win }); }
+        }
         if (this.now - sl.start < C.SLOT.spin) return;
         if (sl.holdUntil) { if (this.now >= sl.holdUntil) this.startSpin(team); return; } // 罰の出目を見せ終わったら次の回転
+        this.mslot(team, { type: 'stop', reels: sl.reels, outcome: sl.win ? 'win' : sl.pen ? 'pen' : 'miss' });
         if (sl.pen) { this.penalty(team); sl.holdUntil = this.now + C.SLOT.penHold; return; }
         if (!sl.win) return this.startSpin(team);
         this.addToku(team, null, 'slot');
@@ -1430,7 +1451,7 @@ export class GameRoom extends Room {
   }
 
   modernEv(team: number, e: MEv) {
-    const send = (msg: any) => { for (const c of this.clients) c.send('mslot', { team, ...msg }); };
+    const send = (msg: any) => this.mslot(team, msg);
     if (e.type === 'hold' && e.hold.saki) send({ type: 'saki' });
     else if (e.type === 'spin') {
       const sec = e.end - e.t, h = e.hold;
@@ -1815,6 +1836,12 @@ export class GameRoom extends Room {
   }
 
   // モダンのスロットの表示用（当否は送らない）: モード・引き戻しの残り・保留（色・先バレ・高確率）・回転中の保留・レベル（Lv.4+N の表示）
+  // クラシックの保留の表示（色・先バレ）。cur: 回っている保留（払い出し・罰の表示中はなし）、chain: 払い出し中の連チャン数
+  classicView(sl: Slot) {
+    const h = (x: CHold) => [x.color, x.saki ? 1 : 0, 0];
+    return { kind: 'classic', holds: sl.holds.map(h), cur: sl.cur && sl.payoutAt === null && !sl.holdUntil ? h(sl.cur) : null, chain: sl.payoutAt !== null ? sl.chain : 0 };
+  }
+
   modernView(m: ModernSlot) {
     const h = (x: { color: number; saki: boolean; high: boolean }) => [x.color, x.saki ? 1 : 0, x.high ? 1 : 0];
     return { mode: m.mode, backLeft: m.backLeft, holds: m.holds.map(h), cur: m.cur ? h(m.cur.hold) : null, lv: m.lv };
@@ -1849,7 +1876,7 @@ export class GameRoom extends Room {
       const myTeam = me ? me.team : 0;
       client.send('s', {
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
-        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) }, m: t.m && this.modernView(t.m) })),
+        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({
           id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,

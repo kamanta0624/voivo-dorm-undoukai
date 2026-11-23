@@ -1,15 +1,15 @@
 // マップチップ試験（/maptest）: map.json の間取りをチップで描く（本体と同じ mapchip/paint.ts）。現行の単色描画と切り替えて比べる
 import MAP from '../shared/map.json';
-import { ROOMS } from '../client/mapchip/chips';
+import { ROOMS, OUTSIDE_TONE, OUTSIDE_TONES, type OutsideTone } from '../client/mapchip/chips';
 import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from '../client/mapchip/paint';
 
 const T = MAP.tileSize;
 const load = (src: string) => new Promise<HTMLImageElement>((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error(src)); i.src = src; });
-// 1倍の絵を作る（p なし: 現行の単色、p あり: チップ）
-function paint(p: Pics | null) {
+// 1倍の絵を作る（p なし: 現行の単色、p あり: チップ）。tone: 建物の外の色調
+function paint(p: Pics | null, tone: OutsideTone = OUTSIDE_TONE) {
   const c = document.createElement('canvas');
   c.width = MAP.width * T; c.height = MAP.height * T;
-  paintMap(c.getContext('2d')!, p, MAP.tiles);
+  paintMap(c.getContext('2d')!, p, MAP.tiles, undefined, undefined, undefined, undefined, tone);
   return c;
 }
 
@@ -17,6 +17,8 @@ const cv = document.getElementById('cv') as HTMLCanvasElement, ctx = cv.getConte
 const modeBtn = document.getElementById('mode')!, info = document.getElementById('info')!;
 const q = new URLSearchParams(location.search);
 let tiled = q.get('mode') !== 'current', zoom = Number(q.get('z')) || 1, labels = q.get('labels') !== '0';
+const TONES = Object.keys(OUTSIDE_TONES) as OutsideTone[], toneBtn = document.getElementById('tone')!;
+let tone: OutsideTone = TONES.includes(q.get('tone') as OutsideTone) ? (q.get('tone') as OutsideTone) : OUTSIDE_TONE, chips: Pics | null = null;
 let pics: { current: HTMLCanvasElement; tiled: HTMLCanvasElement | null } = { current: paint(null), tiled: null };
 
 function draw() {
@@ -35,15 +37,18 @@ function draw() {
     }
   }
   modeBtn.textContent = tiled ? 'チップ表示（Tで現行へ）' : '現行の単色（Tでチップへ）';
+  toneBtn.textContent = `外の色調: ${OUTSIDE_TONES[tone].name}（${tone}${tone === OUTSIDE_TONE ? '・試合' : ''}。Cで切替）`;
   info.textContent = `${MAP.width}×${MAP.height}マス・1マス${T}px・${zoom}倍`;
   document.body.dataset.ready = pics.tiled ? '1' : '0';
 }
 modeBtn.onclick = () => { tiled = !tiled; draw(); };
-addEventListener('keydown', (e) => { if (e.key === 't' || e.key === 'T') { tiled = !tiled; draw(); } if (e.key === 'n' || e.key === 'N') { labels = !labels; draw(); } });
+const nextTone = () => { tone = TONES[(TONES.indexOf(tone) + 1) % TONES.length]; if (chips) pics.tiled = paint(chips, tone); draw(); };
+toneBtn.onclick = nextTone;
+addEventListener('keydown', (e) => { if (e.key === 't' || e.key === 'T') { tiled = !tiled; draw(); } if (e.key === 'n' || e.key === 'N') { labels = !labels; draw(); } if (e.key === 'c' || e.key === 'C') nextTone(); });
 document.getElementById('labels')!.onclick = () => { labels = !labels; draw(); };
 document.querySelectorAll<HTMLButtonElement>('[data-z]').forEach((b) => (b.onclick = () => { zoom = Number(b.dataset.z); draw(); }));
 draw();
 const names = Object.keys(CHIP_FILES) as (keyof typeof CHIP_FILES)[];
 Promise.all(names.map((k) => load('/' + CHIP_DIR + CHIP_FILES[k])))
-  .then((imgs) => { pics.tiled = paint(Object.fromEntries(names.map((k, i) => [k, imgs[i]])) as Pics); draw(); })
+  .then((imgs) => { chips = Object.fromEntries(names.map((k, i) => [k, imgs[i]])) as Pics; pics.tiled = paint(chips, tone); draw(); })
   .catch((e) => { info.textContent = `素材を読めない: ${e.message}（public/assets/mapchip/ を確認。CLAUDE.md のコピー手順）`; });

@@ -21,7 +21,7 @@ export type Ev =
   | { t: number; type: 'mode'; mode: Mode; prev: Mode }
   | { t: number; type: 'end'; chain: number; maxLv: { power: number; assist: number } }; // 連チャンの終わり（引き戻し失敗で通常へ）。chain: CT・引き戻しの当選の回数
 
-const pick = (w: number[], u: number) => { const s = w.reduce((a, b) => a + b, 0); let x = u * s; for (let i = 0; i < w.length; i++) { x -= w[i]; if (x < 0) return i; } return w.length - 1; };
+export const pick = (w: number[], u: number) => { const s = w.reduce((a, b) => a + b, 0); let x = u * s; for (let i = 0; i < w.length; i++) { x -= w[i]; if (x < 0) return i; } return w.length - 1; };
 
 // 徳 t・モードの当選確率と、CT の転落確率（B章の式）
 export function winRate(spec: Spec, mode: Mode, t: number) {
@@ -48,6 +48,18 @@ export function reliability(spec: Spec, t: number, mode: Mode = 'normal') {
   };
 }
 
+// 当否に合わせた見た目: 保留の色・先バレ・リーチ演出（外れ側の選択率は徳によらず固定）。bad（転落・クラシックの罰）は外れの色で、先バレ・リーチなし
+export function dress(S: Spec, outcome: Outcome | 'pen', rng: () => number) {
+  const win = outcome === 'win', bad = outcome === 'fall' || outcome === 'pen';
+  const color = pick(win ? S.colorWin : S.colorMiss, rng());
+  const saki = bad ? false : rng() < (win ? S.sakibare.win : S.sakibare.miss);
+  const R = S.reach, keys = Object.keys(R);
+  let act: string | null = null;
+  if (win) act = rng() < S.allSpin ? 'allSpin' : keys[pick(keys.map((k) => R[k].win), rng())];
+  else if (!bad && rng() < S.reachMiss) act = keys[pick(keys.map((k) => R[k].miss), rng())];
+  return { color, saki, act };
+}
+
 export class ModernSlot {
   t = 0; // 経過秒
   mode: Mode = 'normal';
@@ -72,14 +84,7 @@ export class ModernSlot {
     let outcome: Outcome;
     if (high) outcome = u < S.high[m] ? 'win' : 'miss';
     else { const w = winRate(S, m, t), f = m === 'ct' ? fallRate(S, t) : 0; outcome = u < w ? 'win' : u < w + f ? 'fall' : 'miss'; }
-    const win = outcome === 'win';
-    const color = pick(win ? S.colorWin : S.colorMiss, this.rng());
-    const saki = outcome === 'fall' ? false : this.rng() < (win ? S.sakibare.win : S.sakibare.miss);
-    const R = S.reach, keys = Object.keys(R);
-    let act: string | null = null;
-    if (win) act = this.rng() < S.allSpin ? 'allSpin' : keys[pick(keys.map((k) => R[k].win), this.rng())];
-    else if (outcome === 'miss' && this.rng() < S.reachMiss) act = keys[pick(keys.map((k) => R[k].miss), this.rng())];
-    return this.fill({ outcome, mode: m, toku: t, color, saki, act, high, reels: [] });
+    return this.fill({ outcome, mode: m, toku: t, ...dress(S, outcome, this.rng), high, reels: [] });
   }
 
   // 払い出しの抽選（通常＝reel.first、CT・引き戻し＝reel.ct の選択率でそろい目の種類を選ぶ）。group を指定するとその種類の効果
