@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VOICE SQUAD ルール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 体験版に同梱の説明書。短く、すぐ遊べる
+   IDEA: スーファミの取扱説明書の見開き
+   PICTURE: だいだい組とみどり組が中央でぶつかる寮の見取り図
+   COLOUR and TYPE: だいだい #f08a1c / みどり #3fa34d / 紙の白、DotGothic16 見出し + M PLUS Rounded 本文
+   LAYOUT: 帯で区切った1カラム、表は折り返し */
+:root{color-scheme:light dark;--bg:light-dark(#fffaf2,#17140f);--ink:light-dark(#241d14,#f3ece0);--sub:light-dark(#6b5d4a,#b9ab95);--card:light-dark(#fff,#221d16);--line:light-dark(#e8dcc8,#3a3126);--or:#f08a1c;--gr:#3fa34d;--orb:light-dark(#fde7cf,#3b2510);--grb:light-dark(#dcf0de,#14301a)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 "M PLUS Rounded 1c",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(28px,4vw,56px) max(5vw,16px)}
+.wrap{max-width:980px;margin:0 auto}
+h1,h2{font-family:DotGothic16,monospace;font-weight:400;line-height:1.1;text-wrap:balance;margin:0}
+h1{font-size:clamp(40px,7vw,64px);letter-spacing:.02em}
+h2{font-size:clamp(26px,3.6vw,34px);margin-bottom:18px}
+h3{font-size:18px;margin:0 0 6px}
+p{margin:0 0 10px}
+.lead{font-size:18px;font-weight:700;max-width:40em}
+.vs{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;font-family:DotGothic16,monospace;font-size:clamp(18px,3vw,26px)}
+.vs b{font-weight:400;background:#fff;color:#241d14;border-radius:8px;padding:4px 12px}
+
+.scroll{display:flex;gap:8px;overflow-x:auto;padding:10px max(5vw,16px);background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+.scroll a{flex:none;color:var(--ink);text-decoration:none;font-weight:700;font-size:14px;padding:8px 12px;border-radius:999px;border:1px solid var(--line)}
+.scroll a:focus-visible,.scroll a:hover{border-color:var(--or)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card.or{background:var(--orb);border-color:transparent}.card.gr{background:var(--grb);border-color:transparent}
+.key{display:inline-block;min-width:2em;text-align:center;font-family:DotGothic16,monospace;border:2px solid currentColor;border-bottom-width:4px;border-radius:6px;padding:0 6px;margin-right:4px}
+ul{margin:0;padding-left:1.2em}li{margin:2px 0}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px;counter-reset:f}
+.flow div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:relative}
+.flow b{display:block;font-size:17px}
+.up{color:var(--gr);font-weight:800}.down{color:#d2452f;font-weight:800}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:15px}
+th{font-size:13px;color:var(--sub);font-weight:700}
+td:first-child{font-weight:800;white-space:nowrap}
+.role{display:inline-block;font-size:12px;font-weight:800;padding:1px 8px;border-radius:999px;background:var(--line);white-space:nowrap}
+.note{font-size:13px;color:var(--sub)}
+
+.hero{position:relative;overflow:hidden;background:linear-gradient(90deg,var(--or) 0 50%,var(--gr) 50% 100%);color:#fff;min-height:clamp(320px,46vw,520px);display:grid;place-items:center;padding:24px max(5vw,16px)}
+.hin{position:relative;z-index:1;text-align:center;display:grid;gap:14px;justify-items:center;text-shadow:0 2px 0 rgba(0,0,0,.25)}
+.hin .lead{margin:0 auto}
+.boss{position:absolute;bottom:-8%;height:115%;width:auto;max-width:none;opacity:.95}
+.boss.l{left:-4%}.boss.r{right:-4%}
+@media(max-width:700px){.boss{height:70%;opacity:.35}}
+.vs{width:min(100%,560px)}
+.mapbox{overflow-x:auto;border-radius:12px;border:1px solid var(--line);background:#666}
+.map{position:relative;min-width:900px}
+.map img{display:block;width:100%;height:auto;image-rendering:pixelated}
+.lab{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none}
+.lab b{font-size:14px;color:#fff;background:rgba(20,16,10,.78);padding:1px 7px;border-radius:6px;white-space:nowrap}
+.lab span{display:flex;gap:3px}
+.pin{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid #241d14;box-shadow:0 0 0 2px #fff}
+.pin.p-start{background:#2c6fd6}.pin.p-heal{background:#e7487b}.pin.p-boss{background:#ffd23a}.pin.p-kobako{background:#b07a2a;border-radius:3px}
+.side{position:absolute;top:2%;font-family:DotGothic16,monospace;font-size:20px;color:#fff;padding:2px 12px;border-radius:8px}
+.side.l{left:1%;background:var(--or)}.side.r{right:1%;background:var(--gr)}
+.route{position:absolute;left:50%;top:22%;height:70%;border-left:4px dashed #b07a2a;transform:translateX(-50%)}
+.legend{list-style:none;padding:0;margin:12px 0;display:flex;flex-wrap:wrap;gap:8px 18px}
+.legend li{display:flex;align-items:center;gap:6px;font-size:14px}
+.dot{width:48px;height:63px;image-rendering:pixelated;display:block}
+.dot.sm{width:32px;height:42px;display:inline-block;vertical-align:middle;margin-right:6px}
+.dots{display:flex;flex-wrap:wrap;gap:10px}.dots figure{margin:0;text-align:center;font-size:12px}.dots img{margin:0 auto}
+td.dc{width:60px;padding:4px 8px}
+@media(max-width:600px){td.dc{padding-inline-start:12px}td.dc::before{display:none}}
+.back{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:5;display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:999px;background:#241d14;color:#fff;font-weight:800;text-decoration:none;box-shadow:0 3px 10px rgba(0,0,0,.3)}
+.back:focus-visible{outline:3px solid var(--or);outline-offset:2px}
+footer{padding-bottom:80px}
+footer{border-top:1px solid var(--line)}
+@media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 12px;padding-inline-start:7em;text-align:start;white-space:normal}.stack td::before{content:attr(data-l);float:inline-start;width:6.5em;margin-inline-start:-6.5em;color:var(--sub);font-weight:700;font-size:12px}.stack td:empty{display:none}.vs{font-size:16px}}
+@media(prefers-reduced-motion:no-preference){.pulse{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.35}}}
+</style>
+<script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
+</head>
+<body>
+<a class="back" href="/">← タイトルへ戻る</a>
+
+<header class="hero">
+  <img class="boss l" src="/assets/gen/tachie/ankomon/select.png" alt="あんこもん">
+  <img class="boss r" src="/assets/gen/tachie/zundamon/select.png" alt="ずんだもん">
+  <div class="hin">
+    <h1>VOICE SQUAD</h1>
+    <p class="lead">ボイボ寮で4人対4人。相手の大将を倒した組の勝ち。1試合5分。</p>
+    <div class="vs"><span>だいだい組<br><b>大将 あんこもん</b></span><span>VS</span><span>みどり組<br><b>大将 ずんだもん</b></span></div>
+  </div>
+</header>
+
+<nav class="scroll" aria-label="目次">
+  <a href="/">← タイトルへ</a>  <a href="#map">マップ</a><a href="#win">勝ち方</a><a href="#ctrl">操作</a><a href="#flow">試合の流れ</a><a href="#toku">徳とスロット</a><a href="#bad">悪行</a><a href="#ko">やられたら</a><a href="#chars">キャラ</a>
+</nav>
+<section class="band" id="map"><div class="wrap">
+  <h2>マップ（ボイボ寮1階）</h2>
+  <p>左右対称。左がだいだい組、右がみどり組の陣地。画面に映るのは自分のまわりだけで、全体は右下のミニマップで見る。</p>
+  <div class="mapbox"><div class="map">
+    <img src="/assets/rules/map.png" alt="ボイボ寮1階の見取り図" width="3104" height="1480">
+    <div id="pins"></div>
+  </div></div>
+  <ul class="legend">
+    <li><i class="pin p-start"></i>開始する部屋</li>
+    <li><i class="pin p-heal"></i>回復部屋（ご飯・リコールの行き先）</li>
+    <li><i class="pin p-boss"></i>大将の候補（この中から試合ごとに3部屋。床の色で分かる）</li>
+    <li><i class="pin p-kobako"></i>コバコの巡回ルート</li>
+  </ul>
+  <p class="note">弓道場・窯小屋の近く・ウッドデッキ・犬走りは屋外。犬走りの柵とアトリウムのガラスは向こうが見えるが通れない。左右の端の黒い壁は壊せない。それ以外の壁は壊せる。</p>
+</div></section>
+
+<section class="band" id="win"><div class="wrap">
+  <h2>勝ち方</h2>
+  <div class="grid">
+    <div class="card"><h3>大将を倒す</h3><p>相手の大将のHPを0にした組の勝ち。大将は反撃してくる。HPが減ると予告つきの広範囲攻撃のあと別の部屋へ逃げ、弾も撃つようになる。</p></div>
+    <div class="card"><h3>時間切れ（5分）</h3><p>大将の残りHPの割合が多い組の勝ち。同じなら引き分け。</p></div>
+    <div class="card"><h3>大将のいる部屋</h3><p>大将の出現・逃げ先は試合ごとにランダムで3部屋（左右で同じ部屋）。床の色とミニマップで分かる。候補は上のマップを参照。</p></div>
+  </div>
+</div></section>
+
+<section class="band" id="ctrl"><div class="wrap">
+  <h2>操作</h2>
+  <p>通常攻撃は自動。射程に入った敵へ勝手に撃つ。自分でやるのは移動と技とリコールだけ。</p>
+  <table class="stack">
+    <thead><tr><th>やること</th><th>PC</th><th>スマホ</th></tr></thead>
+    <tbody>
+      <tr><td>移動</td><td><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span></td><td>左のスティック</td></tr>
+      <tr><td>技</td><td><span class="key">R</span>（タメ技は押しっぱなし→離す）</td><td>技ボタン</td></tr>
+      <tr><td>狙う相手の切替</td><td><span class="key">Tab</span></td><td>モードボタン</td></tr>
+      <tr><td>リコール</td><td><span class="key">Q</span> を3秒長押し</td><td>撤退ボタン長押し</td></tr>
+      <tr><td>マップを見る</td><td colspan="2">ミニマップを長押し（離すと自分に戻る）</td></tr>
+    </tbody>
+  </table>
+  <div class="grid" style="margin-top:14px">
+    <div class="card"><h3>狙う相手（4モード）</h3><ul><li>一番近い敵</li><li>一番HPが低い敵</li><li>大将優先</li><li>コバコ（このモードでしかコバコを殴らない）</li></ul></div>
+    <div class="card"><h3>リコール</h3><p>自陣の回復部屋（だいだい組＝ジム、みどり組＝音楽室）へワープし、最大HPの半分を回復。溜め中に動く・攻撃する・攻撃を受けると中断。</p></div>
+    <div class="card"><h3>視界</h3><p>見えるのは味方全員が見ている範囲だけ。壁の向こうは見えない。</p></div>
+  </div>
+</div></section>
+
+<section class="band" id="flow"><div class="wrap">
+  <h2>試合の流れ</h2>
+  <div class="flow">
+    <div><b>1. 徳を拾う</b>床に落ちている「徳」を拾うと組の徳が上がる。奥の部屋ほど高い。</div>
+    <div><b>2. スロットが当たる</b>徳が高いほど当たりやすい。当たるとパワーアップかアシスト。</div>
+    <div><b>3. 攻める</b>強くなった間に相手陣へ。壁を壊して近道もできる。</div>
+    <div><b>4. 大将を削る</b>アタッカーは大将へのダメージ2倍。</div>
+  </div>
+</div></section>
+
+<section class="band" id="toku" style="background:var(--orb)"><div class="wrap">
+  <h2>徳とスロット</h2>
+  <div class="grid">
+    <div class="card"><h3>徳（組で共有、0〜10・初期5）</h3>
+      <ul>
+        <li><span class="up">上がる</span>：徳を拾う／指名手配犯を倒す／味方が反省中（人数が多いほど速い）</li>
+        <li><span class="down">下がる</span>：攻撃する／敵を倒す／壁を壊す／ご飯（回復アイテム）を食べる／コバコを攻撃する／スロットが当たる</li>
+      </ul>
+    </div>
+    <div class="card"><h3>スロット（組ごとに自動で回る）</h3>
+      <ul>
+        <li>徳が高いほど当たりやすい。当たると徳が2下がる</li>
+        <li>そろった絵柄がプレイヤー → その人がパワーアップ</li>
+        <li>アシストの絵柄 → アシストが出てくる（もういれば強化）</li>
+        <li>当たりのあと最大3回の連チャン抽選。当たるたびにレベルアップ（最大レベル4）</li>
+        <li>大将の絵柄（7）は徳9以上でだけ出る。全員レベルアップ</li>
+        <li>保留の色・先バレ・リーチは期待度の目安</li>
+        <li>徳が低いと罰が出ることがある（全員にダメージ／足が遅くなる／攻撃が弱くなる）</li>
+      </ul>
+    </div>
+    <div class="card"><h3>パワーアップ・アシスト</h3>
+      <p>パワーアップは約20秒の変身。専用のHPがあり、0になると解ける。背後に大きな自分が出るほど高レベル。</p>
+      <p>アシストは味方の助っ人。各組1体まで。</p><div class="dots" id="assists"></div>
+    </div>
+    <div class="card"><h3><img class="dot sm" src="/assets/gen/dot/kobako/idle.png" alt="">ブイブイ・コバコ</h3>
+      <p>アトリウム・ホール・ウッドデッキを往復する中立の配達員。通った部屋に高い徳をばらまく。1発で倒せて、倒すと荷物（パワーアップかアシスト）を落とす。ただし徳が大きく下がり、悪行も多く付く。</p>
+    </div>
+  </div>
+</div></section>
+
+<section class="band" id="bad"><div class="wrap">
+  <h2>悪行と指名手配</h2>
+  <div class="grid">
+    <div class="card"><p>徳を下げる行動をすると、その人に悪行がたまる（壁破壊は2倍、コバコは3倍）。各組で一番悪行が多く、一定以上の人は<b>指名手配</b>。</p></div>
+    <div class="card"><p>指名手配犯を倒した組は徳が上がる。ユーレイちゃんのジャッジメントは悪行が多い相手ほど痛く、手配犯は一撃。</p></div>
+  </div>
+</div></section>
+
+<section class="band" id="ko" style="background:var(--grb)"><div class="wrap">
+  <h2>やられたら</h2>
+  <p>HPが0で撤退し「反省」の時間。暴れた（倒した）人ほど長い（3〜15秒）。反省中は悪行が減り、組の徳が少しずつ上がる。終わると自陣から再出撃。</p>
+</div></section>
+
+<section class="band" id="chars"><div class="wrap">
+  <h2>キャラ（14人）</h2>
+  <p class="note">ロール：バランス＝ひとりで戦える／アタッカー＝撃破と大将攻撃が得意（大将へのダメージ2倍）・打たれ弱い／スピード＝速くて視界が広い／ディフェンス＝硬い／サポート＝本人は弱いが味方を助ける</p>
+  <table class="stack">
+    <thead><tr><th></th><th>キャラ</th><th>ロール</th><th>技</th><th>中身</th></tr></thead>
+    <tbody id="ct"></tbody>
+  </table>
+  <p class="note" style="margin-top:10px">数値はテスト中の仮置き。予告なく変わる。</p>
+</div></section>
+
+<footer class="band"><div class="wrap note">VOICE SQUAD 体験版 ルール説明（2026-11-23時点）。実況：VOICEVOX:No.7</div></footer>
+
+<script>
+{
+  const R = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
+  const C = [
+    ['hanamaru', '満別花丸', 'balance', '花丸パンチ', '押してタメ、離すと大きな拳。壁を壊して突き進む。壁に押し込み続けても壊せる'],
+    ['itako', '東北イタコ', 'balance', '狐火', 'まわりに狐火を回す。もう一度使うと近くの敵へ飛ばす'],
+    ['kiritan', '東北きりたん', null, '全弾斉射', '1回目でロックオン、2回目でホーミング弾。近くは包丁、遠くはきりたん砲'],
+    ['sayo', '小夜', 'attacker', '疾風乱舞', 'しばらく速くなり、まわりの敵を斬り続ける'],
+    ['zunko', '東北ずん子', 'attacker', 'ずんだアロー', '追尾する矢。当たった敵はずんだ餅（遅い・技なし・与ダメ半分）'],
+    ['himari', '冥鳴ひまり', 'attacker', '死神の鎌', '姿を消し、近づいた敵へ特大ダメージ。消えている間に攻撃されると即やられる'],
+    ['sora', '九州そら', 'attacker', 'ソーラーキャノン', '試合開始から溜め続けるビーム。溜めるほど強く遠く、壁も壊す。倒されると溜め直し'],
+    ['whitecul', 'WhiteCUL', 'speed', '吹雪', '前方に吹雪。ダメージ＋はじき飛ばし'],
+    ['aru', '猫使アル', 'speed', '突撃', 'タメてから突撃。壁を壊し、触れた敵にダメージ'],
+    ['metan', '四国めたん', 'defense', 'ドリル', '前方にドリルを出し続け、触れた敵をはじく'],
+    ['mochiko', 'もち子', 'defense', 'ファンネル', '6機のファンネルが敵を囲んで撃つ（壊される）'],
+    ['bii', '猫使ビィ', 'support', 'オーバードライブ', '残像（おとり）を残して走り、触れた敵に印。最後に印の全員を爆破'],
+    ['ierutan', 'あいえるたん', 'support', 'アップグレード', 'まわりの味方の通常攻撃を速くし、回復し続ける'],
+    ['yurei', 'ユーレイちゃん', 'support', 'ジャッジメント', '悪行が多い敵ほど大ダメージ、手配犯は一撃。壊せる壁をすり抜ける'],
+  ];
+  document.getElementById('ct').innerHTML = C.map(([k, n, r, s, d]) => `<tr><td class="dc"><img class="dot" src="/assets/gen/dot/${k}/idle.png" alt=""></td><td>${n}</td><td><span class="role">${r ? R[r] : 'なし'}</span></td><td>${s}</td><td>${d}</td></tr>`).join('');
+  const A = [['kurono', '玄野武宏', 'まわりに範囲攻撃'], ['shirakami', '白上虎太郎', '味方を回復・加速'], ['aoyama', '青山龍星', '敵の位置に範囲攻撃'], ['ritsu', '波音リツ', '硬くて重い。まわりに吹雪']];
+  document.getElementById('assists').innerHTML = A.map(([k, n, d]) => `<figure><img class="dot" src="/assets/gen/dot/${k}/idle.png" alt=""><b>${n}</b><br>${d}</figure>`).join('');
+  // マップの部屋名と印（座標はマップ画像の px）
+  const W = 3104, H = 1480;
+  const P = [
+    [248, 300, '道場', 'boss'], [648, 304, '弓道場（屋外）', 'boss'], [2856, 300, '茶室', 'boss'], [2456, 304, '窯小屋の近く（屋外）', 'boss'],
+    [1176, 784, 'パーティールーム', 'start'], [1928, 784, 'リビング', 'start'],
+    [680, 728, 'ジム', 'heal boss'], [2424, 728, '音楽室', 'heal boss'],
+    [504, 976, '会議室', 'boss'], [776, 976, 'PCルーム', 'boss'], [2600, 976, '工作室', 'boss'], [2328, 976, 'アトリエ', 'boss'],
+    [632, 1248, '階段ホール', 'boss'], [2472, 1248, '階段ホール', 'boss'],
+    [1552, 552, 'ウッドデッキ（屋外）', 'kobako'], [1552, 952, 'ホール', 'kobako'], [1552, 1328, 'アトリウム', 'kobako'], [1552, 344, '犬走り（屋外）', ''],
+  ];
+  document.getElementById('pins').innerHTML = '<div class="side l">だいだい組</div><div class="side r">みどり組</div>' + P.map(([x, y, n, t]) => `<div class="lab" style="left:${(x / W) * 100}%;top:${(y / H) * 100}%"><b>${n}</b><span>${t.split(' ').filter(Boolean).map((c) => `<i class="pin p-${c}"></i>`).join('')}</span></div>`).join('');
+}
+</script>
+</body>
+</html>

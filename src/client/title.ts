@@ -110,7 +110,7 @@ function showTitle() {
     $('.notes').onclick = () => open(items.map((x, i) => (i ? fold(x) : md(x))).join(''));
   });
   $('.credits').onclick = () => fetchText('credits.md').then((t) => open(md(t)));
-  $('.rules').onclick = async () => { el.style.display = 'none'; (await import('./tutorial')).start(() => (el.style.display = '')); };
+  $('.rules').onclick = () => location.assign('/rules.html'); // ルール説明のページ（public/rules.html。戻るボタンはページの中）。ADV（tutorial.ts）は将来使うので残す
 
   // 部屋一覧: STATUS_POLL_SEC 秒ごとに自動更新。待機中かつ空きありの部屋だけ押せる。メンテ中は全部押せない
   let busy = false;
