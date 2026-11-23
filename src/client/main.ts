@@ -793,12 +793,12 @@ class GameScene extends Phaser.Scene {
     const pw = P.new ? `パワーアップ ${L(P.tier)}` : `パワーアップ ${P.add ? `+${P.add} → ` : ''}${L(P.tier)}（+${C.SLOT_MODERN.game.ultAdd}秒）`;
     const as = A.new ? `アシスト ${L(A.tier)} 登場` : `アシスト ${A.add ? `+${A.add} → ` : ''}${L(A.tier)}${A.add ? '' : ' 耐久アップ'}`;
     this.mslotToast(m.team, `${m.first ? '大当たり！' : `${m.chain}連チャン！`}\n${pw}\n${as}`);
-    if (m.team === this.mfxMine) this.mfx[m.team]?.beep();
+    if (m.team === this.mfxMine) this.mfx[m.team]?.se('win');
   }
-  // クラシックの払い出し（両陣営）: 当選の音（自陣だけ）とカットイン
+  // クラシックの払い出し（両陣営）: 当選音（自陣だけ・大当たりのとき）とカットイン
   slotWin(team: number, chain: number, kind: string, tier: number, char: string) {
     this.slotCutin(team, chain, kind, tier, char);
-    if (team === this.mfxMine) this.mfx[team]?.beep();
+    if (team === this.mfxMine && chain === 1) this.mfx[team]?.se('win'); // 当選音は大当たり（7を含む）のときだけ。チャンスアップの段では鳴らさない
   }
   // スロットの当たり・チャンスアップのカットイン（両陣営）: 当てた陣営、対象の名前と払い出し・レベル。chain 2〜はチャンスアップの段
   slotCutin(team: number, chain: number, kind: string, tier: number, char: string) {

@@ -374,13 +374,18 @@ async function slotCheck(A: Tab, B: Tab) {
   }, k, { timeout: (C.SLOT.spin + 3) * 1000, polling: 'raf' }).then((h) => h.jsonValue() as Promise<{ t: string; xs: number }>, () => null));
   await send(A, 'e2eSlot', { team: 0, pen: true });
   const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty');
+  // 効果音（handoff_se1）: 再生した音の src と、再生できたか（play の Promise）を記録する
+  await Promise.all([A, B].map((T) => T.page.evaluate(() => { const w = window as any, o = HTMLMediaElement.prototype.play; w.sePlayed = []; HTMLMediaElement.prototype.play = function () { const r = { src: this.src, ok: null as boolean | null }; w.sePlayed.push(r); const p = o.call(this); p.then(() => (r.ok = true), () => (r.ok = false)); return p; }; })));
   const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！ずんだもん軍', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
-  await send(A, 'e2eSlot', { team: 1, win: true });
+  await send(A, 'e2eSlot', { team: 1, win: true, chain: 0 });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
+  await B.page.waitForTimeout(300);
+  const se = await Promise.all([A, B].map((T) => T.page.evaluate(() => (window as any).sePlayed.filter((r: any) => /nc356453/.test(r.src)))));
   const xs = ea?.xs ?? 0, pa = ea?.t ?? null, pb = eb?.t ?? null;
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
   check(`スロット: 3リール・保留${C.SLOT_MODERN.holds}つ（色つき）、リーチ演出、当選は両陣営にカットイン`, look.reels === 3 && look.holds.length === C.SLOT_MODERN.holds && look.holds.every(Boolean) && r && !!ca && !!cb, { look, reach: r, ca, cb });
   check('スロットの罰: ×××の出目、両陣営に通知（陣営と罰の内容）', xs === 3 && !!pa && !!pb, { xs, pa, pb });
+  check('当選音: 当てた陣営の端末だけで鳴る（素材の mp3 が再生できる）', se[0].length === 0 && se[1].length === 1 && se[1][0].ok === true, se);
 }
 
 // モダンのスロット（handoff_slot3）: 自陣はリーチ（外れ）→ 転落でペナルティのお知らせ、敵陣の当選は両陣営にお知らせ（当てた陣営）

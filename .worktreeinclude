@@ -5,3 +5,5 @@ public/assets/gen/
 public/assets/tutorial/
 # マップチップ（元素材は ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_）
 public/assets/mapchip/
+# スロットの効果音（元素材は assets_local/）
+public/assets/se/

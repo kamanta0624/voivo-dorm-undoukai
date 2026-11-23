@@ -3,6 +3,9 @@
 // 素材は加工しない（表示時の拡大・位置のみ）
 import { CONFIG as C } from '../shared/config';
 import type { Hold, Mode } from '../shared/slot_modern';
+// 効果音（public/assets/se/。ニコニ・コモンズ nc498075＝先バレ、nc356453＝当選）
+const SE = { saki: 'assets/se/nc498075.mp3', win: 'assets/se/nc356453.mp3' };
+const SE_EL: Partial<Record<keyof typeof SE, HTMLAudioElement>> = {};
 
 const M = C.SLOT_MODERN, W = C.VIEW_W, H = C.VIEW_H;
 const DOT = (k: string, f = 'idle') => `assets/gen/dot/${k}/${f}.png`;
@@ -59,7 +62,6 @@ export class ModernFx {
   normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
   spinning = [false, false, false]; allSpin = false; allSpinFrom = 1; spinAt = 0;
   sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
-  audio: AudioContext | null = null;
 
   constructor(public hud: HTMLElement, public layer: HTMLElement, public syms: string[], public chars: string[], color: string) {
     if (!document.getElementById('mfx-css')) { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = CSS; document.head.append(st); }
@@ -121,14 +123,13 @@ export class ModernFx {
   sakibare() {
     if (!this.sakiOn) return;
     this.sl.classList.remove('flash'); void this.sl.offsetWidth; this.sl.classList.add('flash');
-    if (this.sound) this.beep();
+    if (this.sound) this.se('saki');
   }
-  // 先バレの音（試合の当選の音にも使う）
-  beep() {
-    try {
-      const a = (this.audio ??= new AudioContext()), t = a.currentTime;
-      for (const [f, d] of [[1320, 0], [1760, 0.08]]) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; g.gain.setValueAtTime(0.15, t + d); g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.25); o.connect(g).connect(a.destination); o.start(t + d); o.stop(t + d + 0.3); }
-    } catch {}
+  // 効果音（handoff_se1）: saki＝先バレ音、win＝試合の当選音。鳴っている途中なら頭から鳴らし直す
+  se(kind: keyof typeof SE) {
+    const a = (SE_EL[kind] ??= new Audio(SE[kind]));
+    a.volume = C.SE_VOLUME; a.currentTime = 0;
+    a.play().catch(() => {});
   }
 
   toast(text: string, bad = false) {
