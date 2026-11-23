@@ -188,12 +188,13 @@ export const CONFIG = {
     rateMult: 0.7, // 当たる確率（rate）に掛ける倍率
     winToku: -2, // 当たったときの徳の増減（チャンスアップでは変わらない）
     // 以下 handoff_slot4。値は仮置き
-    // リールの絵柄（自陣のプレイヤー4人＋アシスト4人＝ASSIST.units の順）。プレイヤーが4人未満なら、いない人の絵柄は外す
-    syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'player:3', 'assist:3'],
+    // リールの絵柄（自陣のプレイヤー4人＋アシスト4人＝ASSIST.units の順＋7＝陣営の大将）。プレイヤーが4人未満なら、いない人の絵柄は外す。7 は当たり（全回転）でだけ止まる
+    syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'boss', 'assist:3', 'player:3'],
+    seven: [[9, 0.03], [10, 0.06]] as number[][], // 当選のうち7（全員レベルアップ・全回転専用）になる割合: [徳, 割合]。間は線形、最初の徳未満は0
     assistShare: 0.5, // 当選がアシストの絵柄になる確率（残りは今いるプレイヤーで等分）。アシストが出ているときはそのアシストの絵柄だけ
     chance: { n: 3, rate: [[0, 0.2], [5, 0.35], [10, 0.6]] as number[][] }, // チャンスアップ: 当選後に外れるまで最大 n 回の連続抽選。rate: [徳, 当たる確率]（当選時の徳。間は線形補間）。当たるたびにレベル+1（初当たりは POWER_TIERS[0]）
     assistHeal: 0.2, // 出ているアシストの絵柄で、レベルが上がらないときの回復（最大HPに対する割合）。上がったときは最大HPの増えた分だけ回復
-    // 先バレ: 自分がパワーアップの対象で当たる保留だけ、本人に出す。miss は外れ側（ほかの保留）で1人ごとに出る固定の確率。徳5・4人のとき信頼度40%になる値
+    // 先バレ: 自分がパワーアップの対象で当たる保留だけ、本人に出す（7 は全員が対象）。miss は外れ側（ほかの保留）で1人ごとに出る固定の確率。徳5・4人のとき信頼度40%になる値
     saki: { win: 0.3, miss: (0.3 * ((0.7 * 0.08 * 0.5) / 4) * 0.6) / (0.4 * (1 - (0.7 * 0.08 * 0.5) / 4)) },
     gap: 1.5, // チャンスアップの段の間隔(秒)。この間スロットは止まる
     penHold: 1.5, // 罰の出目を見せる秒数（この間スロットは止まる）
@@ -404,6 +405,13 @@ export const bossIntensity = (t: number, hpRatio: number) => {
 // 徳 → スロットのチャンスアップの当たる確率（SLOT.chance.rate の線形補間）
 export const chanceRate = (toku: number) => {
   const r = CONFIG.SLOT.chance.rate;
+  for (let i = 1; i < r.length; i++) if (toku <= r[i][0]) return r[i - 1][1] + ((r[i][1] - r[i - 1][1]) * (toku - r[i - 1][0])) / (r[i][0] - r[i - 1][0]);
+  return r[r.length - 1][1];
+};
+// 徳 → 当選のうち7になる割合（SLOT.seven の線形補間。最初の徳未満は0）
+export const sevenRate = (toku: number) => {
+  const r = CONFIG.SLOT.seven;
+  if (toku < r[0][0]) return 0;
   for (let i = 1; i < r.length; i++) if (toku <= r[i][0]) return r[i - 1][1] + ((r[i][1] - r[i - 1][1]) * (toku - r[i - 1][0])) / (r[i][0] - r[i - 1][0]);
   return r[r.length - 1][1];
 };

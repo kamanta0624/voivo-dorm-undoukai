@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/server/GameRoom';
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
-import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
+import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate, sevenRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { solarPct } from '../src/shared/solar';
@@ -812,8 +812,37 @@ console.log('--- スロット（当たる確率・チャンスアップ・払い
     // 出目: 当たりは対象の絵柄の3つそろい。絵柄は SLOT.syms からいないプレイヤーを除いた並び
     u.r.players.delete('d'); const syms = u.r.slotSyms(0), sl = u.r.teams[0].slot; let bad = 0;
     for (let i = 0; i < 300; i++) { u.r.startSpin(0, 'win'); const g = sl.cur.target, x = syms[sl.reels[0] - 1]; if (!(sl.reels[0] === sl.reels[1] && sl.reels[1] === sl.reels[2]) || x.kind !== g.kind || (x.kind === 'ult' ? x.id !== g.id : x.char !== g.char)) bad++; }
-    ok(`当たりの出目は対象の絵柄の3つそろい（絵柄${syms.length}つ＝プレイヤー${ps.length - 1}人＋アシスト4人）`, bad === 0 && syms.length === ps.length - 1 + 4);
+    ok(`当たりの出目は対象の絵柄の3つそろい（絵柄${syms.length}つ＝プレイヤー${ps.length - 1}人＋アシスト4人＋7）`, bad === 0 && syms.length === ps.length - 1 + 5);
   }
+}
+{
+  // 7（handoff_slot4 3章）: 徳9以上だけ、当選のうち徳9で3%・徳10で6%。全回転は7専用。7 の外れの出目はない
+  const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; Object.defineProperty(q, 'clients', { value: [] });
+  q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay(); q.teams[1].slot.start = 1e9;
+  const NS = 60000, seven = (toku: number) => { q.teams[0].toku = toku; let w = 0, s7 = 0, bad = 0; for (let i = 0; i < NS; i++) { const h = q.classicHold(0); if (h.outcome !== 'win') { if (h.act === 'allSpin') bad++; continue; } w++; const is7 = h.target.kind === 'seven'; if (is7) s7++; if (is7 !== (h.act === 'allSpin')) bad++; } return { p: s7 / w, bad }; };
+  const res = [0, 5, 8.9, 9, 9.5, 10].map(seven), want = [0, 0, 0, 0.03, 0.045, 0.06];
+  ok(`7の割合（当選のうち）徳0/5/8.9/9/9.5/10 = ${res.map((x) => (x.p * 100).toFixed(1) + '%').join('/')}（期待 0/0/0/3/4.5/6%）。全回転は7だけ、7は必ず全回転`, res.every((x, i) => x.bad === 0 && (want[i] === 0 ? x.p === 0 : Math.abs(x.p - want[i]) < 0.012)) && sevenRate(9.5) === 0.045, res);
+  q.teams[0].toku = 10; const syms = q.slotSyms(0), i7 = 1 + syms.findIndex((x: any) => x.kind === 'seven'); let miss7 = 0, win7 = 0;
+  for (let i = 0; i < 5000; i++) { q.startSpin(0); const h = q.teams[0].slot.cur; if (h.outcome !== 'win' && h.reels.includes(i7)) miss7++; } q.startSpin(0, 'win', 'allSpin'); const c = q.teams[0].slot.cur; if (c.target.kind === 'seven' && c.reels.every((v: number) => v === i7)) win7++;
+  ok(`7の出目: 当たり（全回転）だけ777、外れ・リーチの出目に7は出ない（絵柄${syms.length}つ）`, miss7 === 0 && win7 === 1 && syms.length === 9, { miss7 });
+  // 効果: プレイヤー全員（反省中は復帰後）。パワーアップしていない人は tier、している人は今+1+tier（上限）、効果時間は最初から。アシストは対象外
+  const u = mk('sayo'); const ps = u.r.slotPlayers(0); const [a, b, c2, d] = ps; for (const p of ps) Object.assign(p, { alive: true });
+  u.r.giveUlt(b, 1); u.r.giveUlt(c2, 3); Object.assign(d, { alive: false }); const as = u.r.summonAssist(0, 1, 'ritsu'); u.r.now += 10;
+  u.r.payout(0, { kind: 'seven' }, 0);
+  ok('7: 全員レベルアップ（なし→レベル1、レベル2→3、レベル4のまま、反省中は復帰後にレベル1）、効果時間は最初から、アシストは変わらない',
+    a.ult?.tier === 0 && b.ult.tier === 2 && c2.ult.tier === 3 && d.ult?.pending && d.ult.tier === 0 && Math.abs(b.ult.until - u.r.now - C.ULT_DURATION) < 1e-9 && as.tier === 1, ps.map((p: any) => p.ult));
+  u.r.payout(0, { kind: 'seven' }, 2);
+  ok('7のあとのチャンスアップは全員さらに+1ずつ（2回当たり: レベル1→4）', a.ult.tier === 3 && b.ult.tier === 3);
+  // 先バレ: 7 の保留は全員に saki.win
+  let n7 = 0, sk = 0; for (let i = 0; i < 4000; i++) { const h = q.classicHold(0, 'win', 'allSpin'); n7++; sk += h.saki.length; }
+  ok(`7の保留の先バレは全員に（1人あたり ${(sk / n7 / 4 * 100).toFixed(1)}%、期待 ${C.SLOT.saki.win * 100}%）`, Math.abs(sk / n7 / 4 - C.SLOT.saki.win) < 0.02);
+  // 1試合（MATCH_TIME 秒）あたりの7の出現回数: 徳を固定して回す
+  const per = (toku: number, M = 400) => { const z: any = new (GameRoom as any)(); z.setSimulationInterval = () => {}; Object.defineProperty(z, 'clients', { value: [] }); z.onCreate(); z.notice = () => {}; z.startMatch(); z.beginPlay(); z.teams[1].slot.start = 1e9;
+    let n = 0; z.addToku = () => {}; z.payout = (_t: number, g: any) => { if (g.kind === 'seven') n++; };
+    for (let m = 0; m < M; m++) { z.teams[0].toku = toku; z.teams[0].slot.holds = Array.from({ length: C.SLOT_MODERN.holds }, () => z.classicHold(0)); z.startSpin(0); const end = z.now + C.MATCH_TIME; while (z.now < end) { z.now += 0.1; z.updateSlots(); } }
+    return n / M; };
+  const pm = [9, 10].map((t) => per(t));
+  ok(`7の出現回数（1試合${C.MATCH_TIME}秒、徳固定、各400試合）: 徳9 ${pm[0].toFixed(2)}回・徳10 ${pm[1].toFixed(2)}回`, pm[0] > 0 && pm[0] < pm[1] && pm[1] < 1.5, pm);
 }
 {
   // 先バレ: 自分がパワーアップの対象で当たる保留だけ本人に。信頼度は徳5・4人で40%（徳が上がると上がる）

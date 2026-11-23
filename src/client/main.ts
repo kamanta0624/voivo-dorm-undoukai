@@ -744,7 +744,7 @@ class GameScene extends Phaser.Scene {
         const el = $(`.tk .s${team}`), cs = s.roster.filter((r: any) => r.team === team).map((r: any) => r.char), ass = Object.keys(C.ASSIST.units);
         el.innerHTML = '<div class="tkg"></div><div class="mh"></div>';
         const syms = C.SLOT_MODE === 'modern' ? C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]))
-          : C.SLOT.syms.flatMap((x) => (x.startsWith('assist:') ? [ass[Number(x.slice(7))]] : cs[Number(x.slice(7))] ? [cs[Number(x.slice(7))]] : [])); // クラシック: プレイヤー＋アシスト。いないプレイヤーの絵柄は外す（サーバーの slotSyms と同じ並び）
+          : C.SLOT.syms.flatMap((x) => (x === 'boss' ? [BOSS_CHAR[team]] : x.startsWith('assist:') ? [ass[Number(x.slice(7))]] : cs[Number(x.slice(7))] ? [cs[Number(x.slice(7))]] : [])); // クラシック: プレイヤー＋アシスト＋7（大将）。いないプレイヤーの絵柄は外す（サーバーの slotSyms と同じ並び）
         const f = new ModernFx(el.querySelector<HTMLElement>('.mh')!, team === myTeam ? $('.mfxl') : document.createElement('div'), syms, cs, css16(TEAM_COLOR[team]));
         f.idle(performance.now());
         return f;
@@ -807,7 +807,8 @@ class GameScene extends Phaser.Scene {
     el.className = 'scut';
     el.style.setProperty('--d', `${C.SLOT_CUTIN_MS}ms`);
     el.style.setProperty('--c', css16(TEAM_COLOR[team]) + 'cc');
-    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : 'チャンスアップ！'}</b><span>${TEAM_NAME[team]}　${charName(char)} ${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）</span>`;
+    const pay = kind === 'seven' ? `7 全員レベルアップ（+${tier + 1}）` : `${charName(char)} ${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）`; // 7 は人ごとにレベルが違うので上がる段数
+    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : 'チャンスアップ！'}</b><span>${TEAM_NAME[team]}　${pay}</span>`;
     fx.appendChild(el);
     setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
   }
