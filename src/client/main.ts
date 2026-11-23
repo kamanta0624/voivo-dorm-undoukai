@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { Room, CloseCode } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, seeRects, seeThrough, roomLayout } from '../shared/config';
-import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls } from '../shared/chars';
+import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls, aaRange } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
 import { solarPct } from '../shared/solar';
 import { CLIENT_SKILLS, STATUS_VIEW, ENT_VIEW, SKILL_COLORS, DOT_EXTRA, FX_VIEW, SHOT_VIEW, SELF_VIEW } from './skills';
@@ -1384,7 +1384,7 @@ class GameScene extends Phaser.Scene {
 
     // 自キャラ: 射程の円と、硬直中のクールタイムバー
     if (mine?.alive && s.phase !== 'finale') {
-      feet.lineStyle(1, 0xffffff, C.RANGE_ALPHA).strokeCircle(this.me.x, this.me.y, DEFS[mine.char]?.aa[0].range ?? C.ATTACK_RANGE);
+      feet.lineStyle(1, 0xffffff, C.RANGE_ALPHA).strokeCircle(this.me.x, this.me.y, aaRange(mine.char)); // 通常攻撃の最長射程（近接と遠距離を持つキャラは遠距離）
       // 今狙っている対象の足元に輪
       const tp = thingPos(mine.tgt);
       if (tp) feet.lineStyle(2, 0xff3030, C.TARGET_RING_ALPHA).strokeEllipse(tp.x, tp.y, 28, 11);

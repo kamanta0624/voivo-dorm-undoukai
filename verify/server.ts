@@ -3,7 +3,7 @@ import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/ser
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate, sevenRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
-import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
+import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, aaRange, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { solarPct } from '../src/shared/solar';
 import { SKILLS, ENTS } from '../src/server/skills';
@@ -312,7 +312,7 @@ console.log('--- 技の変更（ierutan のアップグレード）・きりた�
   Object.assign(k.B, { x: 1552 + 200 }); k.r.updatePlayers(0.05);
   ok('きりたん: 遠い敵にはきりたん砲（弾速遅め）', k.r.shots.length === 1 && k.r.shots[0].kind === 'cannon' && k.r.shots[0].sp < C.BULLET_SPEED);
   const k2 = mk('kiritan', 'metan'); k2.A.aim = 'nearest'; delete k2.A.st.test; k2.r.updatePlayers(0.05);
-  ok('きりたん: 近い敵には包丁（ダメージそれなり）', k2.r.shots.length === 0 && k2.r.maxHp(k2.B) - k2.B.hp === Math.round(C.ATTACK_DAMAGE * CHARS.kiritan.aa[0].dmg * C.DAMAGE_MULT * 0.8));
+  ok('きりたん: 隣の敵にもきりたん砲（包丁は aarange1 で試験的に削除）', k2.r.shots.length === 1 && k2.r.shots[0].kind === 'cannon' && k2.r.maxHp(k2.B) === k2.B.hp);
 }
 
 console.log('--- ファンネル（経路で届く敵だけ、囲んで止まって撃つ）');
@@ -571,8 +571,8 @@ console.log('--- バランス（ending1）');
 {
   ok('POWER_MULT は旧の0.7倍 [0.49, 0.7, 0.98, 1.4]（見た目のオーラは据え置き）', JSON.stringify(C.POWER_MULT) === JSON.stringify([0.49, 0.7, 0.98, 1.4]) && JSON.stringify(C.POWERUP_AURA.scale) === JSON.stringify([1.2, 1.2 + 0.8 / 3, 1.2 + 1.6 / 3, 2]));
   ok('POWER_WEIGHTS: レベル3・4はコバコから出ない [30, 40, 0, 0]', JSON.stringify(C.POWER_WEIGHTS) === JSON.stringify([30, 40, 0, 0]));
-  const K = CHARS.kiritan, cannon = K.aa.find((m) => m.name === 'きりたん砲')!, knife = K.aa.find((m) => m.name === '包丁')!;
-  ok('きりたん: 包丁は不変（近接・ダメージ1.2）、きりたん砲 射程310・ダメージ0.85、全弾斉射 射程310・1発6（tune5）', knife.kind === 'melee' && knife.dmg === 1.2 && knife.range === C.ATTACK_RANGE && cannon.range === 310 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 6);
+  const K = CHARS.kiritan, cannon = K.aa.find((m) => m.name === 'きりたん砲')!;
+  ok('きりたん: 通常攻撃はきりたん砲だけ（包丁は aarange1 で試験的に削除）、きりたん砲 射程200（aarange1 で310から短縮）・ダメージ0.85、全弾斉射 射程310・1発6（tune5）', K.aa.length === 1 && cannon.range === 200 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 6);
   ok('めたんのドリル: 持続2.4秒', CHARS.metan.skill.dur === 2.4);
   ok('コバコの徳: 1部屋に2個、上限9は据え置き', C.COURIER_DROP.n === 2 && C.COURIER_DROP.cap === 9);
   const box: number[] = [0, 0, 0, 0]; for (let i = 0; i < 20000; i++) box[lottery(C.POWER_WEIGHTS)]++;
@@ -980,10 +980,8 @@ console.log('--- 攻撃間隔（近接・遠距離・きりたんの切り替え
   };
   const me = gap('sayo'), zu = gap('zunko');
   const kf = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x + 200, y: z.B.y, r: 10 }; }); // 遠い対象 → きりたん砲
-  const kn = gap('kiritan'); // 近い対象（隣） → 包丁
-  kn; // 隣の敵は p.tgt なし＝遠い扱いなので、包丁は対象が近いときで確認する
-  const kn2 = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x, y: z.B.y, r: 10 }; });
-  ok(`近接は${C.ATTACK_COOLDOWN_MELEE}秒、遠距離はきりたん砲${C.ATTACK_COOLDOWN_RANGED}秒・ずん子${CHARS.zunko.aa[1].cd}秒、きりたんの包丁（近い対象）は近接`, me.t0 === C.ATTACK_COOLDOWN_MELEE && me.blocked && Math.abs(zu.t0 - CHARS.zunko.aa[1].cd) < 1e-9 && kf.t0 === C.ATTACK_COOLDOWN_RANGED && kn2.t0 === C.ATTACK_COOLDOWN_MELEE, { me: me.t0, zu: zu.t0, cannon: kf.t0, knife: kn2.t0 });
+  const kn2 = gap('kiritan', (z) => { z.A.tgt = { k: 'p', o: z.B, x: z.B.x, y: z.B.y, r: 10 }; }); // 近い対象もきりたん砲（包丁は aarange1 で試験的に削除）
+  ok(`近接は${C.ATTACK_COOLDOWN_MELEE}秒、遠距離はきりたん砲${C.ATTACK_COOLDOWN_RANGED}秒・ずん子${CHARS.zunko.aa[0].cd}秒、きりたんは近い対象でもきりたん砲の間隔`, me.t0 === C.ATTACK_COOLDOWN_MELEE && me.blocked && Math.abs(zu.t0 - CHARS.zunko.aa[0].cd) < 1e-9 && kf.t0 === C.ATTACK_COOLDOWN_RANGED && kn2.t0 === C.ATTACK_COOLDOWN_RANGED, { me: me.t0, zu: zu.t0, cannon: kf.t0, near: kn2.t0 });
   const a = mk('sayo', 'metan'); a.A.aim = 'nearest'; delete a.A.st.test; a.r.updatePlayers(0.05); const h1 = a.B.hp; a.r.now += C.ATTACK_COOLDOWN_MELEE - 0.1; a.r.updatePlayers(0.05); const h2 = a.B.hp; a.r.now += 0.1; a.r.updatePlayers(0.05);
   ok('オートアタックも同じ間隔（手動の SPACE と共通）', h2 === h1 && a.B.hp < h1);
 }
@@ -1971,10 +1969,9 @@ console.log('--- プレイテスト3（Botのリコール判断・撃破後の�
 
 console.log('--- 東北ずん子（tune1: パンチ・遠距離・誘導するずんだアロー・餅の攻撃力）');
 {
-  const Z = CHARS.zunko, S = Z.skill, [pu, rg] = Z.aa, kn = CHARS.kiritan.aa[0], hm = CHARS.hanamaru.aa[0];
-  const abs = (ch: string, m: any) => charAtk(ch) * m.dmg;
-  ok(`近接（${pu.name}）と遠距離の2モード（きりたんと同じ。対象が${rg.far}pxより遠ければ遠距離）`, Z.aa.length === 2 && pu.kind === 'melee' && pu.name === 'パンチ' && rg.kind === 'shot' && rg.far === CHARS.kiritan.aa[1].far && aaMode('zunko', 30) === pu && aaMode('zunko', 200) === rg);
-  ok(`パンチ: 1発は包丁より強く（${abs('zunko', pu).toFixed(1)} ＞ ${abs('kiritan', kn).toFixed(1)}）、DPS は花丸の通常攻撃より低い（${(abs('zunko', pu) / pu.cd).toFixed(1)} ＜ ${(abs('hanamaru', hm) / hm.cd).toFixed(1)}）`, abs('zunko', pu) > abs('kiritan', kn) && abs('zunko', pu) / pu.cd < abs('hanamaru', hm) / hm.cd);
+  const Z = CHARS.zunko, S = Z.skill, [rg] = Z.aa;
+  ok(`通常攻撃は遠距離だけ（パンチは aarange1 で試験的に削除。far ${rg.far}px は戻すとき用に残し、近い対象も遠距離で撃つ）`, Z.aa.length === 1 && rg.kind === 'shot' && rg.far === CHARS.kiritan.aa[0].far && aaMode('zunko', 30) === rg && aaMode('zunko', 200) === rg && aaMode('kiritan', 30).name === 'きりたん砲');
+  ok('射程の円の半径（aaRange）: きりたん 200・ずん子 200、ほかは通常攻撃の射程のまま', aaRange('kiritan') === 200 && aaRange('zunko') === 200 && PICKABLE.filter((k) => !['kiritan', 'zunko'].includes(k)).every((k) => aaRange(k) === CHARS[k].aa[0].range));
   ok(`遠距離: CT ${rg.cd}秒（旧1.5）、弾速 ${rg.speed}（旧600）`, rg.cd < 1.5 && rg.speed! > 600);
   // ずんだアロー: 上へ歩き続ける対象を、曲がりながら追って当たる。1tickに曲がる角度は turn×dt まで
   const run = (z: any, n: number, each: () => void = () => {}) => { const angs: number[] = []; for (let i = 0; i < n; i++) { each(); const sh = z.r.shots.find((x: any) => x.kind === 'arrow'); if (sh) angs.push(Math.atan2(sh.vy, sh.vx)); z.r.now += 0.05; z.r.updateShots(0.05); } return angs; };
