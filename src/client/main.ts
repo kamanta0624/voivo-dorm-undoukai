@@ -226,6 +226,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .tk .tg{position:relative;width:calc(var(--z) * 54px);height:calc(var(--z) * 5px);background:#000b;outline:1px solid var(--c)}
 #fx .tk .tg i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
 #fx .tk .tv{color:#fff;font:bold calc(var(--z) * 5.5px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
+#fx .scut{position:absolute;left:0;right:0;top:40%;padding:.4em 0;text-align:center;background:linear-gradient(90deg,transparent,var(--c) 30%,var(--c) 70%,transparent);animation:cutfade var(--d) linear forwards}
+#fx .scut b{display:block;font:900 calc(var(--z) * 22px) sans-serif;color:#ffd700;-webkit-text-stroke:calc(var(--z) * 1px) #000;text-shadow:0 0 8px #000;animation:pop .3s ease-out}
+#fx .scut span{display:block;font:bold calc(var(--z) * 9px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .tk .rf{margin-left:.5em;color:#9fe8ff}
 #fx .tk .mh{zoom:calc(var(--z) * .85)}
 #fx .mfxl{position:absolute;left:0;top:0;width:${C.VIEW_W}px;height:${C.VIEW_H}px;zoom:var(--z);pointer-events:none} /* モダンのスロットの演出・お知らせ（論理解像度。slot_modern_fx） */
@@ -791,10 +794,21 @@ class GameScene extends Phaser.Scene {
     this.mslotToast(m.team, `${m.first ? '大当たり！' : `${m.chain}連チャン！`}\n${pw}\n${as}`);
     if (m.team === this.mfxMine) this.mfx[m.team]?.beep();
   }
-  // クラシックの払い出し（両陣営）: 当選の音（自陣だけ）と画面中央のお知らせ（敵陣は陣営名つき）
+  // クラシックの払い出し（両陣営）: 当選の音（自陣だけ）とカットイン
   slotWin(team: number, chain: number, kind: string, tier: number) {
-    this.mslotToast(team, `${chain === 1 ? '大当たり！' : `${chain}連チャン！`}\n${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）`);
+    this.slotCutin(team, chain, kind, tier);
     if (team === this.mfxMine) this.mfx[team]?.beep();
+  }
+  // スロットの当たり・連チャンのカットイン（両陣営）: 当てた陣営と連チャン数、払い出し
+  slotCutin(team: number, chain: number, kind: string, tier: number) {
+    fx.querySelector('.scut')?.remove();
+    const el = document.createElement('div');
+    el.className = 'scut';
+    el.style.setProperty('--d', `${C.SLOT_CUTIN_MS}ms`);
+    el.style.setProperty('--c', css16(TEAM_COLOR[team]) + 'cc');
+    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : `${chain}連チャン！`}</b><span>${TEAM_NAME[team]}　${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）</span>`;
+    fx.appendChild(el);
+    setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
   }
   mslotToast(team: number, text: string, bad = false) {
     const f = this.mfx[this.mfxMine] ?? this.mfx[0];

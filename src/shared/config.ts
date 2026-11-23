@@ -107,6 +107,7 @@ export const CONFIG = {
   INTRO_GAP: 40, // 開始演出で study に横並びにする間隔(px)
   INTRO_ZOOM: 2.5, // 開始演出のカメラの拡大率
   INTRO_CAM_MS: 600 / INTRO_SPEED, // 開始演出のカメラの寄り・戻りの時間
+  SLOT_CUTIN_MS: 2000, // スロットの当たり・連チャンのカットインの長さ
   SLOT_REEL_MS: 70, // 回転中のリールの絵柄が切り替わる間隔
 
   MAP_W: W,

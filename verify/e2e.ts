@@ -374,12 +374,12 @@ async function slotCheck(A: Tab, B: Tab) {
   }, k, { timeout: (C.SLOT.spin + 3) * 1000, polling: 'raf' }).then((h) => h.jsonValue() as Promise<{ t: string; xs: number }>, () => null));
   await send(A, 'e2eSlot', { team: 0, pen: true });
   const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty');
-  const cut = [waitText(A, '#fx .mfx-toast', 'ずんだもん軍.*大当たり', (C.SLOT.spin + 3) * 1000), waitText(B, '#fx .mfx-toast', '^大当たり', (C.SLOT.spin + 3) * 1000)];
+  const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！ずんだもん軍', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
   await send(A, 'e2eSlot', { team: 1, win: true });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
   const xs = ea?.xs ?? 0, pa = ea?.t ?? null, pb = eb?.t ?? null;
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
-  check(`スロット: 3リール・保留${C.SLOT_MODERN.holds}つ（色つき）、リーチ演出、当選は両陣営にお知らせ（敵陣は陣営名つき）`, look.reels === 3 && look.holds.length === C.SLOT_MODERN.holds && look.holds.every(Boolean) && r && !!ca && !!cb, { look, reach: r, ca, cb });
+  check(`スロット: 3リール・保留${C.SLOT_MODERN.holds}つ（色つき）、リーチ演出、当選は両陣営にカットイン`, look.reels === 3 && look.holds.length === C.SLOT_MODERN.holds && look.holds.every(Boolean) && r && !!ca && !!cb, { look, reach: r, ca, cb });
   check('スロットの罰: ×××の出目、両陣営に通知（陣営と罰の内容）', xs === 3 && !!pa && !!pb, { xs, pa, pb });
 }
 
@@ -398,7 +398,7 @@ async function slotCheckModern(A: Tab, B: Tab) {
   await send(A, 'e2eSlot', { team: 1, win: true });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
-  check('スロット（モダン）: 3リール、リーチ演出、当選は両陣営にお知らせ（敵陣は陣営名つき）、転落でペナルティのお知らせ', reels === 3 && r && !!ca && !!cb && !!pa, { reels, reach: r, ca, cb, pa });
+  check('スロット（モダン）: 3リール、リーチ演出、当選は両陣営にカットイン、転落でペナルティのお知らせ', reels === 3 && r && !!ca && !!cb && !!pa, { reels, reach: r, ca, cb, pa });
 }
 
 // 頭上の徳の増減（資材を拾う）と、指名手配マーク（頭上と、敵のミニマップ）
@@ -412,7 +412,7 @@ async function tokuCheck(A: Tab, B: Tab) {
   check(`頭上に徳の増減だけ（「${txt}」）`, txt === `徳+${C.TOKU.material}`, txt);
   // 裏側（図書室）の資材: 高ポイント。地面の箱・ミニマップ・頭上の表示で区別できる
   await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await sleep(150);
-  await A.page.waitForFunction(() => !document.querySelector('#fx .notes div, #fx .mfx-toast'), null, { timeout: 8000 }).catch(() => {}); // スクショ用: 通知・お知らせが消えるまで
+  await A.page.waitForFunction(() => !document.querySelector('#fx .notes div, #fx .mfx-toast, #fx .scut'), null, { timeout: 8000 }).catch(() => {}); // スクショ用: 通知・お知らせ・カットインが消えるまで
   await send(A, 'e2eMaterial'); await sleep(400);
   const look = await scene(A, '({ ground: sc.g.commandBuffer.includes(0xff7ad9), mini: sc.ui.commandBuffer.includes(0xff7ad9), hi: s.materials.filter((m) => m.hi).length })');
   await A.shot('t3b_material_hi');
