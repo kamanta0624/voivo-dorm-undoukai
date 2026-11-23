@@ -109,6 +109,8 @@ export class GameRoom extends Room {
   static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
   static sealed = false; // 常設の部屋を作り終えたら true（以後は e2e の部屋しか作らせない。src/server/index.ts）
   pub = false; // 常設の部屋（タイトルの一覧に出る。e2e の部屋は false）
+  practice = false; // 練習の部屋（handoff_practice1）: 本人1人 vs 相手1体（id 'foe'）。一覧・/status に出ない。時間無制限・スロットなし・即復活・大将は HP1 で止まる・資材/ご飯/コバコ/実況なし
+  foeMode: 'stand' | 'passive' | 'bot' = 'bot'; // 練習の相手の動き: 棒立ち／攻撃なし（移動は Bot どおり）／通常の Bot
   now = 0;
   private _phase: 'waiting' | 'intro' | 'countdown' | 'playing' | 'finale' | 'ended' = 'waiting';
   get phase() { return this._phase; }
@@ -217,10 +219,11 @@ export class GameRoom extends Room {
       if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) p.char = m.char;
     },
     // 出撃: そのキャラで出撃済みにする。開始の判定（全員出撃で開始、最初の出撃で選択猶予のカウント開始）
-    go: (client: Client, m: { char: string }) => {
+    go: (client: Client, m: { char: string; foe?: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (!p || this.phase !== 'waiting' || !PICKABLE.includes(m.char)) return;
       Object.assign(p, { char: m.char, ok: true });
+      if (this.practice) { if (PICKABLE.includes(m.foe ?? '')) this.startPractice(m.foe!); else p.ok = false; return; } // 練習: 相手キャラも選んで即開始
       if (this.lobbyLeft === null) this.lobbyLeft = C.LOBBY_GRACE;
       this.updateLobby(0);
     },
@@ -236,6 +239,21 @@ export class GameRoom extends Room {
       if ([...this.players.values()].filter((q) => q.team === m.team).length >= C.TEAM_SIZE) return;
       this.players.delete(p.id);
       this.addPlayer(p.id, m.team, false).char = p.char;
+    },
+    // 練習の部屋の操作（練習パネル）: 相手の差し替え・相手の動き・パワーアップのレベル・アシスト召喚・大将の全快・選択画面へ
+    pr: (client: Client, m: any) => {
+      const me = this.players.get(this.owners.get(client.sessionId) ?? ''), foe = this.players.get('foe');
+      if (!this.practice || !me || this.phase !== 'playing') return;
+      if (m?.op === 'foe' && foe && PICKABLE.includes(m.char)) this.practiceFoe(foe, m.char);
+      if (m?.op === 'mode' && ['stand', 'passive', 'bot'].includes(m.mode)) this.practiceMode(m.mode);
+      if (m?.op === 'power' && (m.d === 1 || m.d === -1)) { const q = m.who === 'foe' ? foe : me; if (q) this.practicePower(q, m.d); }
+      if (m?.op === 'assist' && C.ASSIST.units[m.char] && Number.isInteger(m.tier) && m.tier >= 0 && m.tier < C.POWER_TIERS.length && (m.side === 'mine' || m.side === 'foe')) {
+        const team = m.side === 'mine' ? me.team : 1 - me.team;
+        for (const a of [...this.players.values()]) if (a.assist && a.team === team) this.players.delete(a.id); // 同時1体なので、今のアシストと入れ替える
+        this.summonAssist(team, m.tier, m.char);
+      }
+      if (m?.op === 'boss') for (const b of this.bosses) Object.assign(b, { hp: C.BOSS_HP, dmgAtBase: 0 });
+      if (m?.op === 'back') this.practiceBack();
     },
     // e2e 専用（環境変数 E2E_HOOKS=1 のときだけ有効）: 自キャラを敵大将の左隣へ移す
     ...(process.env.E2E_HOOKS ? {
@@ -346,8 +364,10 @@ export class GameRoom extends Room {
   }
 
   // 現在の試合: 中央からの経路距離の合計が上限以下になる組み合わせから選ぶ
-  onCreate(options?: { e2e?: string }) {
-    this.pub = !options?.e2e;
+  onCreate(options?: { e2e?: string; practice?: boolean }) {
+    this.practice = !!options?.practice && !options?.e2e;
+    this.pub = !options?.e2e && !this.practice;
+    if (this.practice && [...GameRoom.live].filter((r) => r.practice).length >= C.PRACTICE_ROOMS) throw new ServerError(4429, '練習の部屋がいっぱいです。しばらくしてから試してください');
     if (this.pub && GameRoom.sealed) throw new Error('常設の部屋は増やせない');
     if (this.pub) this.autoDispose = false; // 空になっても残す
     GameRoom.live.add(this);
@@ -431,7 +451,8 @@ export class GameRoom extends Room {
   onAuth(_client: Client, options: any, ctx?: { ip?: string; headers?: Headers }) {
     const ip = ctx?.headers?.get?.('cf-connecting-ip') ?? ctx?.ip ?? '', bid = typeof options?.bid === 'string' ? options.bid.slice(0, 64) : '';
     if (OG.banned(ip, bid)) throw new ServerError(4403, '入室できません');
-    if (this.pub && OG.maintenance()) throw new ServerError(4503, OG.maintText());
+    if ((this.pub || this.practice) && OG.maintenance()) throw new ServerError(4503, OG.maintText());
+    if (this.practice && this.humanCount() >= 1) throw new ServerError(4409, 'この部屋には入れません'); // 練習の部屋は作った本人だけ
     if (this.pub && this.phase !== 'waiting') throw new ServerError(4409, 'この部屋は対戦中です');
     if (this.pub && this.humanCount() >= C.ROOM_FULL) throw new ServerError(4429, 'この部屋は満員です');
     return { ip, bid };
@@ -447,6 +468,7 @@ export class GameRoom extends Room {
       const base = OG.validName(options?.name) ? options!.name! : OG.randomName(); // 部品の組み合わせでない名前は付け直す
       Object.assign(p, { name: OG.uniqueName(base, [...this.players.values()].filter((q) => q !== p).map((q) => q.name ?? '')), ip: client.auth?.ip, bid: client.auth?.bid });
       this.owners.set(client.sessionId, client.sessionId);
+      if (this.practice) this.lock(); // 練習の部屋は本人だけ
     } else if (this.phase !== 'ended') {
       // 人間の少ない陣営のBotと入れ替わる。Botがいなければ観戦
       const humans = [0, 0];
@@ -505,10 +527,52 @@ export class GameRoom extends Room {
     if (client) client.leave(CloseCode.CONSENTED, ban ? 'ban' : 'kick'); // onLeave（Bot が引き継ぐ）
   }
 
+  // 練習の開始: 相手1体（Bot、id 'foe'）を足し、開始演出・カウントなしで始める
+  startPractice(foe: string) {
+    this.addPlayer('foe', 1, true).char = foe;
+    this.startMatch();
+    this.beginPlay();
+  }
+
+  // 練習: 相手のキャラをその場で入れ替える（位置・向きはそのまま、HP は満タン）
+  practiceFoe(foe: Player, char: string) {
+    const f = this.addPlayer('foe', 1, true);
+    Object.assign(f, { char, x: foe.x, y: foe.y, face: foe.face, role: foe.role });
+    f.hp = this.maxHp(f);
+    if (!foe.alive) Object.assign(f, { alive: false, koAt: foe.koAt, respawnAt: foe.respawnAt });
+  }
+
+  // 練習: 相手の動き（棒立ち・攻撃なしは自動攻撃も止める。技は practice の判定で止める）
+  practiceMode(mode: GameRoom['foeMode']) {
+    this.foeMode = mode;
+    if (mode === 'bot') this.noAuto.delete('foe'); else this.noAuto.add('foe');
+    const foe = this.players.get('foe');
+    if (foe && mode === 'stand') Object.assign(foe, { dx: 0, dy: 0, path: [] });
+  }
+
+  // 練習: パワーアップのレベルを1つ上げ下げ（なし〜POWER_TIERS の上限）。変えたら効果時間とHPは最初から
+  practicePower(q: Player, d: 1 | -1) {
+    const cur = q.ult ? q.ult.tier : -1, to = Math.max(-1, Math.min(C.POWER_TIERS.length - 1, cur + d));
+    if (to === cur) return;
+    if (to < 0) return this.endUlt(q);
+    if (!q.ult) return this.giveUlt(q, to);
+    q.ult.tier = to;
+    if (!q.ult.pending) { q.ult.until = this.now + C.ULT_DURATION; q.hp = this.maxHp(q); }
+  }
+
+  // 練習: 選択画面へ（部屋はそのまま。本人だけ残して待機に戻す）
+  practiceBack() {
+    const h = [...this.players.values()].find((p) => !p.bot && !p.assist);
+    this.players.clear();
+    this.setup();
+    this.practiceMode('bot');
+    if (h) Object.assign(this.addPlayer(h.id, h.team, false), { char: h.char, name: h.name, ip: h.ip, bid: h.bid });
+  }
+
   startMatch() {
     this.lobbyLeft = null;
     for (let t = 0; t < 2; t++) {
-      while ([...this.players.values()].filter((p) => p.team === t).length < C.TEAM_SIZE) {
+      while (!this.practice && [...this.players.values()].filter((p) => p.team === t).length < C.TEAM_SIZE) {
         const b = this.addPlayer(`bot${++this.botSeq}`, t, true);
         if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
       }
@@ -524,9 +588,11 @@ export class GameRoom extends Room {
     this.phaseLeft = C.INTRO_MODE === 'old' ? C.INTRO_LINEUP + C.TEAM_SIZE * C.INTRO_CUTIN : C.INTRO2.cuts.reduce((a, [, t]) => a + t, 0);
     // 徳の初期値（キャラごとの補正を足す）、資材、コバコ、スロット
     this.teams.forEach((t, i) => (t.toku = this.clampToku(C.TOKU_INIT + [...this.players.values()].filter((p) => p.team === i).reduce((a, p) => a + (CHARS[p.char]?.toku ?? 0), 0))));
-    while (this.materials.length < C.MATERIAL_MAX * C.MATERIAL_MAX_MULT) this.spawnMaterial();
-    for (const [x, y] of C.HEAL_SPOTS) this.items.push({ id: this.nextId++, kind: 'heal', team: -1, x, y }); // ご飯は最初から置いておく
-    this.spawnCourier();
+    if (!this.practice) { // 練習は資材・ご飯・コバコなし
+      while (this.materials.length < C.MATERIAL_MAX * C.MATERIAL_MAX_MULT) this.spawnMaterial();
+      for (const [x, y] of C.HEAL_SPOTS) this.items.push({ id: this.nextId++, kind: 'heal', team: -1, x, y }); // ご飯は最初から置いておく
+      this.spawnCourier();
+    }
     // 新開幕の「散らかったマップの一角」: 資材が一番多く集まっている場所
     const dense = (m: Pt) => this.materials.filter((q) => Math.hypot(q.x - m.x, q.y - m.y) <= C.INTRO2.messR).length;
     const best = [...this.materials].sort((u, v) => dense(v) - dense(u))[0];
@@ -543,7 +609,7 @@ export class GameRoom extends Room {
     this.phase = 'playing';
     this.startedAt = Date.now();
     this.phaseLeft = 0;
-    if (!this.modern) this.teams.forEach((_, i) => this.startSpin(i)); // スロットは GAME START から回す（モダンは playing の間だけ進める）
+    if (!this.modern && !this.practice) this.teams.forEach((_, i) => this.startSpin(i)); // スロットは GAME START から回す（モダンは playing の間だけ進める）。練習は回さない
     this.cm.play();
   }
 
@@ -607,7 +673,7 @@ export class GameRoom extends Room {
     if (this.phase !== 'waiting') this.cm.flow(dt); // 実況のタイムライン（試合前後も進める）
     if (this.phase === 'playing') {
       this.now += dt;
-      this.timeLeft = Math.max(0, C.MATCH_TIME - this.now);
+      this.timeLeft = this.practice ? C.MATCH_TIME : Math.max(0, C.MATCH_TIME - this.now); // 練習は時間無制限
       this.beginContactTick();
       this.updateBots();
       this.updatePlayers(dt);
@@ -615,14 +681,12 @@ export class GameRoom extends Room {
       this.updateEnts(dt);
       this.unstick();
       this.updateBosses();
-      this.updateMaterials(dt);
-      this.updateHeals();
-      this.updateCouriers(dt);
+      if (!this.practice) { this.updateMaterials(dt); this.updateHeals(); this.updateCouriers(dt); }
       this.updateAssists();
       this.updateWarns();
       this.updateWanted();
       this.updateReflect(dt);
-      if (this.modern) this.updateModern(dt); else this.updateSlots();
+      if (!this.practice) { if (this.modern) this.updateModern(dt); else this.updateSlots(); } // 練習はスロットを止める
       this.finishContactTick();
       this.cm.tick(dt);
       if (this.timeLeft <= 0) {
@@ -1263,14 +1327,14 @@ export class GameRoom extends Room {
       if (a && aid !== attacker && this.now - t <= C.ASSIST_WINDOW) a.rage += C.RAGE_ASSIST;
     }
     if (v.assist) return; // アシストは復活しない（撃破の演出の大爆発の後に消す: updatePlayers）
-    v.respawnTotal = Math.min(C.RESPAWN_MAX, C.RESPAWN_BASE + C.RESPAWN_COEF * v.rage);
+    v.respawnTotal = this.practice ? 0 : Math.min(C.RESPAWN_MAX, C.RESPAWN_BASE + C.RESPAWN_COEF * v.rage); // 練習は反省なしで即復活
     v.respawnAt = this.now + v.respawnTotal;
   }
 
   damageBoss(boss: Boss, dmg: number, p: Player) {
     if (this.phase !== 'playing' || (this.bossGuard && p.bot) || boss.moving) return; // 移動の予告中は無敵
     this.bossDmg[1 - boss.team][p.assist ? 'assist' : 'player'] += Math.min(dmg, boss.hp);
-    boss.hp = Math.max(0, boss.hp - dmg);
+    boss.hp = Math.max(this.practice ? 1 : 0, boss.hp - dmg); // 練習の大将は倒れない（HP1で止まる）
     boss.target = p.id;
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
@@ -1739,7 +1803,7 @@ export class GameRoom extends Room {
 
   updateBots() {
     const obs = this.obstacles();
-    for (const p of this.players.values()) if (p.bot && p.alive) this.botThink(p, obs);
+    for (const p of this.players.values()) if (p.bot && p.alive && !(this.practice && p.id === 'foe' && this.foeMode === 'stand')) this.botThink(p, obs); // 練習の棒立ちは考えない（動かない）
   }
 
   // Botが技を使う価値があるか（技の範囲内に対象がいるか）
@@ -1784,7 +1848,7 @@ export class GameRoom extends Room {
     if (p.recallAt !== null) { this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
-    if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && this.botSkillUseful(p)) this.skill(p.id);
+    if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && !(this.practice && p.id === 'foe' && this.foeMode !== 'bot') && this.botSkillUseful(p)) this.skill(p.id); // 練習の攻撃なしは技も使わない
     // 1. 近くの敵を攻撃（指名手配中の敵を優先）
     const wanted = foes.find((e) => e.id === this.teams[1 - p.team].wanted);
     const enemy = wanted ?? best(foes, (e) => `p:${e.id}`);
@@ -1927,7 +1991,9 @@ export class GameRoom extends Room {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
+      const pr = this.practice ? { mode: this.foeMode, lv: [me?.ult?.tier ?? -1, this.players.get('foe')?.ult?.tier ?? -1], foe: this.players.get('foe')?.char ?? null } : null; // 練習パネルの表示（相手は視界外でも）
       client.send('s', {
+        ...(pr ? { practice: pr } : {}),
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）

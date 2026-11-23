@@ -88,6 +88,16 @@ css.textContent = `
 #fx .down img.fall{animation:fall var(--d) ease-in forwards}
 @keyframes fall{0%{transform:none}100%{transform:rotate(-14deg) translateY(28%)}}
 #fx .down div{position:absolute;left:0;right:0;bottom:12%;text-align:center;color:#fff;font:bold 3vh sans-serif;text-shadow:0 0 4px #000,0 0 4px #000}
+#fx .prbtn{display:none;position:absolute;top:1.6%;left:50%;transform:translateX(-50%);z-index:5;pointer-events:auto;border:1px solid #ffe066;background:#000c;color:#ffe066;font:bold calc(var(--z) * 9px) sans-serif;padding:0 .6em;border-radius:3px;cursor:pointer}
+#fx .prp{display:none;position:absolute;top:calc(1.6% + var(--z) * 14px);left:50%;transform:translateX(-50%);z-index:5;pointer-events:auto;max-height:70%;overflow:auto;background:#000d;border:1px solid #ffe066;border-radius:4px;padding:calc(var(--z) * 3px) calc(var(--z) * 5px);color:#fff;font:calc(var(--z) * 6.5px) sans-serif;white-space:nowrap}
+#fx .prp.open{display:block}
+#fx .prp .r{display:flex;align-items:center;gap:calc(var(--z) * 2px);margin:calc(var(--z) * 2px) 0}
+#fx .prp .r>b{min-width:calc(var(--z) * 44px);color:#ffe066}
+#fx .prp button,#fx .prp select{font:inherit;color:#fff;background:#333;border:1px solid #888;border-radius:3px;padding:calc(var(--z) * 1px) calc(var(--z) * 3px);cursor:pointer}
+#fx .prp button.on{background:#7a5a00;border-color:#ffe066}
+#fx .prp .lv{min-width:calc(var(--z) * 22px);text-align:center}
+#lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn{display:none}
+#lobby.practice.foe #backsel{display:block}
 #fx .timer{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);background:#000a;color:#fff;font:bold calc(var(--z) * 13px) sans-serif;padding:0 .5em;border-radius:3px}
 #fx .bar{position:absolute;top:2.6%;width:31%;height:2.4%;background:#000b;outline:1px solid #000}
 #fx .bar.b0{left:1.2%}
@@ -266,6 +276,14 @@ const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
+// 練習パネル（handoff_practice1。練習の部屋の試合中だけ）: タイマーの位置のボタンで開閉
+hudEl.insertAdjacentHTML('beforeend', `<button class="prbtn">練習 ▼</button><div class="prp">
+<div class="r"><b>相手</b><select class="pfoe">${PICKABLE.map((k) => `<option value="${k}">${CHARS[k].name}</option>`).join('')}</select></div>
+<div class="r"><b>相手の動き</b><button data-mode="stand">棒立ち</button><button data-mode="passive">攻撃なし</button><button data-mode="bot">通常Bot</button></div>
+<div class="r"><b>パワーアップ 自分</b><button data-pw="me" data-d="-1">−</button><span class="lv lv0"></span><button data-pw="me" data-d="1">＋</button></div>
+<div class="r"><b>パワーアップ 相手</b><button data-pw="foe" data-d="-1">−</button><span class="lv lv1"></span><button data-pw="foe" data-d="1">＋</button></div>
+<div class="r"><b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.POWER_TIERS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
+<div class="r"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div>`);
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
 const commentary = new Commentary(fx);
@@ -357,6 +375,9 @@ class GameScene extends Phaser.Scene {
   lastPhase = ''; // 連戦（リザルト → 待機画面）の検知用
   backSent = false; // リザルトで「戻る」を押したか
   toTitle = false; // 「タイトルへ」を押した（部屋を出たらタイトル画面へ）
+  practice = false; // 練習の部屋か（スナップショットの practice）
+  pStage = 0; // 練習の待機画面: 0=自キャラを選ぶ、1=相手キャラを選ぶ
+  pMine = ''; pFoe = ''; // 練習: 選んだ自キャラ・相手キャラ
   introCam = false; // 開始演出でカメラを寄せているか
   introCut = ''; // 新開幕: 今映しているカット
   introBanner: [string, string] | null = null; // 新開幕: 画面中央の文字
@@ -451,13 +472,15 @@ class GameScene extends Phaser.Scene {
       el.onpointerenter = (e) => { if (e.pointerType === 'mouse' && !drag?.moved) this.showChar(k); };
       el.onclick = () => { if (dragged) { dragged = false; return; } if (this.selMode !== 'browse') return; if (this.selChar === k) { this.selMode = 'confirm'; this.lobbyRender(); } else this.showChar(k); };
     });
-    document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン → 出撃済み
-      if (this.selMode === 'confirm') this.selMode = 'sortie';
-      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', { char: this.selChar }); }
+    document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン → 出撃済み。練習: 自キャラの OK? → 相手キャラの選択バー → OK? → 開始
+      if (this.practice && this.pStage === 0 && this.selMode === 'confirm') { this.pMine = this.selChar; this.pStage = 1; this.selMode = 'browse'; this.selChar = this.pFoe || this.pMine; }
+      else if (this.selMode === 'confirm') this.selMode = 'sortie';
+      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', this.practice ? { char: this.pMine, foe: (this.pFoe = this.selChar) } : { char: this.selChar }); }
       this.lobbyRender();
     };
-    document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー
-      if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
+    document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー。練習の相手の選択バー → 自キャラの OK?
+      if (this.practice && this.pStage === 1 && this.selMode === 'browse') { this.pStage = 0; this.selChar = this.pMine; this.selMode = 'confirm'; }
+      else if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
       else this.selMode = this.selMode === 'sortie' ? 'confirm' : 'browse';
       this.lobbyRender();
     };
@@ -477,6 +500,19 @@ class GameScene extends Phaser.Scene {
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
     for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
+    // 練習パネル: 操作はサーバーへ（pr）。表示は tick の practiceHud
+    const pr = (m: any) => this.room?.send('pr', m), prp = $('.prp');
+    $('.prbtn').onclick = () => prp.classList.toggle('open');
+    $('.pfoe').onchange = (e) => pr({ op: 'foe', char: (e.target as HTMLSelectElement).value });
+    prp.onclick = (e) => {
+      const b = (e.target as HTMLElement).closest('button');
+      if (!b) return;
+      if (b.dataset.mode) pr({ op: 'mode', mode: b.dataset.mode });
+      if (b.dataset.pw) pr({ op: 'power', who: b.dataset.pw, d: Number(b.dataset.d) });
+      if (b.dataset.as) pr({ op: 'assist', side: b.dataset.as, char: ($('.pas') as HTMLSelectElement).value, tier: Number(($('.pat') as HTMLSelectElement).value) });
+      if (b.classList.contains('pboss')) pr({ op: 'boss' });
+      if (b.classList.contains('pback')) { pr({ op: 'back' }); prp.classList.remove('open'); }
+    };
 
     // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
     const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
@@ -1059,13 +1095,28 @@ class GameScene extends Phaser.Scene {
     if (this.selChar === k) return;
     this.selChar = k;
     this.lobbyRender();
+    if (this.pStage === 1) return; // 練習の相手選びは自キャラを変えない
     if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
+  }
+
+  // 練習パネルの表示: 試合中だけボタンを出す（タイマーの代わり）。相手・動き・レベルはサーバーの値
+  practiceHud(s: any) {
+    const on = !!s.practice && s.phase === 'playing', btn = $('.prbtn'), prp = $('.prp');
+    btn.style.display = on ? 'block' : 'none';
+    $('.timer').style.visibility = s.practice ? 'hidden' : '';
+    if (!on) { prp.classList.remove('open'); return; }
+    const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TIERS[t]);
+    setText($('.lv0'), lv(P.lv[0])); setText($('.lv1'), lv(P.lv[1]));
+    prp.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === P.mode));
+    const sel = $('.pfoe') as HTMLSelectElement;
+    if (P.foe && document.activeElement !== sel && sel.value !== P.foe) sel.value = P.foe;
   }
 
   lobbyRender() {
     const lobby = document.getElementById('lobby')!, k = this.selChar;
-    lobby.className = this.selMode;
-    document.getElementById('okbtn')!.textContent = this.selMode === 'sortie' ? '出撃' : this.selMode === 'go' ? '出撃済み' : 'OK?';
+    lobby.className = this.selMode + (this.practice ? ` practice${this.pStage ? ' foe' : ''}` : '');
+    document.getElementById('okbtn')!.textContent = this.selMode === 'sortie' ? (this.practice ? '開始' : '出撃') : this.selMode === 'go' ? '出撃済み' : 'OK?';
+    setText(lobby.querySelector<HTMLElement>('.ttl')!, this.practice ? (this.pStage ? '練習: 相手を選ぶ' : '練習: 自分を選ぶ') : TITLE); // 右隣の「タイトルへ」と重ならない長さ
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === k)); // 枠の強調は表示中のキャラ
     if (!k || lobby.dataset.k === k) return;
     lobby.dataset.k = k;
@@ -1164,7 +1215,8 @@ class GameScene extends Phaser.Scene {
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
       this.room.send('input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
     }
-    if (this.lastPhase === 'ended' && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
+    this.practice = !!s.practice;
+    if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.pStage = 0; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 
@@ -1467,6 +1519,7 @@ class GameScene extends Phaser.Scene {
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
     setText($('.timer'), `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+    this.practiceHud(s);
     [0, 1].forEach((t) => { const el = $(`.b${t} i`); el.style.width = `${s.teams[t].bossHpRatio * 100}%`; el.style.background = css16(TEAM_COLOR[t]); }); // 左＝陣営0、右＝陣営1
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;

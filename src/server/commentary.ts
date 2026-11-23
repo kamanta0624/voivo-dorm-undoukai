@@ -215,6 +215,7 @@ export class Director {
   private coolU(u: Utter) { const main = u.s.filter((x) => topicOf(x.k) !== 'pre'); return (main.length ? main : u.s).some((x) => this.cool(x.k)); }
   // 言い始める: 全員に送り、言い終わる時刻を決める。クールタイム中の前置きは外す
   private send(u: Utter) {
+    if (this.room.practice) return; // 練習は実況なし
     this.lastFill = !!u.fill; // 直前の発話がつなぎか（リーチの条件）
     if (u.s.length > 1) { const s = u.s.filter((x) => topicOf(x.k) !== 'pre' || !this.cool(x.k)); if (s.length) u = { ...u, s }; }
     for (const x of u.s) { const t = topicOf(x.k); if (t !== null) this.topicAt.set(t, this.clock); }

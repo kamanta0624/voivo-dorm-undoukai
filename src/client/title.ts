@@ -92,7 +92,7 @@ function showTitle() {
   const el = document.createElement('div');
   el.id = 'title';
   el.innerHTML = `<div class="in"><h1>${TITLE}</h1><div class="me">あなたの名前: <b></b></div><div class="notice" hidden></div><div class="msg"></div><div class="rooms"></div>
-<div class="row"><button class="rules">ルール説明</button><button class="notes">更新情報</button><button class="credits">クレジット</button></div><div class="news" hidden></div></div>
+<div class="row"><button class="practice">練習</button><button class="rules">ルール説明</button><button class="notes">更新情報</button><button class="credits">クレジット</button></div><div class="news" hidden></div></div>
 <div class="pop"><div class="body"></div><button>閉じる</button></div>`;
   document.body.appendChild(el);
   const $ = (s: string) => el.querySelector<HTMLElement>(s)!;
@@ -110,6 +110,7 @@ function showTitle() {
     $('.notes').onclick = () => open(items.map((x, i) => (i ? fold(x) : md(x))).join(''));
   });
   $('.credits').onclick = () => fetchText('credits.md').then((t) => open(md(t)));
+  $('.practice').onclick = () => join(() => client.create('game', { practice: true, name, bid })); // 練習（handoff_practice1）: 押すたびに本人専用の部屋を作って入る
   $('.rules').onclick = () => location.assign('/rules.html'); // ルール説明のページ（public/rules.html。戻るボタンはページの中）。ADV（tutorial.ts）は将来使うので残す
 
   // 部屋一覧: STATUS_POLL_SEC 秒ごとに自動更新。待機中かつ空きありの部屋だけ押せる。メンテ中は全部押せない
@@ -119,7 +120,7 @@ function showTitle() {
     n.hidden = !s.maintenance;
     n.textContent = s.notice;
     $('.rooms').innerHTML = s.rooms.map((r: any) => `<button class="room" data-id="${esc(r.id)}" ${r.state !== 'waiting' || s.maintenance ? 'disabled' : ''}><span>部屋${r.no}</span><span>${STATE_LABEL[r.state]}${r.state === 'playing' ? '' : `（${r.humans}/${r.max}）`}</span></button>`).join('');
-    el.querySelectorAll<HTMLButtonElement>('.room').forEach((b) => (b.onclick = () => join(b.dataset.id!)));
+    el.querySelectorAll<HTMLButtonElement>('.room').forEach((b) => (b.onclick = () => join(() => client.joinById(b.dataset.id!, { name, bid }))));
   };
   const poll = async () => {
     try {
@@ -131,15 +132,15 @@ function showTitle() {
   };
   const timer = setInterval(poll, C.STATUS_POLL_SEC * 1000);
   poll();
-  // 入室: 直前にビルドを比べてから
-  const join = async (id: string) => {
+  // 入室: 直前にビルドを比べてから。open: 部屋に入る（常設の部屋は joinById、練習は本人専用の部屋を作る）
+  const join = async (open: () => Promise<Room>) => {
     if (busy) return;
     busy = true;
     msg('');
     const s = await poll();
     if (s && s.build && s.build !== __BUILD__) { busy = false; return; }
     try {
-      const room = await client.joinById(id, { name, bid });
+      const room = await open();
       clearInterval(timer);
       ss.set(tokenKey, room.reconnectionToken);
       await enter(room, false);

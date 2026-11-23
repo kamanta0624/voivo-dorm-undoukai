@@ -77,6 +77,7 @@ export const CONFIG = {
   LOBBY_GRACE: 15, // 待機画面: 人間が複数のとき、最初の出撃から開始までの選択猶予(秒)
   MAX_CLIENTS: 16, // 超過分は観戦（e2e の部屋だけ。常設の部屋は ROOM_FULL で満員）
   ROOMS: 2, // 常設の部屋の数（サーバー起動時に作り、空になっても残す）。仮置き
+  PRACTICE_ROOMS: 4, // 練習の部屋を同時に作れる数（仮置き。handoff_practice1）
   ROOM_FULL: 8, // 常設の部屋の満員（人間の参加者の数）。仮置き
   STATUS_POLL_SEC: 3, // タイトル画面の部屋一覧の自動更新の間隔(秒)
   TUTORIAL: { autoBase: 1.5, autoPerChar: 0.12 }, // ルール説明のオートで音声のない行: autoBase + 文字数 × autoPerChar 秒で次へ
