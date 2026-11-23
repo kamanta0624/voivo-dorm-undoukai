@@ -21,7 +21,25 @@ export class Controls {
   releaseStick() { this.stick = null; }
 
   skill() { this.send('skill'); }
-  skillUp() { this.send('skillUp'); } // 離した（押している間タメる技）
+  // 技の矢印（押す→矢印→離して発動）。src: 押している入力（R・技ボタン・右クリック。どれかを押している間は続く）、re: タメ中の向きの変更（動かすたびに送る）
+  // a: 動かした矢印の向き（null＝動かしていない＝自動照準）
+  aim: { srcs: Set<string>; a: number | null; re: boolean } | null = null;
+  aimDown(src: string, re: boolean) {
+    if (!this.aim) this.aim = { srcs: new Set(), a: null, re };
+    this.aim.srcs.add(src);
+  }
+  aimTo(a: number) {
+    if (!this.aim || this.aim.a === a) return;
+    this.aim.a = a;
+    if (this.aim.re) this.send('skillAim', { a });
+  }
+  // 全部の入力を離したら発動（タメ中なら向きの確定）。向きを動かしていなければ a なし
+  aimUp(src: string) {
+    if (!this.aim?.srcs.delete(src) || this.aim.srcs.size) return;
+    const a = this.aim.a;
+    this.aim = null;
+    this.send('skillUp', a === null ? {} : { a });
+  }
   qDown() { this.send('qdown'); } // 短押しで設置、長押しでリコール（判定はサーバー）
   qUp() { this.send('qup'); }
   // 照準モードを順に切り替え

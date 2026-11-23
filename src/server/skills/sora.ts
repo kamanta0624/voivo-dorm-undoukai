@@ -10,8 +10,8 @@ import { solarAt } from '../../shared/solar';
 const S = CHARS.sora.skill, T = C.TILE, K = S.keys as number[][];
 export { solarAt }; // 補間は shared/solar.ts（技ボタンの％と共通）
 
-// 照射の状態（発射時に決める）
-type Beam = { a: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置
+// 照射の状態（発射時に決める）。start: ビームが出る時刻（発射から delay 秒後。チャージ keys の最後から2番目の秒数を超えた発射は遅れなし）
+type Beam = { a: number; start: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置
 
 // 総ダメージの配分: ビームの1ヒット（照射秒で多段の回数が変わる）・爆発（大将は別の値）
 const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / Math.round(b.dur / S.every);
@@ -47,6 +47,7 @@ function beam(room: GameRoom, p: Player, dt: number) {
   const b: Beam | undefined = p.sk.beam;
   if (!b || !p.st.solar) return;
   if (!room.stat(p, 'solar')) { delete p.st.solar; p.sk.beam = undefined; return; }
+  if (room.now < b.start - 1e-9) return; // 発生の遅れの間はビームを出さない（向きも変えない）。1e-9: 時刻の足し算の誤差
   // 向き: 移動入力の方へ毎秒 turn まで
   const [ix, iy] = room.moveIntent(p);
   if (ix || iy) { const d = Math.atan2(Math.sin(Math.atan2(iy, ix) - b.a), Math.cos(Math.atan2(iy, ix) - b.a)); b.a += Math.sign(d) * Math.min(Math.abs(d), S.turn * dt); }
@@ -93,10 +94,10 @@ function charge(room: GameRoom, p: Player, dt: number) {
 
 const skill: Skill = {
   use(room, p) {
-    const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2));
-    p.sk.beam = { a, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, pending: [] };
+    const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2)), start = room.now + (c > K[K.length - 2][0] ? 0 : S.delay);
+    p.sk.beam = { a, start, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, pending: [] };
     p.sk.charge = 0;
-    p.st.solar = { until: room.now + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]) }) };
+    p.st.solar = { until: start + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]) }) };
   },
   tick(room, p, dt) {
     if (room.phase === 'playing') charge(room, p, dt);
@@ -108,6 +109,7 @@ const skill: Skill = {
     const c = p.sk.charge ?? 0, R = solarAt(c, 2);
     return c >= S.botMin && room.inRectAhead(p, room.skillAim(p, R), R, S.w).some((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t));
   },
+  arrow: (_room, p) => ({ R: solarAt(p.sk.charge ?? 0, 2) }),
   statuses: ['solar', 'solarCharge'],
 };
 export default skill;

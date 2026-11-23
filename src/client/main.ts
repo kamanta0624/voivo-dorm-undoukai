@@ -336,6 +336,8 @@ class GameScene extends Phaser.Scene {
   selChar = ''; // 待機画面で表示している（今選んでいる）キャラ
   pickTimer = 0; // 表示キャラをサーバーへ送る予約
   mmCam: { x: number; y: number } | null = null; // ミニマップを押している間のカメラの位置（ワールド座標）
+  mouseAt: { x: number; y: number } | null = null; // マウスの位置（画面の clientX/Y）
+  aimFrom: { mouse: { x: number; y: number } | null; touch: { id: number; x: number; y: number; nx: number; ny: number } | null } | null = null; // 技の矢印を出した時のマウスの位置・技ボタンに触れた指（nx,ny: 今の位置）
   mmHeld = false; // 直前のフレームでミニマップの視点だった（離したら即座に自キャラへ戻す）
   koedBy: { kc: string | null; how: string } | null = null; // 自分を倒した相手と手段
   pops: { el: HTMLElement; x: number; y: number; until: number }[] = [];
@@ -429,8 +431,12 @@ class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,Q,R,TAB') as any;
     this.keys.Q.on('down', () => this.ctl.qDown()); // 長押しでリコール（判定はサーバー）
     this.keys.Q.on('up', () => this.ctl.qUp());
-    this.keys.R.on('down', () => this.ctl.skill());
-    this.keys.R.on('up', () => this.ctl.skillUp());
+    this.keys.R.on('down', () => this.skillDown('r'));
+    this.keys.R.on('up', () => this.skillUp('r'));
+    // フィールド上の右クリック長押し: 技の矢印（矢印の技だけ。ミニマップの上は DOM が受けるので来ない）
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.rightButtonDown()) this.skillDown('rc'); });
+    for (const t of ['pointerup', 'pointerupoutside']) this.input.on(t, (p: Phaser.Input.Pointer) => { if (p.button === 2) this.skillUp('rc'); });
+    window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') this.mouseAt = { x: e.clientX, y: e.clientY }; }); // mousemove は技ボタンの pointerdown の preventDefault で止まるので pointermove
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
     this.buttons();
     if (TOUCH) this.touchControls();
@@ -620,6 +626,37 @@ class GameScene extends Phaser.Scene {
     return this.snap?.players.find((p: any) => p.id === this.snap.me);
   }
 
+  // 技の入力を押した。矢印の技（サーバーが skA を送ってくる）は矢印を出し、離した時に発動。ほかの技は今どおり押した瞬間に発動（右クリックは矢印の技だけ）
+  // 矢印を出すのは技が使える時（技ボタンが OK）か、タメ中で向きを変えられる時（skRe）だけ
+  skillDown(src: string, touch?: { id: number; x: number; y: number; nx: number; ny: number }) {
+    const m = this.mine(), s = this.snap;
+    if (!m || m.skA === undefined) { if (src !== 'rc') this.ctl.skill(); return; }
+    const ready = m.skillCd - (performance.now() - this.snapAt) / 1000 <= 0 && !Object.keys(STATUS_VIEW).some((k) => m.st?.[k] && STATUS_VIEW[k].hud);
+    if (!m.alive || !['playing', 'ended'].includes(s.phase) || !(m.skRe || ready)) return;
+    if (!this.ctl.aim) this.aimFrom = { mouse: this.mouseAt && { ...this.mouseAt }, touch: null };
+    if (touch) this.aimFrom!.touch = touch;
+    this.ctl.aimDown(src, !!m.skRe);
+  }
+  skillUp(src: string) {
+    this.ctl.aimUp(src);
+    if (!this.ctl.aim) this.aimFrom = null;
+  }
+
+  // 技の矢印（毎フレーム・本人の画面だけ）: 技ボタンの指を動かしたらドラッグの向き、マウスを動かしたら自キャラ→カーソル、どちらもなければ自動照準（サーバーの skA）
+  aimArrow(g: Phaser.GameObjects.Graphics, m: any) {
+    const f = this.aimFrom;
+    if (!this.ctl.aim || !f || !m?.alive || m.skA === undefined) return;
+    const z = this.game.scale.zoom, t = f.touch;
+    if (t && Math.hypot(t.nx - t.x, t.ny - t.y) / z >= C.TOUCH.dead) this.ctl.aimTo(Math.atan2(t.ny - t.y, t.nx - t.x));
+    else if (!t && f.mouse && this.mouseAt && Math.hypot(this.mouseAt.x - f.mouse.x, this.mouseAt.y - f.mouse.y) >= 4) {
+      const w = this.cameras.main.getWorldPoint(this.scale.transformX(this.mouseAt.x), this.scale.transformY(this.mouseAt.y));
+      this.ctl.aimTo(Math.atan2(w.y - this.me.y, w.x - this.me.x));
+    }
+    const a = this.ctl.aim.a ?? m.skA, L = m.skR, ux = Math.cos(a), uy = Math.sin(a), x = this.me.x, y = this.me.y, ex = x + ux * L, ey = y + uy * L, h = 12;
+    g.lineStyle(4, 0x000000, 0.35).lineBetween(x, y, ex - ux * h, ey - uy * h).lineStyle(2, 0xffffff, 0.9).lineBetween(x, y, ex - ux * h, ey - uy * h);
+    g.fillStyle(0xffffff, 0.9).fillTriangle(ex, ey, ex - ux * h - uy * h * 0.6, ey - uy * h + ux * h * 0.6, ex - ux * h + uy * h * 0.6, ey - uy * h - ux * h * 0.6);
+  }
+
   // 右下のボタン（PC・スマホ共通。PCはマウスで押す）: 技・帰還（長押し）・照準。その下のミニマップは押している間だけ視点をそこへ移す（スマホは指、PCは右クリック）
   buttons() {
     const btn = (q: string, down: () => void, release?: () => void) => {
@@ -627,7 +664,11 @@ class GameScene extends Phaser.Scene {
       el.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); el.setPointerCapture(e.pointerId); down(); });
       if (release) for (const t of ['pointerup', 'pointercancel']) el.addEventListener(t, release);
     };
-    btn('.skill', () => this.ctl.skill(), () => this.ctl.skillUp());
+    // 技ボタン: マウスは左ボタン、タッチは指（押した位置からのドラッグで矢印の向き）
+    const skb = $('.skill'), src = (e: PointerEvent) => (e.pointerType === 'mouse' ? 'btn' : `t${e.pointerId}`);
+    skb.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); skb.setPointerCapture(e.pointerId); this.skillDown(src(e), e.pointerType === 'mouse' ? undefined : { id: e.pointerId, x: e.clientX, y: e.clientY, nx: e.clientX, ny: e.clientY }); });
+    skb.addEventListener('pointermove', (e) => { const t = this.aimFrom?.touch; if (t && t.id === e.pointerId) Object.assign(t, { nx: e.clientX, ny: e.clientY }); });
+    for (const t of ['pointerup', 'pointercancel']) skb.addEventListener(t, (e) => this.skillUp(src(e as PointerEvent)));
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
     const mm = $('.mm');
@@ -1485,6 +1526,7 @@ class GameScene extends Phaser.Scene {
     const selfView = mine && SELF_VIEW[mine.char];
     if (selfView && !mine.assist && mine.alive && s.phase === 'playing' && mine.skillCd - sinceSnap <= 0 && !Object.keys(STATUS_VIEW).some((k) => mine.st?.[k] && STATUS_VIEW[k].hud))
       selfView(fxG, { me: this.me, s, myTeam, time, pos: (id: string) => this.interp.at(id, now) });
+    this.aimArrow(fxG, mine);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
     for (const sh of s.shots) {
       if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）

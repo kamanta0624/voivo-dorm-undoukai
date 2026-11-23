@@ -1,4 +1,4 @@
-// 満別花丸: 花丸パンチ（押している間タメ、離すと拳を発射。前方へ直進、キャラにダメージ・壁を壊して貫通。タメのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
+// 満別花丸: 花丸パンチ（CT 明けから自動でチャージ。発動で向きを決め、レベル2以上は溜めてから拳を発射。前方へ直進、キャラにダメージ・壁を壊して貫通。チャージのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
 import type { GameRoom, Player, Ent } from '../GameRoom';
 import { unbreakable, thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -90,48 +90,56 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   room.addFx(p, 'wall', { tiles, r: 0 });
 }
 
-// タメの秒数 → レベル（lv の添字）
+// チャージの秒数 → レベル（lv の添字）
 const fistLevel = (held: number) => H.lv.reduce((k: number, l: any, i: number) => (held >= l.t - 1e-9 ? i : k), 0); // 1e-9: 時刻の足し算の誤差
 
-// 拳を出す（命中・破壊は updateFist）。lv: タメのレベル（lv の添字）
-function fire(room: GameRoom, p: Player, lv: number) {
-  const a = p.sk.wallAim ?? room.skillAim(p, H.range), L = H.lv[lv]; // Bot の壁破壊は壁の向き
-  room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false });
-  p.skillReadyAt = room.now + H.ct;
+// 自動チャージ: CT 明けから進み、発射（CT）・撤退で0に戻る。今のチャージ秒数
+function charge(room: GameRoom, p: Player) {
+  if (p.sk.koAt === undefined) p.sk.koAt = p.koAt;
+  else if (p.sk.koAt !== p.koAt) { p.sk.koAt = p.koAt; p.sk.from = room.now; } // 撤退から戻った: 0から
+  return Math.max(0, room.now - Math.max(p.skillReadyAt, p.sk.from ?? -Infinity));
 }
-// 離した: タメのレベルで発射（CT はここから）
-function release(room: GameRoom, p: Player) {
-  const c = p.st.fistCharge;
-  if (!c) return;
-  delete p.st.fistCharge;
-  fire(room, p, fistLevel(room.now - c.at!));
+
+// 拳を出す（命中・破壊は updateFist）。lv: チャージのレベル（lv の添字）、a: 向き
+function fire(room: GameRoom, p: Player, lv: number, a: number) {
+  const L = H.lv[lv];
+  room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false });
+}
+
+// 毎tick: 溜めが終わったら発射。CT 明けはチャージの見た目（fistCharge）を付ける
+function step(room: GameRoom, p: Player) {
+  const w = p.st.fistWind;
+  if (w && room.now - w.at! >= H.lv[p.sk.flv].wind - 1e-9) { delete p.st.fistWind; fire(room, p, p.sk.flv, p.sk.fa); }
+  charge(room, p);
+  if (room.now >= p.skillReadyAt && !p.st.fistWind) p.st.fistCharge ??= { until: Infinity, view: () => ({ t: charge(room, p) }) };
+  else delete p.st.fistCharge;
 }
 
 const skill: Skill = {
-  // 押した: タメ開始（CT はまだ）。Bot の壁破壊はタメなしで即発射
+  // 発動: 今のチャージのレベルで、向きを決めて溜め（lv[].wind 秒、移動不可。溜め中は矢印で向きを変えられ、発射時点の向きで確定）→ 発射。CT はここから。Bot の壁破壊はチャージによらずレベル1で即発射
   use(room, p) {
-    if (p.sk.wallAim !== undefined) { fire(room, p, 0); p.sk.wallAim = undefined; return false; }
-    if (p.st.fistCharge) return false;
-    const at = room.now;
-    p.st.fistCharge = { until: Infinity, at, cancel: true, view: () => ({ t: room.now - at }) };
-    if (p.bot) p.sk.botRelease = at + H.botHold[Math.floor(Math.random() * H.botHold.length)];
-    return false;
+    delete p.st.fistCharge;
+    if (p.sk.wallAim !== undefined) { fire(room, p, 0, p.sk.wallAim); p.sk.wallAim = undefined; return; }
+    const lv = fistLevel(charge(room, p)), a = room.skillAim(p, H.range);
+    if (!H.lv[lv].wind) { fire(room, p, lv, a); return; }
+    Object.assign(p.sk, { flv: lv, fa: a });
+    p.st.fistWind = { until: Infinity, at: room.now, lock: true, still: true, cancel: true, view: () => ({ a: p.sk.fa, lv: p.sk.flv }) };
   },
-  release,
-  // Bot: 決めたタメの秒数で離す
-  tick(room, p) {
-    if (p.bot && p.st.fistCharge && room.now >= p.sk.botRelease) release(room, p);
+  arrow: (room, p) => ({ R: H.range, a: p.st.fistWind ? p.sk.fa : undefined }),
+  reAim(_room, p, a) {
+    if (!p.st.fistWind) return false;
+    if (a !== undefined) p.sk.fa = a;
+    return true;
   },
-  ended(room, p) {
-    if (p.bot && p.st.fistCharge && room.now >= p.sk.botRelease) release(room, p);
-  },
+  tick: (room, p) => { step(room, p); },
+  ended: (room, p) => { step(room, p); },
   afterMove(room, p, _dt, px, py, locked) {
     if (!locked && room.now >= p.stunUntil) pushWall(room, p, px, py);
   },
   botUse: (room, p) => room.inRectAhead(p, room.skillAim(p, H.range), H.range, H.r * 2).some((t) => (t.k === 'p' || t.k === 'boss') && room.reach(p, t)), // 拳の進路に敵
   // 壁を壊すと目的地への経路が大きく短くなるなら壁破壊（その方向を向いて使う）
   botMove(room, p, to: Pt, obs: Rect[]) {
-    if (room.phase !== 'playing' || room.now < p.skillReadyAt || p.st.fistCharge || room.effect(p, 'noSkill') || room.now < (p.sk.wallCheckAt ?? 0)) return false;
+    if (room.phase !== 'playing' || room.now < p.skillReadyAt || p.st.fistWind || room.effect(p, 'noSkill') || room.now < (p.sk.wallCheckAt ?? 0)) return false;
     p.sk.wallCheckAt = room.now + H.botCheck;
     const base = findPath(p, to, obs, room.walls).length;
     if (!base) return false;
@@ -146,7 +154,7 @@ const skill: Skill = {
       const rest = findPath({ x: bx * T + T / 2, y: by * T + T / 2 }, to, obs, room.walls).length;
       const len = rest && rest + k + H.d;
       if (len && (base - len) * C.GRID_CELL >= H.botSave) {
-        p.face = a; p.tgt = null; p.sk.wallAim = a; // 壁の方向へ使う（タメなし）
+        p.face = a; p.tgt = null; p.sk.wallAim = a; // 壁の方向へ使う（レベル1・溜めなし）
         room.skill(p.id);
         p.sk.wallAim = undefined;
         return true;
@@ -154,7 +162,7 @@ const skill: Skill = {
     }
     return false;
   },
-  statuses: ['fistCharge'],
+  statuses: ['fistCharge', 'fistWind'],
   ents: { fist: { update: updateFist, fog: true } },
 };
 export default skill;

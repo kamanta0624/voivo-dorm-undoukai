@@ -30,5 +30,17 @@ ok(`照準: ${C.AIM_MODES.join('→')}→最初に戻る`, JSON.stringify(sent.m
 sent.length = 0; c.cycleAim(); c.sendAim();
 ok('再接続時は今の照準モードを送り直す', sent[1][1].mode === C.AIM_MODES[1] && sent[1][0] === 'aim');
 
+console.log('--- 技の矢印（aim1: 押す→矢印→離して発動）');
+sent.length = 0; c.aimDown('r', false); const none0 = sent.length; c.aimUp('r');
+ok('押しただけでは何も送らない。動かさずに離すと向きなしの skillUp（サーバーが自動照準）', none0 === 0 && JSON.stringify(sent) === JSON.stringify([['skillUp', {}]]), sent);
+sent.length = 0; c.aimDown('btn', false); c.aimTo(1); c.aimTo(2); c.aimUp('btn');
+ok('動かすと離した時の向きを送る（動かしている間は送らない）', JSON.stringify(sent) === JSON.stringify([['skillUp', { a: 2 }]]), sent);
+sent.length = 0; c.aimDown('r', false); c.aimDown('rc', false); c.aimTo(1); c.aimUp('r'); const mid = sent.length; c.aimUp('rc');
+ok('R・技ボタン・右クリックのどれかを押している間は続き、全部離した時に1回だけ発動', mid === 0 && JSON.stringify(sent) === JSON.stringify([['skillUp', { a: 1 }]]) && c.aim === null, sent);
+sent.length = 0; c.aimUp('r');
+ok('押していない入力の離しは何も送らない', sent.length === 0);
+sent.length = 0; c.aimDown('r', true); c.aimTo(1); c.aimTo(1); c.aimTo(2); c.aimUp('r');
+ok('タメ中（re）は動かすたびに skillAim で向きを送り、離すと skillUp で確定', JSON.stringify(sent) === JSON.stringify([['skillAim', { a: 1 }], ['skillAim', { a: 2 }], ['skillUp', { a: 2 }]]), sent);
+
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

@@ -38,6 +38,7 @@ function updateFunnel(room: GameRoom, f: Ent, dt: number) {
     f.nextAtk = room.now + F.every;
     if (owner) room.hitThing(owner, tgt, F.dmg);
     room.addFx(f, 'beam', { x2: tgt.x, y2: tgt.y });
+    if (owner && Math.hypot(f.x - owner.x, f.y - owner.y) >= F.leash) return room.removeEnt(f); // 有効射程: 撃った時にもち子から leash px 以上離れていたら、この攻撃で消える
     f.slot += F.slotStep;
     f.retargetAt = 0;
   }

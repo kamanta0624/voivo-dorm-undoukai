@@ -45,11 +45,17 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
 }
 
 const skill: Skill = {
-  // タメに入る（方向はこの瞬間に決める: 移動入力 → 照準の対象 → 向いている方向）
+  // タメに入る。方向: 人間は矢印の向き（タメ中に矢印で変えられる。突撃開始時点の向きで確定）、Bot はこの瞬間に決める（移動入力 → 照準の対象 → 向いている方向）
   use(room, p, a) {
     const [ix, iy] = room.moveIntent(p), at = room.now;
     p.st.charge = { until: Infinity, at, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.a, len: room.speedOf(p) * S.speed * S.dur, left: S.windup - (room.now - at) }) };
-    p.sk.a = ix || iy ? Math.atan2(iy, ix) : a;
+    p.sk.a = !p.bot ? room.skillAim(p, room.speedOf(p) * S.speed * S.dur) : ix || iy ? Math.atan2(iy, ix) : a;
+  },
+  arrow: (room, p) => ({ R: room.speedOf(p) * S.speed * S.dur, a: p.st.charge ? p.sk.a : undefined }),
+  reAim(_room, p, a) {
+    if (!p.st.charge) return false;
+    if (a !== undefined) p.sk.a = a;
+    return true;
   },
   afterMove: (room, p, dt) => step(room, p, dt),
   ended: (room, p, dt) => step(room, p, dt),

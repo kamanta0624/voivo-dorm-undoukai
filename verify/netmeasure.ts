@@ -50,7 +50,7 @@ for (const kind of ['push', 'dash']) {
   const { r, b } = room(); r.elapsed = 1; r.recordHist(); const x = b.x;
   r.elapsed = 1.1;
   if (kind === 'push') r.push(target(r), 1, 0, 100);
-  else { b.char = 'aru'; b.inDx = 1; r.skill(b.id); r.now += CHARS.aru.skill.windup; SKILLS.aru.afterMove?.(r, b, .1, b.x, b.y, false); }
+  else { b.char = 'aru'; r.skill(b.id, 0); /* aim1: 人間のアルは矢印の向き（東） */ r.now += CHARS.aru.skill.windup; SKILLS.aru.afterMove?.(r, b, .1, b.x, b.y, false); }
   assert.ok(b.x > x, kind); r.recordHist();
   near(r.rewound([target(r)], 1.05)[0].x, (x + b.x) / 2); assert.equal(r.jumps.size, 0);
   console.log('PASS continuous', kind, b.x - x);

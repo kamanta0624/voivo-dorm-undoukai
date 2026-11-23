@@ -1,4 +1,4 @@
-// 満別花丸: 花丸パンチ（タメ中は頭上にゲージとレベルの玉。拳は半透明の大きな拳（陣営色）で、大きさはタメのレベル（サーバーの r）。後ろに流れる線と光）
+// 満別花丸: 花丸パンチ（チャージ中は頭上にゲージとレベルの玉。拳は半透明の大きな拳（陣営色）で、大きさはタメのレベル（サーバーの r）。後ろに流れる線と光）
 import Phaser from 'phaser';
 import type { ClientSkill } from './index';
 import { CHARS } from '../../shared/chars';
@@ -9,9 +9,8 @@ const LV_COLOR = [0xffffff, 0xffe14a, 0xff6a00]; // レベル1〜3のゲージ�
 const GAUGE = { w: 26, h: 4, up: 42 * C.DOT_SCALE * 0.85 + 12 }; // ゲージの幅・高さ、足元からの高さ（HPバーの上）
 const skill: ClientSkill = {
   status: {
-    // タメ中: 頭上に次のレベルまでのゲージと、到達したレベルの玉（最後のレベルは点滅）
+    // チャージ（CT 明けから自動）: 頭上に次のレベルまでのゲージと、到達したレベルの玉（最後のレベルは点滅）
     fistCharge: {
-      hud: 'タメ',
       fx(g, { x, y, time, v }) {
         const t = v.t ?? 0, lv = LV.reduce((k, l, i) => (t >= l.t ? i : k), 0), next = LV[lv + 1];
         const k = next ? (t - LV[lv].t) / (next.t - LV[lv].t) : 1, gx = x - GAUGE.w / 2, gy = y - GAUGE.up;

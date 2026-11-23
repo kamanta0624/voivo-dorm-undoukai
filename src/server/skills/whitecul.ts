@@ -10,5 +10,6 @@ const skill: Skill = {
     room.addFx(p, 'rect', { a, len: S.len, w: S.w, color: 'blizzard' });
   },
   botUse: (room, p) => room.inRectAhead(p, room.skillAim(p, S.len), S.len, S.w).some((t) => room.reach(p, t)),
+  arrow: () => ({ R: S.len }),
 };
 export default skill;

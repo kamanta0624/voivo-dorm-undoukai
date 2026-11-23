@@ -32,11 +32,13 @@ function volley(room: GameRoom, p: Player, n: number) {
 }
 
 // ホーミング弾: 弾道ごとの速度で進み、狙った敵に当たったらダメージ。壁・寿命で消える
-// 狙った敵が着弾前に倒れた（対象にならなくなった）ら、その時点の進行方向へ直進に切り替え、寿命・壁・敵（コバコを含む。当たった敵にダメージ、コバコはKO）で消える
+// 狙った敵が着弾前に倒れた（対象にならなくなった）か、今のきりたんから homeMax px 以上離れたら、その時点の進行方向へ直進に切り替え、寿命・壁・敵（コバコを含む。当たった敵にダメージ、コバコはKO）で消える。きりたんから vanish px 以上離れても消える
 function updateMissile(room: GameRoom, e: Ent, dt: number) {
-  const owner = room.players.get(e.owner), t = e.orphan ? undefined : find(room, e.team, e.tgt);
+  const owner = room.players.get(e.owner), far = owner ? Math.hypot(e.x - owner.x, e.y - owner.y) : 0;
   e.t += dt;
-  if (!owner || e.t > S.life) return room.removeEnt(e);
+  if (!owner || e.t > S.life || far >= S.vanish) return room.removeEnt(e);
+  if (far >= S.homeMax) e.orphan = true;
+  const t = e.orphan ? undefined : find(room, e.team, e.tgt);
   if (!t) e.orphan = true;
   let vx: number, vy: number;
   if (e.orphan) { vx = Math.cos(e.a) * S.orphanSpeed; vy = Math.sin(e.a) * S.orphanSpeed; } // 直進

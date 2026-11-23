@@ -562,7 +562,7 @@ export class Director {
         const start = foes(room.inRectAhead(p, room.aimOf(p), S.range, S.r * 2));
         let first = true;
         const fists = () => room.ents.filter((e) => e.kind === 'fist' && e.owner === p.id);
-        return { active: () => !!p.st.fistCharge || fists().length > 0, zone: () => { const out = first ? start : []; first = false; return [...out, ...fists().flatMap((f) => foes(room.enemyThings(p.team).filter((t) => Math.hypot(t.x - f.x, t.y - f.y) <= f.r + t.r + R)))]; } }; // タメ中から拳が消えるまで
+        return { active: () => !!p.st.fistWind || fists().length > 0, zone: () => { const out = first ? start : []; first = false; return [...out, ...fists().flatMap((f) => foes(room.enemyThings(p.team).filter((t) => Math.hypot(t.x - f.x, t.y - f.y) <= f.r + t.r + R)))]; } }; // タメ中から拳が消えるまで
       }
       case 'aru': return {
         active: () => !!(p.st.charge || room.stat(p, 'rush')),

@@ -35,6 +35,7 @@ const skill: Skill = {
   },
   // Bot: 射程内に悪行のある（または指名手配中の）敵がいれば撃つ
   botUse: (room, p) => room.nearFoe(p, S.range, (t) => t.k === 'p' && (t.o.bad > 0 || room.teams[t.o.team].wanted === t.o.id)),
+  arrow: () => ({ R: S.range }),
   ents: { enma: { update, fog: true } },
 };
 export default skill;

@@ -128,7 +128,7 @@ footer{border-top:1px solid var(--line)}
     <thead><tr><th>やること</th><th>PC</th><th>スマホ</th></tr></thead>
     <tbody>
       <tr><td>移動</td><td><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span></td><td>左のスティック</td></tr>
-      <tr><td>技</td><td><span class="key">R</span>（タメ技は押しっぱなし→離す）</td><td>技ボタン</td></tr>
+      <tr><td>技</td><td><span class="key">R</span>・右クリック・技ボタン（向きのある技は押しっぱなしで矢印。カーソルで向きを決め、離して発動）</td><td>技ボタン（向きのある技は押しっぱなしで矢印。ドラッグで向きを決め、離して発動）</td></tr>
       <tr><td>狙う相手の切替</td><td><span class="key">Tab</span></td><td>モードボタン</td></tr>
       <tr><td>リコール</td><td><span class="key">Q</span> を3秒長押し</td><td>撤退ボタン長押し</td></tr>
       <tr><td>マップを見る</td><td colspan="2">ミニマップを長押し（離すと自分に戻る）</td></tr>
@@ -210,7 +210,7 @@ footer{border-top:1px solid var(--line)}
 {
   const R = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
   const C = [
-    ['hanamaru', '満別花丸', 'balance', '花丸パンチ', '押してタメ、離すと大きな拳。壁を壊して突き進む。壁に押し込み続けても壊せる'],
+    ['hanamaru', '満別花丸', 'balance', '花丸パンチ', '時間とともに力が溜まり、溜まった分だけ大きな拳を撃つ（大きいほど撃つ前の溜めが長い）。壁を壊して突き進む。壁に押し込み続けても壊せる'],
     ['itako', '東北イタコ', 'balance', '狐火', 'まわりに狐火を回す。もう一度使うと近くの敵へ飛ばす'],
     ['kiritan', '東北きりたん', null, '全弾斉射', '1回目でロックオン、2回目でホーミング弾。通常攻撃はきりたん砲'],
     ['sayo', '小夜', 'attacker', '疾風乱舞', 'しばらく速くなり、まわりの敵を斬り続ける'],

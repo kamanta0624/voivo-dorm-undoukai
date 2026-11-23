@@ -280,6 +280,24 @@ async function result(A: Tab) {
 }
 
 const scene = (T: Tab, f: string) => T.page.evaluate(`(() => { const sc = window.game.scene.scenes[0], s = window.snap; return ${f}; })()`) as Promise<any>;
+// 自キャラの画面上の位置（ページの座標）。技の矢印をマウスで向けるのに使う
+const meScreen = (T: Tab) => scene(T, '(() => { const cam = sc.cameras.main, r = sc.game.canvas.getBoundingClientRect(), k = r.width / sc.scale.width; return { x: r.left + (sc.me.x - cam.worldView.x) * cam.zoom * k, y: r.top + (sc.me.y - cam.worldView.y) * cam.zoom * k }; })()') as Promise<{ x: number; y: number }>;
+// 技の矢印（aim1）: how の入力を押したまま、マウスを自キャラから a の向きへ動かし、矢印の向き（クライアントの ctl.aim.a）を読んでから離す
+// how: r=R キー、rc=フィールドの右クリック、btn=技ボタン（左クリック）。shot: 押している間のスクショ名
+async function aimSkill(T: Tab, how: 'r' | 'rc' | 'btn', a: number, shot?: string) {
+  let p = await meScreen(T);
+  for (let i = 0; i < 40; i++) { await sleep(50); const q = await meScreen(T); if (Math.hypot(q.x - p.x, q.y - p.y) < 0.5) break; p = q; } // カメラの追従（移動直後）が止まるまで待つ
+  const at = (d: number) => [p.x + Math.cos(a) * d, p.y + Math.sin(a) * d] as const;
+  if (how === 'btn') { const bb = (await T.page.locator('#fx .skill').boundingBox())!; await T.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await T.page.mouse.down(); }
+  else if (how === 'rc') { await T.page.mouse.move(...at(40)); await T.page.mouse.down({ button: 'right' }); }
+  else { await T.page.mouse.move(...at(40)); await T.page.keyboard.down('r'); }
+  await sleep(80); await T.page.mouse.move(...at(160), { steps: 5 }); await sleep(150);
+  const got = await scene(T, 'sc.ctl.aim && sc.ctl.aim.a');
+  if (shot) await T.shot(shot);
+  if (how === 'btn') await T.page.mouse.up(); else if (how === 'rc') await T.page.mouse.up({ button: 'right' }); else await T.page.keyboard.up('r');
+  return got as number | null;
+}
+const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
 const meSprite = (T: Tab) => scene(T, '(() => { const e = sc.units.get(s.me); return { tex: e.s.texture.key, flip: e.s.flipX, x: e.s.x, y: e.s.y }; })()');
 
 // 歩き: walk1 ⇔ walk2 の交互（1コマ WALK_FRAME_MS）。左へはPSDのまま、右へは左右反転。止まったら idle
@@ -574,34 +592,35 @@ async function hanamaruCheck(A: Tab) {
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
   check('花丸パンチ（タメなし）: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
-  // タメ: R を押し続けて離すと最大レベル（キーボード）、技ボタンを押し続けて離すとレベル2（スマホと同じ pointer の操作。離すと自動照準で発射）
-  // 敵が来にくい自陣の図書室で行う。タメ中に敵 Bot の攻撃を受けるとタメが解除される（fistCharge は cancel）ので、被弾・撃破で中断された回だけ最大3回やり直す（中断なしの失敗はやり直さない）
-  const H = DEFS.hanamaru.skill, fistR = (lv: number) => (x: any) => x.ents.some((e: any) => e.kind === 'fist' && Math.abs(e.r - H.r * H.lv[lv].size) < 1e-6);
-  const meOf = (x: any) => x.players.find((p: any) => p.id === x.me);
-  let charging = false, big = false, mid = false, tries = 0;
+  // チャージ（aim1: CT 明けから自動）: 頭上のゲージ。最大（25秒分）でフィールドの右クリック長押し→マウスで上へ向けて離すと、溜め（1秒）の後に最大の拳が上へ。
+  // レベル2（10秒分）で技ボタン（左クリック）→マウスで左へ向けて離すと、溜め（0.5秒）の後にレベル2の拳が左へ
+  // 敵が来にくい自陣の図書室で行う。溜め中に敵 Bot の攻撃で倒されると不発になるので、被弾・撃破で中断された回だけ最大3回やり直す（中断なしの失敗はやり直さない）
+  const meOf = (x: any) => x.players.find((p: any) => p.id === x.me), mineFist = (x: any) => x.ents.filter((e: any) => e.kind === 'fist' && e.team === meOf(x)?.team && Math.hypot(e.x - meOf(x).x, e.y - meOf(x).y) < 120); // 自分の拳（ほかの Bot の花丸の拳は除く。出た直後なので自分の近く）
+  const H = DEFS.hanamaru.skill, fistR = (lv: number) => (x: any) => mineFist(x).some((e: any) => Math.abs(e.r - H.r * H.lv[lv].size) < 1e-6);
+  const fistA = async () => mineFist(await A.snap())[0]?.a;
+  let gauge = false, wind = false, big = false, mid = false, tries = 0, aBig: number | undefined, aMid: number | undefined;
   const interrupted: string[] = [];
   for (tries = 1; tries <= 3; tries++) {
-    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady'); await sleep(200);
+    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady', { charge: H.lv[2].t + 1 }); await sleep(300);
     let hp0 = meOf(await A.snap())?.hp ?? 0;
-    await A.page.keyboard.down('r'); await sleep(H.lv[2].t * 1000 + 300);
-    charging = await A.until((x) => !!meOf(x)?.st?.fistCharge, 500); await A.shot('h1b_charge_max');
+    gauge = await A.until((x) => (meOf(x)?.st?.fistCharge?.t ?? 0) >= H.lv[2].t, 1000); await A.shot('h1b_charge_max');
+    await aimSkill(A, 'rc', -Math.PI / 2, 'h1b_arrow_rclick');
+    wind = await A.until((x) => !!meOf(x)?.st?.fistWind && !mineFist(x).length, 500); // 溜め中（味方の拳はまだない）
+    big = await A.until(fistR(2), 2000); aBig = await fistA(); await A.shot('h1c_fist_max');
     let m = meOf(await A.snap());
-    await A.page.keyboard.up('r');
-    if (!m?.alive || m.hp < hp0) { interrupted.push(`R${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
-    big = await A.until(fistR(2), 1500); await A.shot('h1c_fist_max');
+    if (!big && (!m?.alive || m.hp < hp0)) { interrupted.push(`rc${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
     await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000);
-    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady'); await sleep(200);
+    await aliveOf(A); await send(A, 'e2eTeleport', LIBRARY); await send(A, 'e2eReady', { charge: H.lv[1].t + 1 }); await sleep(300);
     hp0 = meOf(await A.snap())?.hp ?? 0;
-    const bb = (await A.page.locator('#fx .skill').boundingBox())!;
-    await A.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await A.page.mouse.down(); await sleep(H.lv[1].t * 1000 + 300);
+    await aimSkill(A, 'btn', Math.PI);
+    mid = await A.until(fistR(1), 1500); aMid = await fistA();
     m = meOf(await A.snap());
-    await A.page.mouse.up();
-    if (!m?.alive || m.hp < hp0) { interrupted.push(`btn${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
-    mid = await A.until(fistR(1), 1500);
+    if (!mid && (!m?.alive || m.hp < hp0)) { interrupted.push(`btn${tries}`); await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 4000); continue; }
     break;
   }
-  if (interrupted.length) log('  花丸パンチのタメ: 敵の攻撃で中断してやり直した', { interrupted, tries: Math.min(tries, 3) });
-  check(`花丸パンチのタメ: R を${H.lv[2].t}秒押して離すと最大レベル（半径×${H.lv[2].size}）、技ボタンを${H.lv[1].t}秒押して離すとレベル2（半径×${H.lv[1].size}）。タメ中は状態を送る`, charging && big && mid, { charging, big, mid, tries: Math.min(tries, 3), interrupted });
+  if (interrupted.length) log('  花丸パンチの溜め: 敵の攻撃で中断してやり直した', { interrupted, tries: Math.min(tries, 3) });
+  check(`花丸パンチ: CT 明けから自動でチャージ（頭上のゲージ）。${H.lv[2].t}秒分で右クリック長押し→マウスの向き（上）に溜め${H.lv[2].wind}秒の後に最大の拳（半径×${H.lv[2].size}）、${H.lv[1].t}秒分で技ボタン→マウスの向き（左）にレベル2（半径×${H.lv[1].size}）`,
+    gauge && wind && big && mid && aBig !== undefined && angDiff(aBig, -Math.PI / 2) < 0.05 && aMid !== undefined && angDiff(aMid, Math.PI) < 0.05, { gauge, wind, big, mid, aBig, aMid, tries: Math.min(tries, 3), interrupted });
   // パッシブ: 自陣側で、今も壊れていない壁（外周以外、縦3マス）へ西向きに押し込む。前の確認や Bot が壊した壁は避ける（図書室に一番近い場所）
   const spot = pushSpot((await A.snap()).broken);
   await aliveOf(A); await send(A, 'e2eTeleport', { x: spot.x * 16 + 11, y: spot.y * 16 + 8 }); await sleep(150);
@@ -646,7 +665,7 @@ async function bossCheck(A: Tab) {
   check('大将の第2形態: 範囲内の敵に弾を撃ち、着弾地点で爆発（画面に表示）', shotSeen && boomed && (await log()).slice(t0).some((e) => e.shots > 0), { shotSeen, boomed });
 }
 
-// アルの突撃: 四方向。タメ中は進路の警告と白い点滅、突撃中は渦と煙。壁を壊して抜けたあとのマップ
+// アルの突撃: 四方向（R を押したままマウスで矢印を向けて離す）。タメ中は進路の警告と白い点滅、突撃中は渦と煙。壁を壊して抜けたあとのマップ
 async function aruCheck(A: Tab) {
   await send(A, 'e2eClearAssists'); // アシストの確認で出したアシストが hall に残り、突撃中の自キャラを倒すので片付ける
   const want: Record<string, number> = { d: 0, a: Math.PI, w: -Math.PI / 2, s: Math.PI / 2 };
@@ -654,18 +673,24 @@ async function aruCheck(A: Tab) {
   for (const key of ['d', 'a', 'w', 's']) for (let tries = 0; tries < 2; tries++) {
     await aliveOf(A); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.ult, (C.ULT_DURATION + 1) * 1000); // 自然に当たったスロットのウルト中は技が出ない
     await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
-    await A.page.keyboard.down(key); await sleep(150); await A.press('r'); await sleep(100); await A.page.keyboard.up(key);
+    const arrow = await aimSkill(A, 'r', want[key], `r0_arrow_${key}`);
     await sleep(300);
     const c = (await A.me()).st.charge; await A.shot(`r1_windup_${key}`);
     await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); await sleep(300);
     const d = (await A.me()).st.rush; await A.shot(`r2_dash_${key}`);
     await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
-    if (c && d || tries === 1) { got.push({ key, charge: c && +c.a.toFixed(2), dash: d && +d.a.toFixed(2) }); break; }
+    if (c && d || tries === 1) { got.push({ key, arrow: arrow === null ? null : +arrow.toFixed(2), charge: c && +c.a.toFixed(2), dash: d && +d.a.toFixed(2) }); break; }
     const m = await A.me(); log('  突撃が出なかった（再試行）', key, { alive: m.alive, mochi: m.st.mochi, ult: m.ult, skillCd: m.skillCd });
   }
   await A.shot('r3_after_wall');
   const b1 = (await A.snap()).broken.length;
-  check('アルの突撃: 四方向とも移動入力の方向にタメ（警告）→ 突撃（渦と煙）', got.every((g) => g.charge !== null && g.dash !== null && Math.abs(Math.atan2(Math.sin(g.dash - want[g.key]), Math.cos(g.dash - want[g.key]))) < 0.01), got);
+  check('アルの突撃: 四方向とも R を押したままマウスで向けた矢印の方向にタメ（警告）→ 突撃（渦と煙）', got.every((g) => g.arrow !== null && g.charge !== null && g.dash !== null && angDiff(g.dash, want[g.key]) < 0.05 && g.dash === g.charge), got);
+  // タメ中に押し直して向きを変えると、変えた向きへ突撃
+  await aliveOf(A); await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
+  await aimSkill(A, 'r', 0); await sleep(150); await aimSkill(A, 'r', Math.PI / 2, 'r4_reaim');
+  await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); const ra = (await A.me()).st.rush?.a;
+  check('アルの突撃: タメ中に R を押し直してマウスで向きを変えると、変えた向き（下）へ突撃', ra !== undefined && angDiff(ra, Math.PI / 2) < 0.05, { ra });
+  await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
   check(`アルの突撃: 壁を壊して抜ける（壊れた壁 ${b0} → ${b1} マス、マップに反映）`, b1 > b0, { b0, b1 });
 }
 

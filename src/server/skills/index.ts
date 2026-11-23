@@ -20,7 +20,8 @@ import sora from './sora';
 export type EntKind = { update(room: GameRoom, e: Ent, dt: number): void; fog: boolean };
 export type Skill = {
   use(room: GameRoom, p: Player, a: number): void | false; // 発動。a: 技の向き。CT は共通処理が入れる（false を返したら入れない。技処理が room の p.skillReadyAt を入れる）
-  release?(room: GameRoom, p: Player): void; // 技ボタンを離した（押している間タメる技）
+  arrow?(room: GameRoom, p: Player): { R: number; a?: number }; // 矢印で向きを決める技（人間は押す→矢印→離して発動）。R: 矢印の長さ（自動照準の射程）、a: タメ中の今の向き（タメ中だけ。あれば向きを変えられる）
+  reAim?(room: GameRoom, p: Player, a: number | undefined): boolean; // タメ中に矢印で向きを変える（a なし＝変えない）。タメ中なら true（発動しない）
   botUse(room: GameRoom, p: Player): boolean; // Bot: 今使う価値があるか
   afterMove?(room: GameRoom, p: Player, dt: number, px: number, py: number, locked: boolean): void; // 毎tick: 移動の直後（px,py: 移動前の位置、locked: このtickの移動不可）
   tick?(room: GameRoom, p: Player, dt: number): void; // 毎tick: ウルトの時間切れ・状態の回復の後、オートアタックの前

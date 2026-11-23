@@ -67,6 +67,7 @@ export type Player = {
   qAt: number | null; recallAt: number | null; // Q を押した時刻と、リコールの溜めの開始時刻（被弾で溜め直し）
   boostUntil: number; // 白上虎太郎の移動速度上昇
   inDx: number; inDy: number; // 人間: 最後に届いた移動入力
+  skillA?: number; // 人間: 技の矢印で決めた向き（技の発動の間だけ。skillAim がこれを返す）
   eating: boolean; // Bot: リコールして給湯室でご飯を食べている（HPが満タンになるまで）
   ok: boolean; // 待機画面で出撃済み
   slowUntil: number; weakUntil: number; // スロットの罰: 移動速度低下・攻撃力低下
@@ -205,9 +206,15 @@ export class GameRoom extends Room {
       const id = this.owners.get(client.sessionId);
       if (id) this.skill(id);
     },
-    skillUp: (client: Client) => {
+    // 技の入力を離した。a: 矢印の向き（動かしていなければなし＝自動照準）
+    skillUp: (client: Client, m?: { a?: number }) => {
       const id = this.owners.get(client.sessionId);
-      if (id) this.skillUp(id);
+      if (id) this.skillUp(id, m?.a);
+    },
+    // タメ中に技の入力を押し直して矢印を動かした（アルの突撃・花丸パンチ）。a: 矢印の向き
+    skillAim: (client: Client, m?: { a?: number }) => {
+      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
+      if (p?.alive && Number.isFinite(m?.a)) SKILLS[p.char]?.reAim?.(this, p, m!.a!);
     },
     aim: (client: Client, m: { mode: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
@@ -307,8 +314,8 @@ export class GameRoom extends Room {
       e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) { this.relocate(`p:${p.id}`, p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles())); p.dx = p.dy = 0; } },
       // 自キャラのキャラを変える（花丸の確認用）
       e2eChar: (c: Client, m: { char: string }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && PICKABLE.includes(m.char)) { p.char = m.char; p.hp = this.maxHp(p); } },
-      // 自キャラの技のクールタイムを明ける
-      e2eReady: (c: Client) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) p.skillReadyAt = this.now; },
+      // 自キャラの技のクールタイムを明ける（charge: CT 明けから何秒たったことにするか。花丸パンチのチャージの確認用）
+      e2eReady: (c: Client, m?: { charge?: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.skillReadyAt = this.now - (m?.charge ?? 0); if (m?.charge) p.sk.from = undefined; } }, // from: 花丸の撤退からのチャージの起点
       // コバコを自分の近くに出す（dist: 自分からの距離）
       e2eCourier: (c: Client, m: { dist?: number; box?: string }) => {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');
@@ -1217,8 +1224,9 @@ export class GameRoom extends Room {
     return p.tgt ? Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x) : p.face;
   }
 
-  // 技の向き: 技の射程 R で通常攻撃と同じ照準ルール（pickTarget）で選んだ対象の方向、いなければ向いている方向
+  // 技の向き: 技の矢印で決めた向きがあればそれ。なければ技の射程 R で通常攻撃と同じ照準ルール（pickTarget）で選んだ対象の方向、いなければ向いている方向
   skillAim(p: Player, R: number) {
+    if (p.skillA !== undefined) return p.skillA;
     const t = this.pickTarget(p, R);
     return t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
   }
@@ -1730,19 +1738,31 @@ export class GameRoom extends Room {
     this.seeWalls = seeRects(this.tiles); // 視界の壁も同じく
   }
 
-  skill(id: string) {
+  // a: 技の矢印で決めた向き（なし＝自動照準）
+  skill(id: string, a?: number) {
     const p = this.players.get(id);
     const sk = p && CHARS[p.char]?.skill, h = p && SKILLS[p.char];
     if (!p || !sk || !h || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.effect(p, 'noSkill')) return; // 技不可の状態（ずんだ餅など）
-    if (h.use(this, p, this.aimOf(p)) !== false) p.skillReadyAt = this.now + sk.ct; // false: CT は技処理が始める
+    p.skillA = Number.isFinite(a) ? a : undefined;
+    const used = h.use(this, p, this.aimOf(p));
+    p.skillA = undefined;
+    if (used !== false) p.skillReadyAt = this.now + sk.ct; // false: CT は技処理が始める
     this.cancelRecall(p); // 技でリコール中断
     if (this.phase === 'playing') this.cm.skill(p); // 実況: 回避の判定
   }
 
-  // 技ボタンを離した（押している間タメる技だけが使う）
-  skillUp(id: string) {
-    const p = this.players.get(id);
-    if (p?.alive) SKILLS[p.char]?.release?.(this, p);
+  // 技の入力を離した: 矢印の技はここで発動（タメ中なら向きを変えるだけ）。a: 矢印の向き（なし＝自動照準）
+  skillUp(id: string, a?: number) {
+    const p = this.players.get(id), h = p && SKILLS[p.char];
+    if (!p?.alive || !h?.arrow) return;
+    if (h.reAim?.(this, p, Number.isFinite(a) ? a! : undefined)) return;
+    this.skill(id, a);
+  }
+
+  // 技の矢印（本人にだけ送る）: skA=矢印の向き（タメ中は今の向き、ほかは自動照準）、skR=矢印の長さ（技の射程）、skRe=タメ中で向きを変えられる
+  arrowView(p: Player) {
+    const ar = SKILLS[p.char]?.arrow?.(this, p);
+    return ar ? { skA: ar.a ?? this.skillAim(p, ar.R), skR: ar.R, skRe: ar.a !== undefined } : {};
   }
 
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
@@ -2001,7 +2021,7 @@ export class GameRoom extends Room {
           id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,
           face: p.face, stunned: this.now < p.stunUntil, cd: Math.max(0, p.cooldownUntil - this.now),
           respawnIn: p.alive ? 0 : p.respawnAt - this.now, ko: p.alive ? null : this.now - p.koAt, // ko: 撃破からの秒数（演出用）
-          ack: p.ack, cage: this.cageOf(p), maxHp: this.maxHp(p), spd: this.speedOf(p), aim: p.aim, tgt: p.tgt ? thingId(p.tgt) : null, skillCd: Math.max(0, p.skillReadyAt - this.now),
+          ack: p.ack, cage: this.cageOf(p), maxHp: this.maxHp(p), spd: this.speedOf(p), aim: p.aim, tgt: p.tgt ? thingId(p.tgt) : null, skillCd: Math.max(0, p.skillReadyAt - this.now), ...(p === me ? this.arrowView(p) : {}),
           st: this.statusView(p), lock: this.effect(p, 'lock'), still: this.stillLock(p),
           recall: p.recallAt === null ? null : (this.now - p.recallAt) / C.RECALL_HOLD,
           assist: p.assist, tier: p.tier, ult: p.ult ? { form: p.ult.form, tier: p.ult.tier, left: p.ult.pending ? null : p.ult.until - this.now } : null,
