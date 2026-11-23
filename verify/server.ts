@@ -618,6 +618,8 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
   ok('Botだけの試合が時間切れで決着、勝敗が大将のHP割合どおり', r.phase === 'ended' && r.winner === want, { ratio, winner: r.winner });
 }
 
+const SLOT_MODE0 = C.SLOT_MODE, classic = (on: boolean) => ((C as any).SLOT_MODE = on ? 'classic' : SLOT_MODE0); // クラシックのスロット・コバコの荷物の確認はクラシックで（handoff_slot3。結果は前と同じ）
+classic(true);
 console.log('--- 徳（各行動の増減・範囲・頭上の表示）');
 {
   const tk = (r: any, t = 0) => +r.teams[t].toku.toFixed(4);
@@ -800,6 +802,7 @@ console.log('--- スロット（当たる確率・連チャン・払い出し）
   ok(`払い出しの抽選 ult/assist = ${pw.map((x) => (x / N * 100).toFixed(1) + '%').join('/')}（期待 50/50）`, pw.every((x) => Math.abs(x / N - 0.5) < 0.02));
 }
 
+classic(false);
 console.log('--- アシスト3人（技の発動条件・効果・予告と回避）');
 {
   const setup = (char: string, tier = 1) => { const z = mk('sayo', 'metan'); const a = z.r.summonAssist(0, tier, char); Object.assign(a, { x: 1552, y: 900, skillReadyAt: 0 }); Object.assign(z.A, { x: 3000, y: 300 }); z.B.hp = 9999; return { ...z, a }; };
@@ -958,6 +961,7 @@ console.log('--- アシストの同時1体と強化・アシスト同士の優�
   ok('相手のアシストが倒れたら敵大将への前進に戻る', x.goal === 'boss');
 }
 
+classic(true);
 console.log('--- スロットの罰の出目');
 {
   const N = 10000, { r } = mk('sayo');
@@ -1030,6 +1034,7 @@ console.log(`--- 大将の反撃（全体×${C.BOSS_DAMAGE_MULT}、アシスト�
   ok(`近くにアシストがいれば反撃の対象はアシスト（${C.BOSS_DAMAGE}×${C.BOSS_DAMAGE_MULT}×${C.BOSS_ASSIST_MULT}）`, A.hp === ha && hs - as.hp === Math.round(C.BOSS_DAMAGE * C.BOSS_DAMAGE_MULT * C.BOSS_ASSIST_MULT), { dmg: hs - as.hp });
 }
 
+classic(false);
 console.log('--- 通信の切断と再接続（スマホのバックグラウンド等）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
@@ -2143,6 +2148,102 @@ console.log('--- 透過壁（犬走り・サンルームの移動可能な床か
   const nGlass = MAP.clear.glass.length, nFence = MAP.clear.fence.length, perim = MAP.clear.glass.every(([x, y]) => PERIMETER[y][x]);
   const solid = [...MAP.clear.glass, ...MAP.clear.fence].every(([x, y]) => C.WALLS.some((w) => x * T + 8 > w.x && x * T + 8 < w.x + w.w && y * T + 8 > w.y && y * T + 8 < w.y + w.h) && !C.SEE_WALLS.some((w) => x * T + 8 > w.x && x * T + 8 < w.x + w.w && y * T + 8 > w.y && y * T + 8 < w.y + w.h));
   ok(`ガラスは壊れない外周のまま（ガラス${nGlass}マス・柵${nFence}マス）。当たり判定の壁は柵・ガラスとも含む`, perim && solid && nGlass > 0 && nFence > 0, { perim, solid });
+}
+
+console.log('--- モダンのスロット（handoff_slot3）');
+{
+  (C as any).SLOT_MODE = 'modern';
+  const M = C.SLOT_MODERN, G = M.game, ext = (a: number[], t: number) => (t < 4 ? a[t] : a[3] * (1 + G.lvStep * (t - 3))); // Lv4+N: Lv4 の値から +5% ずつ
+  const room = () => {
+    const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; q.unlock = () => {}; const sent: any[] = [];
+    Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => sent.push([t, m]) }] });
+    q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay(); q.sent = sent;
+    q.team0 = [...q.players.values()].filter((p: any) => p.team === 0 && !p.assist);
+    return q;
+  };
+  const assistOf = (q: any) => [...q.players.values()].find((p: any) => p.assist && p.team === 0 && p.alive) as any;
+  const pay = (q: any, group: string, first: boolean) => q.payModern(0, { group, add: (first ? M.reel.first : M.reel.ct)[group].add }, first, 1);
+  // 抽選から当選まで: 次の保留を当選に差し替えて進める
+  const drive = (q: any, h: any, sec = 3) => { q.teams[0].m.force(h); q.teams[1].m.rng = () => 0.999999; for (let i = 0; i < sec / 0.05; i++) { q.now += 0.05; q.updateModern(0.05); } };
+
+  // 初当たり
+  for (const [sym, lv] of [[1, 1], [7, 1], [2, 0]] as const) {
+    const q = room(), dead = q.team0[3]; q.damagePlayer(dead, 1e9, null); q.teams[0].toku = 5; q.teams[0].m.rng = () => 0.999999;
+    drive(q, { outcome: 'win', reels: [sym, sym, sym] });
+    const a = assistOf(q), alive = q.team0.slice(0, 3), win = q.sent.find(([t]: any) => t === 'mslotWin');
+    const okA = alive.every((p: any) => p.ult && !p.ult.pending && p.ult.tier === lv && p.hp === q.maxHp(p)) && dead.ult?.pending && dead.ult.tier === lv && a?.tier === lv;
+    q.respawn(dead);
+    ok(`初当たり（そろい目 ${sym}）: パワーアップ・アシストとも Lv${lv + 1}。パワーアップは生存者全員、撤退中の人は復活後に始まる。当選で徳 −1、フィーバータイムへ`, okA && !dead.ult.pending && Math.abs(dead.ult.until - (q.now + C.ULT_DURATION)) < 1e-9 && Math.abs(q.teams[0].toku - 4) < 0.01 && q.teams[0].m.mode === 'ct' && win?.[1].first, { tiers: alive.map((p: any) => p.ult?.tier), dead: dead.ult, assist: a?.tier, toku: q.teams[0].toku, mode: q.teams[0].m.mode });
+  }
+  {
+    const q = room(); q.summonAssist(0, 2); const a = assistOf(q); a.hp = 50; const mx0 = q.maxHp(a);
+    pay(q, 'odd', true);
+    ok('初当たりでアシストが今いれば、そのアシストに当たりのレベル分（奇数は+2）のレベルアップと耐久の追加（全回復しない）', a.tier === 4 && assistOf(q) === a && a.hp < q.maxHp(a) && a.hp > 50, { tier: a.tier, hp: a.hp, mx0, mx: q.maxHp(a) });
+  }
+
+  // フィーバータイム中: そろい目ごとのレベル・時間・耐久
+  {
+    const rows: any[] = []; let good = true;
+    for (const [group, add] of [['even', 0], ['odd', 1], ['seven', 2]] as const) for (const k of [0, 1, 2, 3, 4]) for (const full of [false, true]) {
+      const q = room(); pay(q, 'even', true); const p = q.team0[0], a = assistOf(q);
+      for (const o of q.team0) o.ult.tier = k; a.tier = k; q.teams[0].powerTier = k;
+      const mxU = (t: number) => CHARS[p.char].stat.hp * C.ULT_FORMS[p.ult.form].hp * ext(C.ULT_HP_MULT, t), mxA = (t: number) => C.PLAYER_HP * C.ASSIST.hp * ext(C.POWER_MULT, t) * (C.ASSIST.units[a.char].hpMult ?? 1);
+      const step = (mx: (t: number) => number, j: number) => (j < 3 ? mx(j + 1) - mx(j) : mx(3) - mx(2)); // Lv4 以降の段は Lv3→Lv4 の差
+      const inc = (mx: (t: number) => number) => Array.from({ length: Math.max(1, add) }, (_, i) => step(mx, k + i)).reduce((x, y) => x + y, 0);
+      p.hp = full ? mxU(k) : mxU(k) * 0.3; a.hp = full ? mxA(k) : mxA(k) * 0.3;
+      const hp0 = p.hp, ahp0 = a.hp, until0 = p.ult.until;
+      pay(q, group, false);
+      const wantP = Math.min(mxU(k + add), hp0 + inc(mxU)), wantA = Math.min(mxA(k + add), ahp0 + inc(mxA));
+      const r = p.ult.tier === k + add && a.tier === k + add && Math.abs(p.ult.until - until0 - G.ultAdd) < 1e-9 && Math.abs(p.hp - wantP) < 1e-6 && Math.abs(a.hp - wantA) < 1e-6 && p.hp <= q.maxHp(p) + 1e-9 && a.hp <= q.maxHp(a) + 1e-9 && Math.abs(q.maxHp(p) - mxU(k + add)) < 1e-6;
+      if (!r) good = false;
+      if (!full) rows.push({ group, from: k + 1, to: k + add + 1, addU: +(p.hp - hp0).toFixed(2), addA: +(a.hp - ahp0).toFixed(2) });
+    }
+    ok('フィーバータイム中: 偶数＝レベルそのまま、奇数＝+1、7＝+2（両方に同じ）。時間+10秒。耐久＝上がった先と今の最大値の差（偶数は次の1段分、Lv4以降は Lv3→Lv4 の差、7 は2段分）。上限を超えず、減っていた分は持ち越す', good, rows);
+    const q = room(); pay(q, 'even', true); for (const o of q.team0) o.ult.tier = 3; q.teams[0].powerTier = 3; const p = q.team0[0];
+    const mx4 = q.maxHp(p); pay(q, 'odd', false); const mx5 = q.maxHp(p);
+    const w = mk('sayo', 'metan'); w.r.payModern(0, { group: 'even', add: 1 }, true, 1); Object.assign(w.A.ult, { tier: 3, form: 'melee' }); w.B.hp = 1e6; w.r.attack('a'); const d4 = 1e6 - w.B.hp; w.A.ult.tier = 4; w.A.cooldownUntil = 0; w.r.now += 1; w.B.hp = 1e6; w.r.attack('a'); const d5 = 1e6 - w.B.hp;
+    ok(`Lv4+N: 1段ごとにシールド（最大値）・攻撃を Lv4 の値から +${G.lvStep * 100}%`, Math.abs(mx5 / mx4 - (1 + G.lvStep)) < 1e-9 && Math.abs(d5 / d4 - (1 + G.lvStep)) < 0.02, { mx4, mx5, d4, d5 });
+  }
+  {
+    const q = room(), [p0, p1, , p3] = q.team0; q.damagePlayer(p3, 1e9, null); pay(q, 'odd', true); p1.ult = null; const pend = !!p3.ult?.pending;
+    pay(q, 'odd', false); q.now += 1; q.respawn(p3);
+    ok('フィーバータイム中: パワーアップが切れた味方は陣営のレベルで新たにパワーアップ、撤退中の人は戻ってから（時間+10秒は持ち越す）', pend && p0.ult.tier === 2 && p1.ult && p1.ult.tier === 2 && !p1.ult.pending && p1.hp === q.maxHp(p1) && !p3.ult.pending && p3.ult.tier === 2 && Math.abs(p3.ult.until - (q.now + C.ULT_DURATION + G.ultAdd)) < 1e-9, { p0: p0.ult.tier, p1: p1.ult, p3: p3.ult });
+  }
+  {
+    const q = room(); pay(q, 'odd', true); const a = assistOf(q); q.damagePlayer(a, 1e9, null);
+    pay(q, 'seven', false); const b = assistOf(q);
+    ok('アシストが倒されていれば、フィーバータイム中の当たりで Lv1 のアシストを新しく呼ぶ（そろい目によらない）', !!b && b !== a && b.tier === 0 && b.hp === q.maxHp(b), { tier: b?.tier });
+  }
+
+  // 転落・引き戻し失敗のペナルティ
+  {
+    const P = G.penalty, q = room(); pay(q, 'even', true); const a = assistOf(q), [u, n1, n2, dead] = q.team0; n1.ult = null; n2.ult = null; dead.ult = null; n1.hp = q.maxHp(n1); n2.hp = q.maxHp(n2); q.damagePlayer(dead, 1e9, null);
+    const hp0 = [u, n1, n2, a].map((p: any) => [p.hp, q.maxHp(p)]), sp0 = [n1, a].map((p: any) => q.speedOf(p));
+    q.teams[0].m.mode = 'ct'; q.teams[0].m.rng = () => 0.999999; drive(q, { outcome: 'fall' }, 2);
+    const hit = [u, n1, n2, a].every((p: any, i: number) => hp0[i][0] - p.hp === Math.round(hp0[i][1] * P.dmg)) && u.ult && !u.ult.pending;
+    const slow = [n1, a].every((p: any, i: number) => Math.abs(q.speedOf(p) / sp0[i] - P.speed) < 1e-9 && Math.abs(p.weakUntil - (q.now + P.dur)) < 2.1);
+    const deadOk = dead.slowUntil < q.now && dead.weakUntil < q.now;
+    const until1 = n1.slowUntil;
+    q.penaltyModern(0, 2);
+    ok(`転落: 陣営の生存者全員とアシストに最大HPの${P.dmg * 100}%（パワーアップ中はシールドに）、攻撃×${P.atk}・移動×${P.speed}を${P.dur}秒。撤退中は対象外。重ねがけは時間の延長`, hit && slow && deadOk && q.teams[0].m.mode === 'back' && q.sent.some(([t, m]: any) => t === 'mpenalty' && m.n === 1) && Math.abs(n1.slowUntil - until1 - P.dur) < 1e-9, { hit, slow, deadOk, mode: q.teams[0].m.mode });
+    const w = mk('sayo', 'metan'); w.B.hp = 1e6; w.r.attack('a'); const d1 = 1e6 - w.B.hp; w.r.penaltyModern(0, 1); w.A.cooldownUntil = 0; w.r.now += 1; w.B.hp = 1e6; w.r.attack('a');
+    ok(`ペナルティの攻撃ダウン ×${P.atk}`, Math.abs((1e6 - w.B.hp) / d1 - P.atk) < 0.03, { d1, d2: 1e6 - w.B.hp });
+    const n = q.sent.filter(([t]: any) => t === 'mpenalty').length, n2b = q.sent.filter(([t, m]: any) => t === 'mpenalty' && m.n === 2).length, hpB = n1.hp;
+    for (let i = 0; i < (M.backSpins * M.interval.back + 1) / 0.05; i++) { q.now += 0.05; q.updateModern(0.05); }
+    ok('引き戻し失敗（30回外れ）: もう一度ペナルティ（陣営全員とアシスト）→ 通常へ', q.teams[0].m.mode === 'normal' && q.sent.filter(([t, m]: any) => t === 'mpenalty' && m.n === 2).length === n2b + 1 && q.sent.filter(([t]: any) => t === 'mpenalty').length === n + 1 && n1.hp < hpB, { mode: q.teams[0].m.mode });
+  }
+
+  // コバコ撃破
+  {
+    const { r, A } = mk('sayo'); r.spawnCourier(); const c = r.couriers[0]; Object.assign(c, { x: A.x + 30, y: A.y }); r.teams[0].toku = 5; A.aim = 'courier'; delete A.st.test; A.cooldownUntil = 0;
+    r.hitThing(A, { k: 'c', o: c, x: c.x, y: c.y, r: C.PLAYER_RADIUS }, 10, true);
+    const m = r.teams[0].m, flag = m.nextHigh, items = r.items.length; m.rng = () => 0.999999; m.step(M.interval.normal + 1e-6);
+    ok(`コバコ撃破: 荷物の代わりに次の保留が高確率保留（倒した陣営）。徳 ${G.courierToku}（クラシックの −1.5 の置き換え）`, flag && items === 0 && m.holds.filter((h: any) => h.high).length === 1 && Math.abs(r.teams[0].toku - (5 + G.courierToku)) < 1e-9 && !r.teams[1].m.nextHigh, { toku: r.teams[0].toku, items });
+  }
+  {
+    (C as any).SLOT_MODE = 'classic'; const q = room(); (C as any).SLOT_MODE = SLOT_MODE0;
+    ok('クラシックに切り替えると、モダンのスロットを作らず現行のスロットが回る（現行の確認はクラシックで実行して結果不変）', q.teams.every((t: any) => t.m === null) && !q.modern);
+  }
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

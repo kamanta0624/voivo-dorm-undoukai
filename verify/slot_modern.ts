@@ -35,10 +35,10 @@ console.log('--- 確率（徳5の基準値に収束）');
   ok(`CT の当選 1/15・転落 1/30（同じ1回の抽選で排他）`, near(frac(c5, (h) => h.outcome === 'win'), 1 / 15, 0.03) && near(frac(c5, (h) => h.outcome === 'fall'), 1 / 30, 0.03) && !n5.some((h) => h.outcome === 'fall'), { win: 1 / frac(c5, (h) => h.outcome === 'win'), fall: 1 / frac(c5, (h) => h.outcome === 'fall') });
   ok(`引き戻しの当選 1/120`, near(frac(b5, (h) => h.outcome === 'win'), 1 / 120, 0.05), { got: 1 / frac(b5, (h) => h.outcome === 'win') });
   // 振り分け: 当選を結果まで進めて数える
-  const pays = (mode: Mode, n: number) => { const s = new ModernSlot(S, 5, seeded(4 + mode.length)); const cnt: Record<string, number> = {}; for (let i = 0; i < n; i++) { s.mode = mode; s.toku = 5; s.resolve({ outcome: 'win', mode, toku: 5, color: 0, saki: false, act: null, high: false, reels: [] }); for (const e of s.ev) if (e.type === 'win') cnt[e.pay.key] = (cnt[e.pay.key] ?? 0) + 1; s.ev = []; } return Object.fromEntries(Object.entries(cnt).map(([k, v]) => [k, +(v / n * 100).toFixed(1)])); };
+  const pays = (mode: Mode, n: number) => { const s = new ModernSlot(S, 5, seeded(4 + mode.length)); const cnt: Record<string, number> = {}; for (let i = 0; i < n; i++) { s.mode = mode; s.toku = 5; s.resolve({ outcome: 'win', mode, toku: 5, color: 0, saki: false, act: null, high: false, reels: [] }); for (const e of s.ev) if (e.type === 'win') cnt[e.pay.group] = (cnt[e.pay.group] ?? 0) + 1; s.ev = []; } return Object.fromEntries(Object.entries(cnt).map(([k, v]) => [k, +(v / n * 100).toFixed(1)])); };
   const pf = pays('normal', 100000), pc = pays('ct', 100000);
-  ok('初当たりの振り分け: アシストLv1 85%・Lv2 15%', near(pf.assist1, 85, 0.02) && near(pf.assist2, 15, 0.05), pf);
-  ok('CT の当選の振り分け: パワーアップ+1 50%・アシスト+1 40%・パワーアップ+2 5%・アシスト+2 5%', near(pc.power1, 50, 0.03) && near(pc.assist1, 40, 0.03) && near(pc.power2, 5, 0.1) && near(pc.assist2, 5, 0.1), pc);
+  ok('初当たりのそろい目: 偶数 85%・奇数（7を含む）15%', near(pf.even, 85, 0.02) && near(pf.odd + pf.seven, 15, 0.05), pf);
+  ok('CT の当選のそろい目: 偶数 50%・奇数（7以外）40%・7 10%', near(pc.even, 50, 0.03) && near(pc.odd, 40, 0.03) && near(pc.seven, 10, 0.06), pc);
 }
 
 console.log('--- 徳による確率の変化（B章の式）');
@@ -63,9 +63,9 @@ console.log('--- モードの移り変わり・レベル');
   const b = mk(); b.resolve({ ...miss, outcome: 'fall', mode: 'ct' }); for (let i = 0; i < 10; i++) b.resolve(miss); b.resolve({ ...miss, outcome: 'win' });
   ok('引き戻しで当選すると CT に戻る（ペナルティは転落の1回だけ）', b.mode === 'ct' && b.ev.filter((e) => e.type === 'penalty').length === 1, { mode: b.mode });
   // Lv4 に +1・+2
-  const lv = (key: string) => { const s = new ModernSlot({ ...S, ct: { [key]: 1 } }, 5, seeded(7)); s.mode = 'ct'; s.lv = { power: 4, assist: 4 }; s.resolve({ ...miss, outcome: 'win', mode: 'ct' }); return s.lv; };
-  const p1 = lv('power1'), p2 = lv('power2'), a1 = lv('assist1'), a2 = lv('assist2');
-  ok('Lv4 で +1・+2 を受けると Lv.4+1・Lv.4+2（頭打ちにしない）', lvText(S, p1.power) === 'Lv.4+1' && lvText(S, p2.power) === 'Lv.4+2' && lvText(S, a1.assist) === 'Lv.4+1' && lvText(S, a2.assist) === 'Lv.4+2' && lvText(S, 4) === 'Lv.4', [p1, p2, a1, a2].map((x) => [lvText(S, x.power), lvText(S, x.assist)]));
+  const lv = (sym: number) => { const s = new ModernSlot(S, 5, seeded(7)); s.mode = 'ct'; s.lv = { power: 4, assist: 4 }; s.resolve({ ...miss, outcome: 'win', mode: 'ct', reels: [sym, sym, sym], pay: s.drawPay('ct', S.reel.group[sym - 1]) }); return s.lv; };
+  const e = lv(2), o = lv(1), s7 = lv(7);
+  ok('Lv4 で偶数・奇数・7 を受けると、両方が Lv.4・Lv.4+1・Lv.4+2（頭打ちにしない）', [e, o, s7].map((x) => `${lvText(S, x.power)}/${lvText(S, x.assist)}`).join() === 'Lv.4/Lv.4,Lv.4+1/Lv.4+1,Lv.4+2/Lv.4+2' && lvText(S, 4) === 'Lv.4', [e, o, s7].map((x) => [lvText(S, x.power), lvText(S, x.assist)]));
 }
 
 console.log('--- 先バレ・リーチ・全回転・高確率保留');
@@ -88,19 +88,19 @@ console.log('--- 先バレ・リーチ・全回転・高確率保留');
 
 console.log('--- リールの9絵柄・魚群2段階（handoff_slot2b）');
 {
-  const R = S.reel, good = (n: number) => R.add[n - 1] === 2;
-  ok('絵柄 1〜9: 奇数（1・3・5・9）＝プレイヤー4人、偶数＝アシスト4人、7＝大将。奇数と7は良い当たり（2）、偶数は良くない当たり（1）', R.syms.length === 9 && [1, 3, 5, 9].every((n) => R.syms[n - 1].startsWith('player:')) && [2, 4, 6, 8].every((n) => R.syms[n - 1].startsWith('assist:')) && R.syms[6] === 'boss' && [1, 3, 5, 7, 9].every(good) && [2, 4, 6, 8].every((n) => !good(n)), R);
-  // 当選のそろい目と払い出しが一致する（通常: 良い＝アシストLv2・良くない＝Lv1、CT: 良い＝+2・良くない＝+1）
+  const R = S.reel, g = (n: number) => R.group[n - 1];
+  ok('絵柄 1〜9: 奇数（1・3・5・9）＝プレイヤー4人、偶数＝アシスト4人、7＝大将', R.syms.length === 9 && [1, 3, 5, 9].every((n) => R.syms[n - 1].startsWith('player:') && g(n) === 'odd') && [2, 4, 6, 8].every((n) => R.syms[n - 1].startsWith('assist:') && g(n) === 'even') && R.syms[6] === 'boss' && g(7) === 'seven', R);
+  // 当選のそろい目と払い出しが一致する（通常: 奇数・7＝Lv2・偶数＝Lv1、CT: 偶数＝+0・奇数＝+1・7＝+2）
   const wins = (mode: Mode, n: number) => holds(mode, 10, n, true, S, true).filter((h) => h.outcome === 'win');
   const wn = wins('normal', 80000), wc = wins('ct', 40000);
-  const match = (hs: Hold[]) => hs.every((h) => h.reels.length === 3 && h.reels.every((x) => x === h.reels[0]) && h.pay!.add === (good(h.reels[0]) ? 2 : 1));
+  const match = (hs: Hold[], want: Record<string, number>) => hs.every((h) => h.reels.length === 3 && h.reels.every((x) => x === h.reels[0]) && h.pay!.group === g(h.reels[0]) && h.pay!.add === want[g(h.reels[0])]);
   const syms = new Set(wn.concat(wc).map((h) => h.reels[0]));
-  ok('当選のそろい目と払い出しの強さが一致（奇数・7でそろう＝通常アシストLv2／CT +2、偶数＝通常アシストLv1／CT +1）。9絵柄すべて出る', match(wn) && match(wc) && wn.every((h) => h.pay!.kind === 'assist') && syms.size === 9, { syms: [...syms].sort() });
-  ok('初当たりの振り分けは今どおり（アシストLv2＝良いそろい目 15%前後）', near(frac(wn, (h) => good(h.reels[0])), 0.15, 0.08), { good: frac(wn, (h) => good(h.reels[0])) });
-  // 7 だけ強さを変えると、7 のそろい目だけがその強さになる
-  const sp7 = { ...S, reel: { ...S.reel, add: S.reel.add.map((v, i) => (i === 6 ? 1 : v)) } };
+  ok('当選のそろい目と払い出しが一致（通常: 奇数・7＝Lv2、偶数＝Lv1。CT: 偶数＝+0、奇数＝+1、7＝+2）。9絵柄すべて出る', match(wn, { odd: 2, seven: 2, even: 1 }) && match(wc, { even: 0, odd: 1, seven: 2 }) && syms.size === 9, { syms: [...syms].sort() });
+  ok('初当たりの奇数（7を含む）のそろい目 15%前後', near(frac(wn, (h) => g(h.reels[0]) !== 'even'), 0.15, 0.08), { odd: frac(wn, (h) => g(h.reels[0]) !== 'even') });
+  // 7 の効果だけ変えると、7 のそろい目だけがその効果になる
+  const sp7 = { ...S, reel: { ...S.reel, ct: { ...S.reel.ct, seven: { w: 10, add: 5 } } } };
   const w7 = holds('ct', 10, 40000, true, sp7, true).filter((h) => h.outcome === 'win' && h.reels[0] === 7);
-  ok('7 は絵柄ごとの強さ（reel.add）で後から変えられる', w7.length > 0 && w7.every((h) => h.pay!.add === 1), { n: w7.length });
+  ok('絵柄と効果の対応は reel の1か所（7 だけ後から変えられる）', w7.length > 0 && w7.every((h) => h.pay!.add === 5), { n: w7.length });
   // 外れ・リーチの外れ・転落・全回転の出目
   const all = holds('ct', 5, 300000, false, S, true);
   const miss = all.filter((h) => h.outcome === 'miss'), rm = miss.filter((h) => h.act), nm = miss.filter((h) => !h.act), fl = all.filter((h) => h.outcome === 'fall'), as = all.filter((h) => h.act === 'allSpin');
@@ -108,7 +108,7 @@ console.log('--- リールの9絵柄・魚群2段階（handoff_slot2b）');
   ok('出目: リーチの外れは2つそろって3つ目が違う、リーチなしの外れは1つ目と2つ目が違う、転落は×××、全回転は同じ絵柄でそろう', rm.every((h) => inRange(h) && h.reels[0] === h.reels[1] && h.reels[2] !== h.reels[0]) && nm.every((h) => inRange(h) && h.reels[0] !== h.reels[1]) && fl.every((h) => h.reels.join() === '-1,-1,-1') && as.every((h) => h.reels.every((x) => x === h.reels[0])), { rm: rm.length, nm: nm.length, fl: fl.length, as: as.length });
   // 強制した出目: そろい目の絵柄の強さで払い出す
   const fz = new ModernSlot(S, 5, seeded(9)); fz.mode = 'ct'; const f7 = fz.force({ outcome: 'win', reels: [7, 7, 7] }), f4 = fz.force({ outcome: 'win', reels: [4, 4, 4] });
-  ok('手動で指定したそろい目も、その絵柄の強さで払い出す', f7.pay!.add === 2 && f4.pay!.add === 1, { f7: f7.pay, f4: f4.pay });
+  ok('手動で指定したそろい目も、その絵柄の効果で払い出す', f7.pay!.add === 2 && f4.pay!.add === 0, { f7: f7.pay, f4: f4.pay });
   // 特別な魚群の信頼度は通常の魚群より高い（理論値・実測）
   const th = [0, 5, 10].map((t) => ({ t, fish: reliability(S, t).act.fish, fishSp: reliability(S, t).act.fishSp }));
   const h5 = holds('normal', 8, 3_000_000), fr = (k: string) => frac(h5.filter((h) => h.act === k), (h) => h.outcome === 'win');

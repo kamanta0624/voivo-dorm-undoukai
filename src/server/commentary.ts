@@ -173,7 +173,7 @@ export class Director {
   seen = new Map<string, boolean>(); spotAt = new Map<string, number>(); nearAt = new Map<string, number>(); rampAt = new Map<string, number>();
   courierTeam: number | null = null; // 最後にコバコを撃破した組
   bossSaid = [new Set<number>(), new Set<number>()]; leader: number | null = null; reverseAt = -Infinity;
-  reachSpin = [-1, -1]; reachAt = [-Infinity, -Infinity]; reachWait: (number | null)[] = [null, null]; wins: number[][] = [[], []]; // reachWait: 言うのを待っているリーチ（その回転の開始時刻）
+  reachSpin = [-1, -1]; reachUntil = [-Infinity, -Infinity]; reachAt = [-Infinity, -Infinity]; reachWait: (number | null)[] = [null, null]; wins: number[][] = [[], []]; // reachWait: 言うのを待っているリーチ（その回転の開始時刻）
   boardAt = -Infinity; behind: number | null = null; alldown = [false, false];
   walls: number[] = [0, 0]; // 陣営側ごとの壊せる壁タイル数（壁の壊れ方の話題）
   // タイムライン（実況の時計。試合前後も進む）
@@ -327,7 +327,7 @@ export class Director {
     const now = this.now;
     for (const b of this.battles) if (b.pend && now - b.pend.t >= M.killHold) { const k = b.pend; b.pend = null; this.single(k); }
     if (this.prefix && now - this.prefix.at >= M.prefixWait) { const p = this.prefix; this.prefix = null; this.emit([this.say('pre_t1', { 場所: p.place })]); } // 単独なら型1の文言（型2「〜では」は続きがないと切れる）
-    this.room.teams.forEach((t, team) => {
+    if (!this.room.modern) this.room.teams.forEach((t, team) => {
       const sl = t.slot;
       if (sl.payoutAt !== null || sl.pen || sl.holdUntil || this.reachSpin[team] === sl.start || now - sl.start < C.SLOT.stops[1] * C.SLOT.spin || sl.reels[0] !== sl.reels[1]) return;
       this.reachSpin[team] = sl.start;
@@ -602,6 +602,16 @@ export class Director {
     this.emit([this.say(chain >= 2 ? 'slot_chain' : kind === 'ult' ? 'slot_ult' : 'slot_assist', { 組: [team] })]);
   }
   penalty(team: number, kind: string) { this.emit([this.say(`pen_${kind}`, { 組: [team] })]); }
+  // モダンのスロット（handoff_slot3）: リーチ（until: 結果の出る時刻。言う前に過ぎたら捨てる）・当選（初当たり／連チャン）・ペナルティ（1＝転落、2＝引き戻し失敗）
+  reachModern(team: number, until: number) {
+    if (this.now - this.reachAt[team] < M.reachCd) return;
+    this.reachWait[team] = this.now; this.reachUntil[team] = until;
+  }
+  slotModern(team: number, first: boolean) {
+    this.wins[team].push(this.now);
+    this.emit([this.say(first ? 'slot_fever' : 'slot_chain', { 組: [team] })]);
+  }
+  penaltyModern(team: number, n: 1 | 2) { this.emit([this.say(n === 1 ? 'slot_fall' : 'slot_back_miss', { 組: [team] })]); }
 
   // 統計: キャラごとの大将へのダメージ（助っ人は数えない）
   bossDmgBy(p: Player, dmg: number) { if (!p.assist) this.bossDmg.set(p.id, (this.bossDmg.get(p.id) ?? 0) + dmg); }
@@ -617,7 +627,7 @@ export class Director {
     for (const team of [0, 1]) {
       const start = this.reachWait[team], sl = this.room.teams[team]?.slot;
       if (start === null) continue;
-      if (!sl || sl.start !== start || now - start >= C.SLOT.stops[2] * C.SLOT.spin || sl.payoutAt !== null) { this.reachWait[team] = null; continue; } // 結果が確定した
+      if (this.room.modern ? now >= this.reachUntil[team] : !sl || sl.start !== start || now - start >= C.SLOT.stops[2] * C.SLOT.spin || sl.payoutAt !== null) { this.reachWait[team] = null; continue; } // 結果が確定した
       if (this.q.length || !this.lastFill || this.cool('slot_reach')) continue;
       this.reachWait[team] = null; this.reachAt[team] = now;
       this.send({ pr: priority('slot_reach'), s: [this.say('slot_reach', { 組: [team] })!] });

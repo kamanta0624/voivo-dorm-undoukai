@@ -12,8 +12,11 @@ import MAP from '../shared/map.json';
 import { Director } from './commentary';
 import { ServerMeasure, clientReport, LIMITS } from '../shared/netmeasure';
 import * as OG from './outgame';
+import { ModernSlot, type Ev as MEv, type Pay } from '../shared/slot_modern';
 
 const T = C.TILE;
+// 強さの倍率の表（POWER_MULT・ULT_HP_MULT）の添字 tier の値。表の最後（Lv4）を超えた Lv4+N は Lv4 の値から +lvStep ずつ（handoff_slot3。クラシックは超えない）
+const lvMult = (a: number[], tier: number) => (tier < a.length ? a[tier] : a[a.length - 1] * (1 + C.SLOT_MODERN.game.lvStep * (tier - a.length + 1)));
 const BAD_DECAY = (-C.TOKU.courier * C.BAD_MULT.courier) / C.BAD_DECAY_SEC; // 反省中に毎秒減る悪行ポイント（config の BAD_DECAY_SEC）
 // マップ外周の壁（外 ' ' か地図の端に接する壁）は壊せない
 export const PERIMETER = MAP.tiles.map((row, y) => [...row].map((c, x) => c === '#' && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => (MAP.tiles[y + dy]?.[x + dx] ?? ' ') === ' '))));
@@ -47,7 +50,7 @@ export const lottery = (weights: number[], rnd = Math.random) => {
 const pick = <X>(a: X[]) => a[Math.floor(Math.random() * a.length)];
 const CENTER_ROOMS = MAP.rooms.filter((r) => r.type === 'center').map((r) => r.id); // 中央の部屋（自然湧きの徳を出さない。徳はコバコが置く）
 
-type Ult = { form: string; tier: number; until: number; pending: boolean }; // pending: 撤退中に選ばれ、復活後に始まる
+type Ult = { form: string; tier: number; until: number; pending: boolean; dur?: number }; // pending: 撤退中に選ばれ、復活後に始まる。dur: 復活後の効果時間（モダンの当たりで延びる。なければ ULT_DURATION）
 export type Player = {
   id: string; team: number; char: string; x: number; y: number; hp: number; alive: boolean;
   dx: number; dy: number; face: number; // face: 向き(ラジアン)
@@ -78,7 +81,7 @@ export type Boss = { team: number; base: number; x: number; y: number; hp: numbe
 type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number }; // start: 回転の開始時刻、reels: この回転の結果（陣営のキャラの添字。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）
 // 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
 type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
-type Team = { toku: number; wanted: string | null; slot: Slot }; // toku: 徳、wanted: 指名手配中のプレイヤーid
+type Team = { toku: number; wanted: string | null; slot: Slot; m: ModernSlot | null; powerTier: number }; // toku: 徳、wanted: 指名手配中のプレイヤーid。m: モダンのスロット（SLOT_MODE が modern のとき）、powerTier: モダンのパワーアップの陣営のレベル（POWER_* の添字。Lv4 以降は 3+N）
 type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean; push?: number; color?: string }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）。push: 発動で外向きにはじく距離、color: 発動の円の色（なければ赤い輪）
 type Material = { id: number; x: number; y: number; hi: boolean; big?: boolean }; // hi: 裏側に出た高ポイントの資材、big: コバコが置いた高性能の徳
 type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?: boolean }; // kind: heal（回復アイテム）/ box_ult / box_assist（コバコの荷物）。team は常に -1。e2e: テスト用の仕掛けで置いたもの
@@ -148,6 +151,7 @@ export class GameRoom extends Room {
   courierGuard = false; // e2e: Bot の攻撃ではコバコが倒れない（E2E_HOOKS のときだけ変わる）
   slotChain: number = C.SLOT.chain; // 連チャンの確率（e2e で変えられる）
   lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
+  modern = C.SLOT_MODE === 'modern'; // この試合のスロットがモダンか（startMatch で CONFIG.SLOT_MODE から決める）
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
   noAuto = new Set<string>(); // e2e: 自動攻撃しないプレイヤーid（E2E_HOOKS のときだけ使う）
   introMess: Pt = { x: 0, y: 0 }; // 新開幕でカメラが映す「散らかったマップの一角」
@@ -264,6 +268,8 @@ export class GameRoom extends Room {
       e2eSlot: (_c: Client, m: { team: number; win?: boolean; pen?: boolean; reach?: boolean; chain?: number }) => {
         const sl = this.teams[m.team]?.slot;
         if (!sl) return;
+        const ms = this.teams[m.team].m; // モダン: 次に回る保留を差し替える（pen＝転落、reach＝リーチのみの演出つき）
+        if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.reach ? 'plain' : null }); return; }
         this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss');
         if (!m.win && m.reach) sl.reels = [0, 0, 1];
         if (m.chain !== undefined) this.slotChain = m.chain;
@@ -353,6 +359,7 @@ export class GameRoom extends Room {
     Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
+    this.modern = C.SLOT_MODE === 'modern';
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
     this.setBossRooms(pick(ROOM_COMBOS.filter((c) => c.sum <= C.BOSS_ROOM_DIST_SUM_MAX)).names);
@@ -360,7 +367,7 @@ export class GameRoom extends Room {
       const base = Math.floor(Math.random() * this.bases[t].length); // 候補部屋からランダムに出現
       const b = this.bases[t][base];
       this.bosses.push({ team: t, base, x: b.x, y: b.y, hp: C.BOSS_HP, dmgAtBase: 0, target: null, cooldownUntil: 0, moved: false, moving: false, shotAt: 0, holdUntil: 0 });
-      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [0, 1, 2], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0 } });
+      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [0, 1, 2], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0 }, m: this.modern ? new ModernSlot(C.SLOT_MODERN, C.TOKU_INIT) : null, powerTier: 0 });
     }
   }
 
@@ -388,9 +395,9 @@ export class GameRoom extends Room {
 
   // 最大HP（ロール、ウルト中は変身先、アシストは強さの倍率）
   maxHp(p: Player) {
-    if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * C.POWER_MULT[p.tier] * (C.ASSIST.units[p.char]?.hpMult ?? 1);
+    if (p.assist) return C.PLAYER_HP * C.ASSIST.hp * lvMult(C.POWER_MULT, p.tier) * (C.ASSIST.units[p.char]?.hpMult ?? 1);
     let hp = charHp(p.char);
-    if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * C.ULT_HP_MULT[p.ult.tier];
+    if (p.ult && !p.ult.pending) hp *= C.ULT_FORMS[p.ult.form].hp * lvMult(C.ULT_HP_MULT, p.ult.tier);
     return hp;
   }
 
@@ -534,7 +541,7 @@ export class GameRoom extends Room {
     this.phase = 'playing';
     this.startedAt = Date.now();
     this.phaseLeft = 0;
-    this.teams.forEach((_, i) => this.startSpin(i)); // スロットは GAME START から回す
+    if (!this.modern) this.teams.forEach((_, i) => this.startSpin(i)); // スロットは GAME START から回す（モダンは playing の間だけ進める）
     this.cm.play();
   }
 
@@ -613,7 +620,7 @@ export class GameRoom extends Room {
       this.updateWarns();
       this.updateWanted();
       this.updateReflect(dt);
-      this.updateSlots();
+      if (this.modern) this.updateModern(dt); else this.updateSlots();
       this.finishContactTick();
       this.cm.tick(dt);
       if (this.timeLeft <= 0) {
@@ -791,7 +798,7 @@ export class GameRoom extends Room {
 
   // 移動速度（ロール・技・ウルトの効果込み）
   speedOf(p: Player) {
-    const slow = this.now < p.slowUntil ? C.SLOT.penalty.slow : 1; // スロットの罰
+    const slow = this.now < p.slowUntil ? (this.modern ? C.SLOT_MODERN.game.penalty.speed : C.SLOT.penalty.slow) : 1; // スロットの罰
     if (p.assist) return C.PLAYER_SPEED * C.ASSIST.speed * (C.ASSIST.units[p.char]?.speedMult ?? 1) * slow * (this.now < p.boostUntil ? C.ASSIST.units.shirakami.boost : 1);
     let sp = charSpeed(p.char);
     if (this.now < p.boostUntil) sp *= C.ASSIST.units.shirakami.boost;
@@ -878,7 +885,7 @@ export class GameRoom extends Room {
 
   respawn(p: Player) {
     const s = C.SPAWNS[p.team];
-    if (p.ult?.pending) Object.assign(p.ult, { pending: false, until: this.now + C.ULT_DURATION }); // 撤退中に選ばれたウルトは復活後に始まる
+    if (p.ult?.pending) Object.assign(p.ult, { pending: false, until: this.now + (p.ult.dur ?? C.ULT_DURATION) }); // 撤退中に選ばれたウルトは復活後に始まる
     this.noteJump(`p:${p.id}`, p, s);
     Object.assign(p, { alive: true, x: s.x, y: s.y, eating: false, stunUntil: 0, st: {}, recallAt: null, boostUntil: 0 });
     p.hp = this.maxHp(p);
@@ -892,7 +899,7 @@ export class GameRoom extends Room {
   // 徳の増減（陣営の共有値）。p がいれば頭上に内容と増減を出し（text が空なら増減だけ）、下げた分は悪行ポイントに足す。アシストの行動は徳に影響しない
   addToku(team: number, p: Player | null, key: string, text = C.TOKU_TEXT[key]) {
     if (p?.assist) return;
-    const d = key === 'slot' ? C.SLOT.winToku : C.TOKU[key];
+    const d = key === 'slot' ? C.SLOT.winToku : key === 'courier' && this.modern ? C.SLOT_MODERN.game.courierToku : C.TOKU[key];
     this.teams[team].toku = this.clampToku(this.teams[team].toku + d);
     if (!p) return;
     const bad = d < 0 ? -d * (C.BAD_MULT[key] ?? 1) : 0;
@@ -1006,11 +1013,12 @@ export class GameRoom extends Room {
     });
   }
 
-  // コバコが攻撃を受けた: 1発でKO。荷物をその場に落とし、COURIER.respawn 秒後に復活
-  koCourier(c: Courier) {
+  // コバコが攻撃を受けた: 1発でKO。荷物をその場に落とし、COURIER.respawn 秒後に復活。モダンは荷物の代わりに、倒した陣営（team）の次の保留を高確率保留にする
+  koCourier(c: Courier, team = -1) {
     if (!this.couriers.includes(c)) return;
     this.couriers = [];
     this.courierAt = this.now + C.COURIER.respawn;
+    if (this.modern) { const m = this.teams[team]?.m; if (m) m.nextHigh = true; this.addFx({ x: c.x, y: c.y, team: -1 }, 'aura', { r: 30, color: 'ult' }); return; }
     this.items.push({ id: this.nextId++, kind: `box_${c.box}`, team: -1, x: c.x, y: c.y });
     this.addFx({ x: c.x, y: c.y, team: -1 }, 'aura', { r: 30, color: c.box });
   }
@@ -1173,11 +1181,11 @@ export class GameRoom extends Room {
     const a = aim ?? p.face, toC = courier ?? p.aim === 'courier';
     if (SKILLS[p.char]?.attack?.(this, p, a)) return; // 技による通常攻撃の上書き
     const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC });
-    let dmg = p.assist ? C.ATTACK_DAMAGE * C.POWER_MULT[p.tier] : charAtk(p.char);
+    let dmg = p.assist ? C.ATTACK_DAMAGE * lvMult(C.POWER_MULT, p.tier) : charAtk(p.char);
     let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC, fx: string | undefined;
     if (p.ult && !p.ult.pending) {
       const f = C.ULT_FORMS[p.ult.form];
-      dmg *= f.atk * C.POWER_MULT[p.ult.tier];
+      dmg *= f.atk * lvMult(C.POWER_MULT, p.ult.tier);
       if (f.ranged) { aaShot(this.shoot(p, 'bullet', a, f.range, dmg)); return; }
       range = f.range; arc = f.arc;
     } else {
@@ -1202,11 +1210,11 @@ export class GameRoom extends Room {
   // 対象にダメージ。全体の倍率、attacker の大将へ×2（技にも掛かる）。aa: 通常攻撃（当たった側に汗のエフェクト。KOの表示の手段）
   hitThing(p: Player, t: Thing, base: number, aa = false) {
     if (this.phase !== 'playing') return; // 結果画面の技は見た目だけ
-    if (this.now < p.weakUntil) base *= C.SLOT.penalty.weak; // スロットの罰の攻撃力低下
+    if (this.now < p.weakUntil) base *= this.modern ? C.SLOT_MODERN.game.penalty.atk : C.SLOT.penalty.weak; // スロットの罰の攻撃力低下
     for (const k in p.st) if (this.now < p.st[k].until && p.st[k].atk !== undefined) base *= p.st[k].atk!; // 与えるダメージの倍率の状態（ずんだ餅など）
     if (t.k === 'c' && this.courierGuard && p.bot) return; // e2e: Bot の攻撃ではコバコが倒れない
     if (aa && t.k === 'p' && this.effect(t.o, 'noAaDmg')) return; // 通常攻撃のダメージを受けない状態
-    if (t.k === 'c') { this.addToku(p.team, p, 'courier'); this.cm.courier(p); return this.koCourier(t.o); } // コバコは1発でKO
+    if (t.k === 'c') { this.addToku(p.team, p, 'courier'); this.cm.courier(p); return this.koCourier(t.o, p.team); } // コバコは1発でKO
     this.addToku(p.team, p, 'hit');
     let dmg = base * C.DAMAGE_MULT;
     if (t.k === 'boss' && roleOf(p.char)?.name === 'attacker') dmg *= C.ATTACKER_BOSS_MULT;
@@ -1408,6 +1416,87 @@ export class GameRoom extends Room {
     this.cm.slot(team, chain, kind);
   }
 
+  // ---- モダンのスロット（handoff_slot3）----
+
+  // 陣営ごとに抽選を dt 秒進める（徳は陣営の徳を使い、当選の徳 −1 を陣営へ返す）。起きたことを効果・通知・実況に流す
+  updateModern(dt: number) {
+    this.teams.forEach((t, team) => {
+      const m = t.m!;
+      if (this.slotMiss) return; // e2e: 技の検証中は止める
+      m.toku = t.toku; m.step(dt); t.toku = this.clampToku(m.toku);
+      const ev = m.ev; m.ev = [];
+      for (const e of ev) this.modernEv(team, e);
+    });
+  }
+
+  modernEv(team: number, e: MEv) {
+    const send = (msg: any) => { for (const c of this.clients) c.send('mslot', { team, ...msg }); };
+    if (e.type === 'hold' && e.hold.saki) send({ type: 'saki' });
+    else if (e.type === 'spin') {
+      const sec = e.end - e.t, h = e.hold;
+      send({ type: 'spin', reels: h.reels, act: h.act, sec, win: h.outcome === 'win' });
+      if (h.act && h.act !== 'allSpin') this.cm.reachModern(team, this.now + sec);
+    } else if (e.type === 'stop') send({ type: 'stop', reels: e.hold.reels, outcome: e.hold.outcome });
+    else if (e.type === 'win') this.payModern(team, e.pay, e.first, e.chain);
+    else if (e.type === 'penalty') this.penaltyModern(team, e.n);
+  }
+
+  // レベルを add 段上げ、耐久（アシストはHP、パワーアップ中はシールド）を足す。足す量＝各段の最大値の差の合計（Lv4 以降の段は Lv3→Lv4 の差）。
+  // add=0（偶数）はレベルを変えず次の1段分を足す。上がった先の最大値で止め、減っていた分は持ち越す。撤退中のパワーアップはレベルだけ
+  levelUp(p: Player, add: number) {
+    const get = () => (p.assist ? p.tier : p.ult!.tier), set = (v: number) => { if (p.assist) p.tier = v; else p.ult!.tier = v; };
+    const from = get(), mx = (v: number) => { set(v); const r = this.maxHp(p); set(from); return r; };
+    const step = (k: number) => (k < C.POWER_TIERS.length - 1 ? mx(k + 1) - mx(k) : mx(C.POWER_TIERS.length - 1) - mx(C.POWER_TIERS.length - 2));
+    let inc = 0;
+    for (let k = from; k < from + Math.max(1, add); k++) inc += step(k);
+    set(from + add);
+    if (p.alive && !(p.ult?.pending && !p.assist)) p.hp = Math.min(this.maxHp(p), p.hp + inc);
+  }
+
+  // 当選の払い出し: パワーアップ（自陣のプレイヤー全員。撤退中は復活後に始まる）とアシストの両方に同じ効果。両陣営に通知
+  // 初当たり: パワーアップしている人がいなければ当たりのレベルで始める、いれば add 段上げる。アシストは今いなければ当たりのレベルで呼ぶ、いれば add 段上げる
+  // CT・引き戻し: パワーアップは陣営のレベル +add（切れた人・していない人は陣営のレベルで新たに始める）。アシストがいなければ Lv1 を呼ぶ（そろい目によらない）
+  payModern(team: number, pay: Pay, first: boolean, chain: number) {
+    const T = this.teams[team], G = C.SLOT_MODERN.game;
+    const mates = [...this.players.values()].filter((q) => q.team === team && !q.assist);
+    const ults = mates.filter((q) => q.ult);
+    const to = first && !ults.length ? pay.add - 1 : (ults.length ? Math.max(...ults.map((q) => q.ult!.tier)) : T.powerTier) + pay.add;
+    for (const q of mates) {
+      if (!q.ult) { this.giveUlt(q, to); continue; }
+      this.levelUp(q, to - q.ult.tier);
+      if (q.ult.pending) q.ult.dur = (q.ult.dur ?? C.ULT_DURATION) + G.ultAdd; else q.ult.until += G.ultAdd;
+      if (q.alive) this.fxAtBody(q, 'aura', { r: 50, color: 'ult' });
+    }
+    T.powerTier = to;
+    const a = [...this.players.values()].find((q) => q.assist && q.team === team && q.alive);
+    let assist: { char: string; tier: number; add: number; new: boolean };
+    if (!a) { const n = this.summonAssist(team, first ? pay.add - 1 : 0, undefined, true); assist = { char: n.char, tier: n.tier, add: 0, new: true }; }
+    else {
+      const add = pay.add; this.levelUp(a, add);
+      this.addFx(a, 'aura', { r: 40, color: 'assist' });
+      if (add > 0) this.cm.assistUp(a);
+      assist = { char: a.char, tier: a.tier, add, new: false };
+    }
+    T.m!.lv = { power: to + 1, assist: assist.tier + 1 }; // 表示・最高到達レベル用に実際のレベルへ合わせる
+    T.m!.maxLv = { power: Math.max(first ? 0 : T.m!.maxLv.power, to + 1), assist: Math.max(first ? 0 : T.m!.maxLv.assist, assist.tier + 1) };
+    for (const c of this.clients) c.send('mslotWin', { team, first, chain, group: pay.group, power: { tier: to, add: first && !ults.length ? 0 : pay.add, new: first && !ults.length }, assist });
+    this.cm.slotModern(team, first);
+  }
+
+  // 転落・引き戻し失敗のペナルティ: 陣営の生存者全員（アシストも）に、最大HPの dmg 割のダメージ（パワーアップ中はシールドに入る）と、攻撃・移動速度の低下（dur 秒。重ねがけは時間の延長）
+  penaltyModern(team: number, n: 1 | 2) {
+    const P = C.SLOT_MODERN.game.penalty;
+    for (const q of [...this.players.values()]) {
+      if (q.team !== team || !q.alive) continue;
+      this.damagePlayer(q, this.maxHp(q) * P.dmg, null, true);
+      if (!q.alive) continue;
+      q.slowUntil = Math.max(q.slowUntil, this.now) + P.dur; q.weakUntil = Math.max(q.weakUntil, this.now) + P.dur;
+      this.fxAtBody(q, 'aura', { r: 26, color: 'pen_dmg' });
+    }
+    for (const c of this.clients) c.send('mpenalty', { team, n });
+    this.cm.penaltyModern(team, n);
+  }
+
   // 位置を持つもの（キャラ・大将・ユニット扱いの場の物）
   bodies() {
     return [
@@ -1529,7 +1618,7 @@ export class GameRoom extends Room {
   updateAssists() {
     for (const p of this.players.values()) {
       if (!p.assist || !p.alive || this.now < p.skillReadyAt) continue;
-      const U = C.ASSIST.units[p.char], k = C.POWER_MULT[p.tier], d = (o: Pt) => Math.hypot(o.x - p.x, o.y - p.y);
+      const U = C.ASSIST.units[p.char], k = lvMult(C.POWER_MULT, p.tier), d = (o: Pt) => Math.hypot(o.x - p.x, o.y - p.y);
       const foes = this.enemyThings(p.team).filter((t) => (t.k === 'p' || t.k === 'boss') && this.targetable(t) && d(t) <= U.sense);
       if (p.char === 'kurono' && foes.length) {
         this.warns.push({ id: this.nextId++, team: p.team, owner: p.id, x: p.x, y: p.y, r: U.r, at: this.now + U.warn, dmg: U.dmg * k, follow: p.id }); // 自分中心（予告の間も付いていく）
@@ -1725,6 +1814,12 @@ export class GameRoom extends Room {
     return out;
   }
 
+  // モダンのスロットの表示用（当否は送らない）: モード・引き戻しの残り・保留（色・先バレ・高確率）・回転中の保留・レベル（Lv.4+N の表示）
+  modernView(m: ModernSlot) {
+    const h = (x: { color: number; saki: boolean; high: boolean }) => [x.color, x.saki ? 1 : 0, x.high ? 1 : 0];
+    return { mode: m.mode, backLeft: m.backLeft, holds: m.holds.map(h), cur: m.cur ? h(m.cur.hold) : null, lv: m.lv };
+  }
+
   // 自キャラのバフ／デバフ欄: 時間制限つきの状態の残り秒数（状態 key → 秒）。スロットの罰の減速・攻撃力低下は pen_slow・pen_weak、アシストの加速は boost。終わりのない状態（溜め中など）は含めない
   buffView(p: Player) {
     const out: Record<string, number> = {};
@@ -1754,7 +1849,7 @@ export class GameRoom extends Room {
       const myTeam = me ? me.team : 0;
       client.send('s', {
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
-        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) } })),
+        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, slot: { reels: t.slot.reels, win: t.slot.win, pen: t.slot.pen, chain: t.slot.chain, payout: t.slot.payoutAt !== null, left: C.SLOT.spin - (this.now - t.slot.start) }, m: t.m && this.modernView(t.m) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({
           id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,

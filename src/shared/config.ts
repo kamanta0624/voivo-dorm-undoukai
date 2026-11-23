@@ -203,7 +203,8 @@ export const CONFIG = {
       dur: 8, // 移動速度・攻撃力の低下の秒数
     },
   },
-  // モダン（転落スペック）のスロット。handoff_slot2。今は単体画面（slot.html）だけが使う（試合は SLOT＝クラシックのまま）。値はすべて仮置き
+  SLOT_MODE: 'modern' as 'modern' | 'classic', // 試合のスロット: modern＝SLOT_MODERN（handoff_slot3）、classic＝SLOT（現行）
+  // モダン（転落スペック）のスロット。handoff_slot2。単体画面（slot.html）と試合（SLOT_MODE が modern のとき）で使う。値はすべて仮置き
   // 確率は徳 5 の基準値。徳 t で 当選 × 2^((t−5)/win)、転落 × 2^((5−t)/fall)。t < lowBelow で当選 × lowWin・転落 × lowFall
   SLOT_MODERN: {
     interval: { normal: 2, ct: 1, back: 0.5 }, // 抽選間隔(秒)。通常・チャンスタイム（CT）・引き戻し
@@ -211,8 +212,6 @@ export const CONFIG = {
     tokuDiv: { win: 2.5, fall: 5 }, lowBelow: 1, lowWin: 0.5, lowFall: 2,
     winToku: -1, // 当選のたびの徳の増減（初当たり・CT 当選・引き戻し当選すべて）
     backSpins: 30, // 引き戻しの抽選回数（0.5秒間隔で15秒）。全部外れでペナルティ2回目 → 通常へ
-    first: { assist1: 85, assist2: 15 } as Record<string, number>, // 初当たりの振り分け（アシストのレベル1・2）。当選で CT へ
-    ct: { power1: 50, assist1: 40, power2: 5, assist2: 5 } as Record<string, number>, // CT・引き戻しの当選の振り分け（パワーアップ／アシストのレベル +1・+2）
     lvCap: 4, // これを超えたレベルは「Lv.4+N」と表示（頭打ちにしない）
     holds: 4, // 保留の数（常に4つ。満杯のときの抽選は捨てる）
     high: { normal: 1 / 4, ct: 1 / 2, back: 1 / 4 }, // 高確率保留の当選確率（徳によらない・転落なし）。back は仮置き（通常と同じ）
@@ -236,8 +235,17 @@ export const CONFIG = {
     fish: { n: 7, speed: 170, gap: 26 }, // 魚群: 匹数・速さ(px/秒)・間隔(px)
     fishSp: { n: 12, speed: 220, gap: 30, scale: 1.5, rows: [26, 300] }, // 特別な魚群: 匹数・速さ・間隔・表示倍率・横切る高さ（上下2列。論理解像度の y）
     // リールの絵柄 1〜9（添字＋1が絵柄の番号）。player:n＝陣営のプレイヤー n 番目、assist:n＝アシスト n 番目（ASSIST.units の順）、boss＝陣営の大将
-    // add: そろったときの当たりの強さ（通常時はアシストのレベル、CT・引き戻しは +add）。2＝良い当たり、1＝良くない当たり。7（大将）は将来別扱いにするため絵柄ごとに持つ
-    reel: { syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'boss', 'assist:3', 'player:3'], add: [2, 1, 2, 1, 2, 1, 2, 1, 2] },
+    // group: 絵柄ごとのそろい目の種類。first・ct: そろい目の種類ごとの、当選時の選択率（w）と効果（add）。そろい目の絵柄は種類の中から等確率
+    // 効果はパワーアップ・アシストの両方に同じ。初当たり（first）の add＝両方のレベル、CT・引き戻し（ct）の add＝両方のレベルの上げ幅（0＝変えない）
+    reel: {
+      syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'boss', 'assist:3', 'player:3'],
+      group: ['odd', 'even', 'odd', 'even', 'odd', 'even', 'seven', 'even', 'odd'],
+      first: { even: { w: 85, add: 1 }, odd: { w: 12, add: 2 }, seven: { w: 3, add: 2 } } as Record<string, { w: number; add: number }>, // 奇数（7を含む）15%＝Lv2、偶数85%＝Lv1。7 は奇数5絵柄の1つ分（15×1/5）
+      ct: { even: { w: 50, add: 0 }, odd: { w: 40, add: 1 }, seven: { w: 10, add: 2 } } as Record<string, { w: number; add: number }>,
+    },
+    // 試合での効果（handoff_slot3。仮置き）。ultAdd: 当たりごとのパワーアップの残り時間の延長(秒)。lvStep: Lv4+N の1段ごとの強化（攻撃・最大値を Lv4 の値から +lvStep ずつ）
+    // courierToku: コバコ撃破の徳（クラシックの TOKU.courier の代わり）。penalty: 転落・引き戻し失敗（陣営全員とアシスト。撤退中は対象外。dmg＝最大HPの割合、atk・speed＝倍率、dur 秒。重ねがけは時間の延長）
+    game: { ultAdd: 10, lvStep: 0.05, courierToku: -3, penalty: { dmg: 0.2, atk: 0.8, speed: 0.8, dur: 20 } },
   },
   REFLECT_TOKU: 0.05, // 反省中（KOされて復活待ち）の人数 n に対し、陣営の徳が毎秒 REFLECT_TOKU × n² 上がる
   POWER_TIERS: ['レベル1', 'レベル2', 'レベル3', 'レベル4'], // ウルト・アシストの強さ

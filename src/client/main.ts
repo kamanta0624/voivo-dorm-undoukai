@@ -14,6 +14,8 @@ import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
 import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
 import { GUMI, TEAM_GUMI } from '../shared/commentary';
+import { ModernFx } from './slot_modern_fx';
+import { lvText } from '../shared/slot_modern';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
@@ -237,6 +239,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .tk .sl.pen{border-color:#a00000;box-shadow:0 0 calc(var(--z) * 6px) #ff2020}
 #fx .tk .sl b.pb{color:#ff4040}
 #fx .tk .rf{margin-left:.5em;color:#9fe8ff}
+#fx .tk .mh{zoom:calc(var(--z) * .85)}
+#fx .mfxl{position:absolute;left:0;top:0;width:${C.VIEW_W}px;height:${C.VIEW_H}px;zoom:var(--z);pointer-events:none} /* モダンのスロットの演出・お知らせ（論理解像度。slot_modern_fx） */
+#fx .fever{position:absolute;right:1.2%;top:18%;display:none;font:900 calc(var(--z) * 12px) sans-serif;color:#ffd700;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 4px) #f60;white-space:nowrap;animation:pop .3s ease-out}
 #fx .lbl.introlbl{font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .6px) #000}
 #fx .lbl.wanted{color:#ff4040;font-size:calc(var(--z) * 7px)}
 #fx .lbl.pick{color:#ffe066;font-size:calc(var(--z) * 6px)}
@@ -267,7 +272,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
 const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
@@ -330,6 +335,7 @@ class GameScene extends Phaser.Scene {
   hits: { x: number; y: number; ratio: number; big: boolean; t0: number; seed: number }[] = []; // 被ダメージの着弾エフェクト（中・大）
   labels = new Map<string, HTMLElement>();
   slotHtml = ['', ''];
+  mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMine = -1; // モダンのスロット（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
   ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
@@ -535,6 +541,9 @@ class GameScene extends Phaser.Scene {
       room.onMessage('slot', (m: any) => this.slotCutin(m.team, m.chain, m.kind, m.tier));
       room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト レベルアップ: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
       room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
+      room.onMessage('mslot', (m: any) => this.mslotEv(m));
+      room.onMessage('mslotWin', (m: any) => this.mslotWin(m));
+      room.onMessage('mpenalty', (m: any) => this.mslotToast(m.team, `ペナルティ（${m.n === 1 ? '転落' : '引き戻し失敗'}）\n全員にダメージ・攻撃ダウン・速度ダウン`, true));
       room.onMessage('ko', (k: any) => {
         const mine = this.snap?.players.find((p: any) => p.id === this.snap.me);
         if (mine) this.cutin(mine.char, k.victimChar, k.how);
@@ -741,6 +750,7 @@ class GameScene extends Phaser.Scene {
   tokuHud(s: any, sinceSnap: number) {
     [0, 1].forEach((t, k) => {
       const tm = s.teams[t], sl = tm.slot, chars = s.roster.filter((r: any) => r.team === t).map((r: any) => r.char);
+      if (tm.m) return this.modernHud(s, t, k, tm, chars);
       const idle = s.phase !== 'playing'; // GAME START までは止めたまま
       const p = sl.payout || idle ? 1 : Math.min(1, (C.SLOT.spin - Math.max(0, sl.left - sinceSnap)) / C.SLOT.spin);
       const tick = Math.floor(performance.now() / C.SLOT_REEL_MS);
@@ -754,6 +764,84 @@ class GameScene extends Phaser.Scene {
         + `<div class="sl${reach ? ' reach' : ''}${win ? ' win' : ''}${pen ? ' pen' : ''}" style="--c:${css16(TEAM_COLOR[t])}">${shown.map(reel).join('')}${reach ? '<b>リーチ！</b>' : win ? `<b>大当たり${sl.chain > 1 ? ` ${sl.chain}連` : ''}</b>` : pen ? '<b class="pb">罰</b>' : ''}</div>`;
       if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k}`).innerHTML = html; }
     });
+  }
+
+  // モダンのスロット（handoff_slot3）: 徳のゲージの下にリール・保留・モード（slot_modern_fx）。リールの絵柄は試合の編成（奇数＝陣営のプレイヤー、偶数＝アシスト、7＝大将）
+  // 演出（リーチ・全回転）は自陣だけ、演出の層（.mfxl）に出す。編成が変わったら作り直す
+  modernHud(s: any, t: number, k: number, tm: any, chars: string[]) {
+    const myTeam = s.players.find((p: any) => p.id === s.me)?.team ?? -1, key = `${myTeam}:${s.roster.map((r: any) => `${r.team}${r.char}`).join()}`;
+    if (key !== this.mfxKey) {
+      this.mfxKey = key; this.mfxMine = myTeam; this.slotHtml = ['', '']; this.mfxView = ['', '']; this.mfxMask = '';
+      $('.mfxl').replaceChildren();
+      this.mfx = [0, 1].map((team) => {
+        const el = $(`.tk .s${team}`), cs = s.roster.filter((r: any) => r.team === team).map((r: any) => r.char), ass = Object.keys(C.ASSIST.units);
+        el.innerHTML = '<div class="tkg"></div><div class="mh"></div>';
+        const syms = C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]));
+        const f = new ModernFx(el.querySelector<HTMLElement>('.mh')!, team === myTeam ? $('.mfxl') : document.createElement('div'), syms, cs, css16(TEAM_COLOR[team]));
+        f.idle(performance.now());
+        return f;
+      });
+    }
+    const f = this.mfx[t]!, m = tm.m, now = performance.now();
+    const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
+    const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i style="width:${(tm.toku / C.TOKU_MAX) * 100}%"></i></div><div class="tv">徳 ${tm.toku.toFixed(1)}${rf}</div>`;
+    if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k} .tkg`).innerHTML = html; }
+    if (this.mfxIdleAt[t] && now >= this.mfxIdleAt[t]) { this.mfxIdleAt[t] = 0; f.idle(now); }
+    if (s.phase === 'playing') f.frame(now);
+    const v = JSON.stringify([m.mode, m.backLeft, m.holds, m.cur, m.lv]);
+    if (v !== this.mfxView[k]) {
+      this.mfxView[k] = v;
+      const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
+      f.holds(m.holds.map(h), m.cur && h(m.cur));
+      f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
+    }
+    if (t === this.mfxMine) { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
+      const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`;
+      fe.style.display = on ? 'block' : 'none';
+      if (fe.textContent !== txt) fe.textContent = txt;
+    }
+  }
+
+  // モダンのスロットの回転・結果・先バレ（サーバーの mslot）。演出と先バレは自陣だけ
+  mslotEv(m: any) {
+    const f = this.mfx[m.team], own = m.team === this.mfxMine, now = performance.now();
+    if (!f) return;
+    if (m.type === 'saki') { if (own) f.sakibare(); return; }
+    if (m.type === 'spin') {
+      if (!(m.sec > 0)) return;
+      this.mfxIdleAt[m.team] = 0;
+      f.spin(now, m.reels, m.act);
+      if (!own) return;
+      const ch = f.syms[m.reels[0] - 1];
+      if (m.act === 'allSpin') f.allSpinFx(ch, m.sec); else f.reach(m.act, ch, m.sec, m.win);
+      this.mfxMask = ''; // 演出の範囲をすぐ合わせる
+    } else if (m.type === 'stop') { f.stop(m.reels, m.outcome); this.mfxIdleAt[m.team] = now + 600; }
+  }
+
+  // 当選のお知らせ（画面中央）と音。敵陣の当選は陣営名つき、音なし
+  mslotWin(m: any) {
+    const L = (tier: number) => lvText(C.SLOT_MODERN, tier + 1), P = m.power, A = m.assist;
+    const pw = P.new ? `パワーアップ ${L(P.tier)}` : `パワーアップ ${P.add ? `+${P.add} → ` : ''}${L(P.tier)}（+${C.SLOT_MODERN.game.ultAdd}秒）`;
+    const as = A.new ? `アシスト ${L(A.tier)} 登場` : `アシスト ${A.add ? `+${A.add} → ` : ''}${L(A.tier)}${A.add ? '' : ' 耐久アップ'}`;
+    this.mslotToast(m.team, `${m.first ? '大当たり！' : `${m.chain}連チャン！`}\n${pw}\n${as}`);
+    if (m.team === this.mfxMine) this.mfx[m.team]?.beep();
+  }
+  mslotToast(team: number, text: string, bad = false) {
+    const f = this.mfx[this.mfxMine] ?? this.mfx[0];
+    f?.toast(team === this.mfxMine ? text : `${TEAM_NAME[team]}　${text}`, bad);
+  }
+
+  // モダンの演出の範囲を、実際の視界（polys: 画面の論理座標の多角形）とキルログ域に合わせる（演出が出ている間だけ）
+  mfxArea(polys: { x: number; y: number }[][]) {
+    const f = this.mfx[this.mfxMine];
+    if (!f || (!f.normal.childElementCount && !f.special.childElementCount)) return;
+    const vis = polys.map((p) => `<path d="M${p.map((q) => `${Math.round(q.x)} ${Math.round(q.y)}`).join('L')}Z" fill="black"/>`).join('');
+    const a = C.SLOT_MODERN.area.killLog, kb = $('.kills').getBoundingClientRect(), fb = fx.getBoundingClientRect(), z = this.game.scale.zoom;
+    const kx = kb.width ? Math.min(a.x, (kb.left - fb.left) / z) : a.x, ky = kb.height ? Math.min(a.y, (kb.top - fb.top) / z) : a.y;
+    const kill = { x: kx, y: ky, w: Math.max(a.x + a.w, kb.width ? (kb.right - fb.left) / z : 0) - kx, h: Math.max(a.y + a.h, kb.height ? (kb.bottom - fb.top) / z : 0) - ky }; // 設定の外枠と今のキルログの和
+    const key = vis + JSON.stringify(kill);
+    if (key === this.mfxMask) return;
+    this.mfxMask = key; f.setArea(vis, kill);
   }
 
   // キャラの顔アイコン（陣営色の縁）
@@ -865,7 +953,7 @@ class GameScene extends Phaser.Scene {
         const b = BUFF[k], left = v - sinceSnap;
         if (b && left > 0) items.push([b[0], `${Math.ceil(left)}`, b[1]]);
       }
-      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ Lv${mine.ult.tier + 1}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
+      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ ${lvText(C.SLOT_MODERN, mine.ult.tier + 1).replace('.', '')}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
       if (s.teams?.[myTeam]?.wanted === s.me) items.push(['指名手配', `悪行${(mine.bad ?? 0).toFixed(1)}`, false]);
     }
     const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
@@ -1162,7 +1250,7 @@ class GameScene extends Phaser.Scene {
       // パワーアップ中: 背後に自身のドットを拡大して半透明で重ねる（大きさはレベルごと）
       if (p?.alive && p.ult && p.ult.left !== null) {
         e.aura ??= this.add.sprite(cx, cy, sp.texture.key).setOrigin(0.5, 0.85);
-        e.aura.setTexture(sp.texture.key).setPosition(sp.x, sp.y).setFlipX(sp.flipX).setScale(C.DOT_SCALE * C.POWERUP_AURA.scale[p.ult.tier]).setAlpha(C.POWERUP_AURA.alpha).setDepth(sp.depth - 0.001).setVisible(true);
+        e.aura.setTexture(sp.texture.key).setPosition(sp.x, sp.y).setFlipX(sp.flipX).setScale(C.DOT_SCALE * C.POWERUP_AURA.scale[Math.min(p.ult.tier, C.POWERUP_AURA.scale.length - 1)]).setAlpha(C.POWERUP_AURA.alpha).setDepth(sp.depth - 0.001).setVisible(true);
       } else e.aura?.setVisible(false);
       // 足元の陣営色と頭上のHP（撃破の演出中は出さない）
       const h = sp.displayHeight * 0.85;
@@ -1194,13 +1282,13 @@ class GameScene extends Phaser.Scene {
       if (p.ult && p.ult.left !== null) {
         const pulse = 0.5 + 0.3 * Math.sin(time / 120);
         feet.lineStyle(3, ULT_COLOR[p.ult.form], pulse).strokeCircle(cx, cy - h / 2, 20).lineStyle(1, 0xffffff, pulse).strokeCircle(cx, cy - h / 2, 23);
-        this.label(`ult${id}`, `Lv.${p.ult.tier + 1}`, cx, cy - h - 22, '', labelSeen);
+        this.label(`ult${id}`, lvText(C.SLOT_MODERN, p.ult.tier + 1), cx, cy - h - 22, '', labelSeen);
       }
       // アシスト: 半透明の縁取りと頭上の「ASSIST」
       if (p.assist) {
         sp.setAlpha(0.8);
         feet.lineStyle(2, ITEM_COLOR.assist, 0.6).strokeRoundedRect(cx - 14, cy - h - 2, 28, h + 6, 5);
-        this.label(`assist${id}`, `ASSIST ${C.POWER_TIERS[p.tier]}`, cx, cy - h - 14, '', labelSeen);
+        this.label(`assist${id}`, `ASSIST ${C.POWER_TIERS[p.tier] ?? lvText(C.SLOT_MODERN, p.tier + 1)}`, cx, cy - h - 14, '', labelSeen);
       }
     };
     const K = C.KO_FX, dying: { p: any; x: number; y: number; ko: number }[] = []; // 撃破の演出中（揺れ・大爆発）
@@ -1382,7 +1470,9 @@ class GameScene extends Phaser.Scene {
     if (mine) {
       const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
-      for (const e of eyes) vg.fillPoints(this.visPoly(e.x, e.y, e.r), true);
+      const wv = this.cameras.main.worldView, polys: { x: number; y: number }[][] = [];
+      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); vg.fillPoints(pts, true); if (this.mfxMine >= 0) polys.push(pts.map((q) => ({ x: q.x - wv.x, y: q.y - wv.y }))); }
+      if (this.mfxMine >= 0) this.mfxArea(polys);
       for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
       [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
@@ -1476,7 +1566,7 @@ class GameScene extends Phaser.Scene {
       `あなた: ${mine ? TEAM_NAME[myTeam] : '観戦中'}  状態: ${s.phase}  残り ${Math.ceil(s.timeLeft)}秒 ${result}`,
       `自キャラ座標: ${mine ? `${Math.round(mine.x)}, ${Math.round(mine.y)}` : '-'}`,
       ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
-      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier]}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
+      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier] ?? lvText(C.SLOT_MODERN, mine.ult.tier + 1)}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
       `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
       ...(TOUCH ? [] : ['WASD移動 / 通常攻撃は自動 / Q長押しで帰還 / R技 / Tab照準 / ミニマップ右クリック長押しで視点']), // タッチ端末にはPCのキー操作を出さない

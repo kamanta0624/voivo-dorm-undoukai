@@ -6,8 +6,9 @@ import { CONFIG } from './config';
 export type Spec = typeof CONFIG.SLOT_MODERN;
 export type Mode = 'normal' | 'ct' | 'back';
 export type Outcome = 'win' | 'miss' | 'fall';
-// act: リーチ演出のキー（spec.reach）、'allSpin'＝全回転、null＝リーチなし。reels: 出目（絵柄の番号 1〜9、転落は −1）。pay: 当選の払い出し（そろい目の強さと一致）
-export type Pay = { kind: 'power' | 'assist'; add: number; key: string };
+// act: リーチ演出のキー（spec.reach）、'allSpin'＝全回転、null＝リーチなし。reels: 出目（絵柄の番号 1〜9、転落は −1）。pay: 当選の払い出し（そろい目の種類と一致）
+// Pay: group＝そろい目の種類（spec.reel.group）。add＝初当たりはパワーアップ・アシストの両方のレベル、CT・引き戻しは両方の上げ幅
+export type Pay = { group: string; add: number };
 export type Hold = { outcome: Outcome; mode: Mode; toku: number; color: number; saki: boolean; act: string | null; high: boolean; reels: number[]; pay?: Pay; forced?: boolean };
 export type Ev =
   | { t: number; type: 'hold'; hold: Hold } // 保留を積んだ（先バレの光はここ）
@@ -81,20 +82,20 @@ export class ModernSlot {
     return this.fill({ outcome, mode: m, toku: t, color, saki, act, high, reels: [] });
   }
 
-  // 払い出しの抽選（通常＝初当たりの表、CT・引き戻し＝CT の表）。add を指定するとその強さの中から選ぶ
-  drawPay(mode: Mode, add?: number): Pay {
-    const table = mode === 'normal' ? this.spec.first : this.spec.ct, ks = Object.keys(table).filter((k) => add === undefined || Number(k.slice(-1)) === add);
-    const key = ks.length ? ks[pick(ks.map((k) => table[k]), this.rng())] : Object.keys(table)[0];
-    return { kind: key.startsWith('power') ? 'power' : 'assist', add: Number(key.slice(-1)), key };
+  // 払い出しの抽選（通常＝reel.first、CT・引き戻し＝reel.ct の選択率でそろい目の種類を選ぶ）。group を指定するとその種類の効果
+  drawPay(mode: Mode, group?: string): Pay {
+    const table = mode === 'normal' ? this.spec.reel.first : this.spec.reel.ct, ks = Object.keys(table);
+    const g = group ?? ks[pick(ks.map((k) => table[k].w), this.rng())];
+    return { group: g, add: table[g].add };
   }
 
-  // 出目と払い出しを決める。当選は払い出しの強さ（add）に合う絵柄でそろえる（出目が指定されていればその絵柄の強さで払い出す）
+  // 出目と払い出しを決める。当選は払い出しのそろい目の種類の絵柄でそろえる（出目が指定されていればその絵柄の種類で払い出す）
   // リーチの外れは2つそろえて3つ目をずらす、リーチなしの外れは1つ目と2つ目を違えておく。転落は −1（×）
   fill(h: Hold): Hold {
-    const add = this.spec.reel.add, n = add.length, any = () => 1 + Math.floor(this.rng() * n), other = (a: number) => 1 + ((a + Math.floor(this.rng() * (n - 1))) % n);
+    const gr = this.spec.reel.group, n = gr.length, any = () => 1 + Math.floor(this.rng() * n), other = (a: number) => 1 + ((a + Math.floor(this.rng() * (n - 1))) % n);
     if (h.outcome === 'win') {
-      if (h.reels.length) h.pay ??= this.drawPay(h.mode, add[h.reels[0] - 1]);
-      else { h.pay ??= this.drawPay(h.mode); const ok = add.map((v, i) => (v === h.pay!.add ? i + 1 : 0)).filter(Boolean), s = ok.length ? ok[Math.floor(this.rng() * ok.length)] : any(); h.reels = [s, s, s]; }
+      if (h.reels.length) h.pay ??= this.drawPay(h.mode, gr[h.reels[0] - 1]);
+      else { h.pay ??= this.drawPay(h.mode); const ok = gr.map((v, i) => (v === h.pay!.group ? i + 1 : 0)).filter(Boolean), s = ok.length ? ok[Math.floor(this.rng() * ok.length)] : any(); h.reels = [s, s, s]; }
     } else if (!h.reels.length) {
       if (h.outcome === 'fall') h.reels = [-1, -1, -1];
       else { const a = any(), b = other(a); h.reels = h.act ? [a, a, b] : [a, b, any()]; }
@@ -136,8 +137,8 @@ export class ModernSlot {
     if (h.outcome === 'win') {
       this.toku = Math.max(0, Math.min(10, this.toku + S.winToku));
       const pay = h.pay ?? this.drawPay(m);
-      if (m === 'normal') { this.chain = 0; this.lv = { power: 0, assist: pay.add }; } // 初当たり: アシストのレベル1・2
-      else { this.chain++; this.lv[pay.kind] += pay.add; }
+      if (m === 'normal') { this.chain = 0; this.lv = { power: pay.add, assist: pay.add }; } // 初当たり: パワーアップ・アシストの両方のレベル1・2
+      else { this.chain++; this.lv.power += pay.add; this.lv.assist += pay.add; }
       this.maxLv = { power: Math.max(m === 'normal' ? 0 : this.maxLv.power, this.lv.power), assist: Math.max(m === 'normal' ? 0 : this.maxLv.assist, this.lv.assist) };
       this.ev.push({ t: this.t, type: 'win', mode: m, pay, first: m === 'normal', toku: this.toku, chain: this.chain });
       if (m !== 'ct') this.setMode('ct');

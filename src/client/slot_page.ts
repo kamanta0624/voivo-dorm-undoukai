@@ -45,7 +45,7 @@ document.body.innerHTML = `<div id="app">
 <h3>手動発火（次に回る保留を差し替え）</h3>
 <div class="row">当否 <select id="fOut"><option value="win">当選</option><option value="miss">外れ</option></select>
 <button id="fReach">リーチ</button><select id="fAct">${Object.keys(spec.reach).map((k) => `<option value="${k}">${spec.reach[k].name}</option>`).join('')}</select>
-そろい目 <select id="fSym"><option value="">おまかせ</option>${spec.reel.syms.map((_, i) => `<option value="${i + 1}">${i + 1}${spec.reel.add[i] === 2 ? '（良）' : ''}</option>`).join('')}</select>
+そろい目 <select id="fSym"><option value="">おまかせ</option>${spec.reel.syms.map((_, i) => `<option value="${i + 1}">${i + 1}${spec.reel.group[i] !== 'even' ? '（良）' : ''}</option>`).join('')}</select>
 <button id="fAll">全回転（当選）</button><button id="fSaki">先バレ</button><button id="fColor">保留の色</button><select id="fCol">${spec.colors.map((c, i) => `<option value="${i}">${c}</option>`).join('')}</select>
 <button id="fHigh">高確率保留</button><button id="fFall">転落</button></div>
 <h3>統計</h3><div id="stats"></div></div>
@@ -108,7 +108,7 @@ function onEv(e: Ev, show: boolean, now: number) {
   } else if (e.type === 'win') {
     if (e.first) st.first.push(e.t - st.normalAt);
     st.maxLv.power = Math.max(st.maxLv.power, slot.lv.power); st.maxLv.assist = Math.max(st.maxLv.assist, slot.lv.assist);
-    const txt = e.first ? `初当たり アシスト ${lvText(spec, e.pay.add)}` : `${e.pay.kind === 'power' ? 'パワーアップ' : 'アシスト'} +${e.pay.add} → ${lvText(spec, slot.lv[e.pay.kind])}（${e.chain}連）`;
+    const txt = e.first ? `初当たり パワーアップ・アシスト ${lvText(spec, e.pay.add)}` : `パワーアップ・アシスト ${e.pay.add ? `+${e.pay.add} → ` : ''}${lvText(spec, slot.lv.power)}（${e.chain}連）`;
     log(`${tt}s ★${txt} 徳→${e.toku.toFixed(1)}`); if (show) fx.toast(txt);
   } else if (e.type === 'fall') { st.falls++; log(`${tt}s ▼転落`); }
   else if (e.type === 'penalty') { st.pen[e.n - 1]++; log(`${tt}s ▼ペナルティ発生（${e.n}回目）`); if (show) fx.toast(`ペナルティ発生（${e.n}回目）`, true); }

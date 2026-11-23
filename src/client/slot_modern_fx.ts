@@ -27,7 +27,7 @@ const CSS = `
 .mfx-mode{white-space:nowrap}
 .mfx-mode .ct{color:#ffd700}.mfx-mode .back{color:#ff8080}
 .mfx-label{position:absolute;left:100%;top:50%;transform:translate(4px,-50%);white-space:nowrap;font:900 7px sans-serif;color:#ffd700;text-shadow:0 0 3px #000,0 0 3px #000}
-.mfx-toast{position:absolute;left:50%;top:44%;transform:translateX(-50%);white-space:nowrap;font:900 12px sans-serif;color:#ffd700;-webkit-text-stroke:.5px #000;text-shadow:0 0 4px #000;animation:mfxfade 1.6s linear forwards;pointer-events:none}
+.mfx-toast{position:absolute;left:50%;top:44%;transform:translateX(-50%);white-space:pre;text-align:center;font:900 12px sans-serif;color:#ffd700;-webkit-text-stroke:.5px #000;text-shadow:0 0 4px #000;animation:mfxfade 1.6s linear forwards;pointer-events:none}
 .mfx-toast.bad{color:#ff6060}
 .mfx-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;-webkit-mask-size:100% 100%;mask-size:100% 100%}
 .mfx-fx img{position:absolute;image-rendering:pixelated}
@@ -45,10 +45,11 @@ const CSS = `
 @property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
 `;
 
-// 視界の円（画面中央・半径 VISION_RADIUS）とキルログ域を抜いたマスク（SVG）。special は視界の円だけ抜く
-function maskUrl(special: boolean) {
-  const k = M.area.killLog;
-  const holes = `<circle cx="${W / 2}" cy="${H / 2}" r="${C.VISION_RADIUS}" fill="black"/>${special ? '' : `<rect x="${k.x}" y="${k.y}" width="${k.w}" height="${k.h}" fill="black"/>`}`;
+// 視界の円（画面中央・半径 VISION_RADIUS）とキルログ域。試合は setArea で実際の視界・キルログ域に差し替える
+const VIS0 = `<circle cx="${W / 2}" cy="${H / 2}" r="${C.VISION_RADIUS}" fill="black"/>`;
+const rectSvg = (k: { x: number; y: number; w: number; h: number }) => `<rect x="${k.x}" y="${k.y}" width="${k.w}" height="${k.h}" fill="black"/>`;
+// holes（黒で描いた図形）を抜いたマスク（SVG）
+function maskUrl(holes: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><mask id="m"><rect width="${W}" height="${H}" fill="white"/>${holes}</mask><rect width="${W}" height="${H}" fill="white" mask="url(#m)"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
@@ -66,15 +67,23 @@ export class ModernFx {
     hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
     this.sl = hud.querySelector('.mfx-sl')!; this.reelEls = [...hud.querySelectorAll<HTMLElement>('.mfx-ic')]; this.label = hud.querySelector('.mfx-label')!;
     this.holdsEl = hud.querySelector('.mfx-holds')!; this.modeEl = hud.querySelector('.mfx-mode')!;
-    const mk = (special: boolean) => { const d = document.createElement('div'); d.className = 'mfx-fx'; d.style.maskImage = d.style.webkitMaskImage = maskUrl(special); layer.append(d); return d; };
-    this.normal = mk(false); this.special = mk(true);
+    const mk = () => { const d = document.createElement('div'); d.className = 'mfx-fx'; layer.append(d); return d; };
+    this.normal = mk(); this.special = mk();
+    this.setArea(VIS0, M.area.killLog);
+  }
+
+  // 演出を出せる範囲: vis＝視界（黒で描いた SVG の図形）、kill＝キルログ域。通常の演出は両方の外、特別な演出（special）は視界の外
+  setArea(vis: string, kill: { x: number; y: number; w: number; h: number }) {
+    const n = maskUrl(vis + rectSvg(kill)), sp = maskUrl(vis);
+    this.normal.style.maskImage = this.normal.style.webkitMaskImage = n;
+    this.special.style.maskImage = this.special.style.webkitMaskImage = sp;
   }
 
   private setReel(i: number, k: number) {
     const e = this.reelEls[i];
     if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; return; }
     const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1; // 回転中は番号を巡回
-    e.className = `mfx-ic${M.reel.add[no - 1] === 2 ? ' good' : ''}`; e.textContent = ''; e.dataset.n = String(no); e.style.backgroundImage = `url(${DOT(this.syms[no - 1])})`;
+    e.className = `mfx-ic${M.reel.group[no - 1] !== 'even' ? ' good' : ''}`; e.textContent = ''; e.dataset.n = String(no); e.style.backgroundImage = `url(${DOT(this.syms[no - 1])})`;
   }
 
   // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄
@@ -105,14 +114,17 @@ export class ModernFx {
     this.holdsEl.innerHTML = (cur ? one(cur, ' cur') : '<span class="mfx-h cur" style="background:#333"></span>') + hs.map((h) => one(h)).join('');
   }
   mode(m: Mode, backLeft: number, lv: string) {
-    this.modeEl.innerHTML = (m === 'ct' ? '<span class="ct">チャンスタイム</span>' : m === 'back' ? `<span class="back">引き戻し 残り${backLeft}</span>` : '通常') + ` ／ ${lv}`;
+    this.modeEl.innerHTML = (m === 'ct' ? '<span class="ct">フィーバータイム！</span>' : m === 'back' ? `<span class="back">引き戻し 残り${backLeft}</span>` : '通常') + ` ／ ${lv}`;
   }
 
   // 先バレ: 枠が一瞬光る＋音（カスタムで OFF なら何もしない）
   sakibare() {
     if (!this.sakiOn) return;
     this.sl.classList.remove('flash'); void this.sl.offsetWidth; this.sl.classList.add('flash');
-    if (!this.sound) return;
+    if (this.sound) this.beep();
+  }
+  // 先バレの音（試合の当選の音にも使う）
+  beep() {
     try {
       const a = (this.audio ??= new AudioContext()), t = a.currentTime;
       for (const [f, d] of [[1320, 0], [1760, 0.08]]) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; g.gain.setValueAtTime(0.15, t + d); g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.25); o.connect(g).connect(a.destination); o.start(t + d); o.stop(t + d + 0.3); }

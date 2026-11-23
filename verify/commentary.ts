@@ -12,6 +12,8 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
   console.log(cond ? 'PASS' : 'FAIL', name, typeof detail === 'string' ? detail : JSON.stringify(detail));
 };
 const M = C.CM;
+const SLOT_MODE0 = C.SLOT_MODE;
+(C as any).SLOT_MODE = 'classic'; // 現行の確認はクラシックのスロット・コバコの荷物で（handoff_slot3。モダンは最後に確かめる）
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く（verify/server.ts の mk と同じ）。実況のメッセージを集める
 function mk(a: string, b?: string) {
@@ -685,6 +687,23 @@ console.log('--- 台本・部品');
   ok('数は0〜20（徳は四捨五入）', clips({ k: 'idle_toku', p: 0, a: { 組: [0, 1], n: 5.5, m: 4.4 } }).map((x) => x.sub).join('') === '徳の状況です。だいだい組6、みどり組4！');
   ok('全パターンの部品が台本にある', Object.keys(SCRIPT.lines).every((k) => (SCRIPT.lines as any)[k].length > 0) && allTexts().length > 0);
   ok('助っ人の字幕は config の名前', clips({ k: 'play_rampage', p: 0, a: { 助っ人: 'kurono' } })[0].sub === C.ASSIST.units.kurono.name);
+}
+
+console.log('--- モダンのスロット（handoff_slot3）');
+{
+  (C as any).SLOT_MODE = SLOT_MODE0;
+  const { r, keys, got } = mk('sayo', 'metan');
+  r.payModern(0, { group: 'odd', add: 2 }, true, 0); r.payModern(0, { group: 'even', add: 0 }, false, 1);
+  r.penaltyModern(1, 1); r.penaltyModern(1, 2);
+  ok('モダン: 初当たり（フィーバータイム突入）・連チャン・転落・引き戻し失敗のセリフ', ['slot_fever', 'slot_chain', 'slot_fall', 'slot_back_miss'].every((k) => keys().includes(k)), keys());
+  r.cm.cool = r.cm.coolOrig; r.cm.durOf = () => 0.5; r.cm.filler = () => null; r.cm.reachAt = [-Infinity, -Infinity]; r.cm.q = []; r.cm.busyUntil = 0; r.cm.topicAt.delete('slot');
+  const reach = () => got.filter((u) => u.s[0].k === 'slot_reach' && u.s[0].a.組[0] === 1).length;
+  const fill = () => r.cm.send({ pr: 1, s: [{ k: 'idle_toku', p: 2, a: {} }], fill: true });
+  const wait = (sec: number) => { for (let i = 0; i < sec / 0.05; i++) r.cm.flow(0.05); };
+  r.cm.reachModern(1, r.now + 3); fill(); wait(0.6);
+  const n1 = reach();
+  r.now += M.reachCd; r.cm.topicAt.delete('slot'); r.cm.reachModern(1, r.now + 0.1); r.now += 0.2; fill(); wait(0.6);
+  ok('モダン: リーチは既存の仕組み（つなぎの切れ目で言う）。結果が出た後なら捨てる', n1 === 1 && reach() === 1 && r.cm.reachWait[1] === null, { n1, n2: reach() });
 }
 
 // map.json の部屋の rect

@@ -117,7 +117,7 @@ async function introNew(A: Tab) {
   for (let i = 0; i < 400; i++) {
     const r = await A.page.evaluate(() => { const w = window as any, cam = w.game.scene.scenes[0].cameras.main, b = document.querySelector<HTMLElement>('#fx .banner')!;
       const lbl = [...document.querySelectorAll('#fx .lbl.introlbl')].map((e) => e.textContent)[0];
-      return { key: lbl ?? (b.style.display === 'none' ? '' : b.querySelector('b')?.textContent ?? ''), cam: [cam.midPoint.x, cam.midPoint.y], zoom: cam.zoom, view: { x: cam.worldView.x, y: cam.worldView.y, width: cam.worldView.width, height: cam.worldView.height }, phase: w.snap.phase, sl: document.querySelector('#fx .tk .s0 .sl')?.innerHTML ?? '' }; });
+      return { key: lbl ?? (b.style.display === 'none' ? '' : b.querySelector('b')?.textContent ?? ''), cam: [cam.midPoint.x, cam.midPoint.y], zoom: cam.zoom, view: { x: cam.worldView.x, y: cam.worldView.y, width: cam.worldView.width, height: cam.worldView.height }, phase: w.snap.phase, sl: document.querySelector('#fx .tk .s0 .sl, #fx .tk .s0 .mfx-sl')?.innerHTML ?? '' }; }); // クラシック .sl／モダン .mfx-sl
     if (r.phase === 'countdown') { slots.push(r.sl); if (!cntAt) cntAt = Date.now(); else if (Date.now() - cntAt > 800) await A.page.keyboard.up('d'); }
     if (['3', '2', '1', '0'].includes(r.key) && !digitAt[r.key]) { digitAt[r.key] = Date.now(); if (r.key === '2') await A.shot('s3_countdown'); }
     zooms.push(r.zoom);
@@ -358,6 +358,7 @@ const aliveOf = (T: Tab) => T.until((x) => x.players.find((p: any) => p.id === x
 
 // 徳のゲージとスロット: 回転中 → 自陣は罰の出目（××でリーチ → ×××、両陣営に通知、効果の目印）、敵陣は当たり（両陣営にカットイン）
 async function slotCheck(A: Tab, B: Tab) {
+  if (C.SLOT_MODE === 'modern') return slotCheckModern(A, B);
   await A.shot('t0_slot_spin');
   const reels = await A.page.evaluate(() => document.querySelectorAll('#fx .tk .s0 .sl .ic').length);
   const gauge = await A.page.evaluate(() => [...document.querySelectorAll('#fx .tk .tv')].map((e) => e.textContent));
@@ -378,6 +379,24 @@ async function slotCheck(A: Tab, B: Tab) {
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
   check('スロット: 3リールが回り、2つそろうとリーチ演出、当たりは両陣営にカットイン（当てた陣営）', reels === 3 && r && !!ca?.includes('ずんだもん軍') && !!cb?.includes('ずんだもん軍'), { reels, reach: r, ca, cb });
   check('スロットの罰: ×××の出目、両陣営に通知（陣営と罰の内容）', xs === 3 && !!pa && !!pb, { xs, pa, pb });
+}
+
+// モダンのスロット（handoff_slot3）: 自陣はリーチ（外れ）→ 転落でペナルティのお知らせ、敵陣の当選は両陣営にお知らせ（当てた陣営）
+async function slotCheckModern(A: Tab, B: Tab) {
+  await A.shot('t0_slot_spin');
+  const reels = await A.page.evaluate(() => document.querySelectorAll('#fx .tk .s0 .mfx-ic').length);
+  const gauge = await A.page.evaluate(() => [...document.querySelectorAll('#fx .tk .tv')].map((e) => e.textContent));
+  await send(A, 'e2eSlot', { team: 0, reach: true });
+  const r = await A.page.waitForFunction(() => !!document.querySelector('#fx .tk .s0 .mfx-sl.reach'), null, { timeout: 6000 }).then(() => true, () => false);
+  await A.shot('t1_slot_reach');
+  const pen = waitText(A, '#fx .mfx-toast', 'ペナルティ（転落）', 8000);
+  await send(A, 'e2eSlot', { team: 0, pen: true });
+  const pa = await pen; await A.shot('t5_penalty');
+  const cut = [waitText(A, '#fx .mfx-toast', 'ずんだもん軍.*大当たり', 8000), waitText(B, '#fx .mfx-toast', '^大当たり', 8000)];
+  await send(A, 'e2eSlot', { team: 1, win: true });
+  const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
+  check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
+  check('スロット（モダン）: 3リール、リーチ演出、当選は両陣営にお知らせ（敵陣は陣営名つき）、転落でペナルティのお知らせ', reels === 3 && r && !!ca && !!cb && !!pa, { reels, reach: r, ca, cb, pa });
 }
 
 // 頭上の徳の増減（資材を拾う）と、指名手配マーク（頭上と、敵のミニマップ）
