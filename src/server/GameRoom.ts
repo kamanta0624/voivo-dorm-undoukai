@@ -1,7 +1,7 @@
 import { Room, Client, ServerError, CloseCode } from 'colyseus';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { CONFIG as C, Rect, Pt, wallRects, seeRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, bossIntensity, bodyUp } from '../shared/config';
+import { CONFIG as C, Rect, Pt, wallRects, seeRects, roomLayout, roomKindAt, isBackAt, slotRate, penaltyRate, chanceRate, bossIntensity, bodyUp } from '../shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, BOSS_CHAR, visionRadius, eyeRadius, roleOf, charHp, charSpeed, charAtk, aaRange, aaMode, moveWalls } from '../shared/chars';
 import { lineOfSight, inRect, moveBody, pushOut, cage } from '../shared/geom';
 import { SKILLS, STATUS_ORDER, ENTS } from './skills';
@@ -78,8 +78,9 @@ export type Player = {
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 export type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number; holdUntil: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻、holdUntil: この時刻までは拠点移動を始めない（技が止める）
-type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; payoutAt: number | null; holdUntil: number; holds: CHold[]; cur: CHold | null; reachSent: boolean }; // start: 回転の開始時刻、reels: この回転の結果（リールの絵柄の番号 1〜9。-1=罰の絵柄）、pen: 罰の出目、payoutAt: 次の払い出しの時刻（払い出し中だけ）。holds: 保留（先頭が次の回転）、cur: 今の回転の保留、reachSent: リーチ・全回転の演出を送った
-type CHold = { outcome: 'win' | 'miss' | 'pen'; color: number; saki: boolean; act: string | null; reels: number[] }; // クラシックの保留: 積んだ時点の徳で当否を決め、見た目（色・先バレ・演出）はモダンの選択率（handoff_tune5）
+type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; top: number; payoutAt: number | null; holdUntil: number; holds: CHold[]; cur: CHold | null; reachSent: boolean }; // start: 回転の開始時刻、reels: この回転の結果（リールの絵柄の番号 1〜。-1=罰の絵柄）、pen: 罰の出目、chain: 当選のカットインの段（1＝大当たり、2〜＝チャンスアップ）、tier: 今の段のレベル、top: チャンスアップで決まった最後のレベル、payoutAt: 次の段の時刻（払い出し中だけ）。holds: 保留（先頭が次の回転）、cur: 今の回転の保留、reachSent: リーチ・全回転の演出を送った
+type SlotTarget = { kind: 'ult'; id: string } | { kind: 'assist'; char: string }; // 当選の払い出しの対象（そろった絵柄）: プレイヤー1人のパワーアップか、アシスト
+type CHold = { outcome: 'win' | 'miss' | 'pen'; color: number; saki: string[]; act: string | null; target: SlotTarget | null; reels: number[] }; // クラシックの保留: 積んだ時点の徳で当否と対象を決め、見た目（色・演出）はモダンの選択率（handoff_tune5）。saki: 先バレを見せるプレイヤーの id（handoff_slot4）。reels は回転を始めるときに決める
 // 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
 type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
 type Team = { toku: number; wanted: string | null; slot: Slot; m: ModernSlot | null; powerTier: number }; // toku: 徳、wanted: 指名手配中のプレイヤーid。m: モダンのスロット（SLOT_MODE が modern のとき）、powerTier: モダンのパワーアップの陣営のレベル（POWER_* の添字。Lv4 以降は 3+N）
@@ -150,7 +151,7 @@ export class GameRoom extends Room {
   reveal = new Set<string>(); // e2e: 視界の制限なしで送るクライアント（E2E_HOOKS のときだけ使う）
   bossGuard = false; // e2e: Bot の攻撃では大将が減らない（E2E_HOOKS のときだけ変わる）
   courierGuard = false; // e2e: Bot の攻撃ではコバコが倒れない（E2E_HOOKS のときだけ変わる）
-  slotChain: number = C.SLOT.chain; // 連チャンの確率（e2e で変えられる）
+  slotChance: number | null = null; // チャンスアップの確率（e2e で決める。null＝徳で決まる）
   lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
   modern = C.SLOT_MODE === 'modern'; // この試合のスロットがモダンか（startMatch で CONFIG.SLOT_MODE から決める）
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
@@ -265,14 +266,14 @@ export class GameRoom extends Room {
       e2eSkipIntro: () => { if (this.phase === 'intro' || this.phase === 'countdown') this.beginPlay(); },
       // 陣営 team の徳を v にする
       e2eToku: (_c: Client, m: { team: number; v: number }) => { if (this.teams[m.team]) this.teams[m.team].toku = m.v; },
-      // 陣営 team のスロットを今すぐ回し直し、結果を決める（win: 当たり、reach: 2つそろい）。chain: 連チャンの確率
+      // 陣営 team のスロットを今すぐ回し直し、結果を決める（win: 当たり、reach: 2つそろい）。chain: チャンスアップの確率
       e2eSlot: (_c: Client, m: { team: number; win?: boolean; pen?: boolean; reach?: boolean; chain?: number }) => {
         const sl = this.teams[m.team]?.slot;
         if (!sl) return;
         const ms = this.teams[m.team].m; // モダン: 次に回る保留を差し替える（pen＝転落、reach＝リーチのみの演出つき）
         if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.reach ? 'plain' : null }); return; }
         this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss', !m.win && !m.pen ? (m.reach ? 'plain' : null) : undefined);
-        if (m.chain !== undefined) this.slotChain = m.chain;
+        if (m.chain !== undefined) this.slotChance = m.chain;
       },
       // 自分の陣営にアシストを召喚する（near: 自分の隣に出す）
       e2eAssist: (c: Client, m: { char: string; tier: number; dx?: number; dy?: number; ready?: boolean }) => {
@@ -367,7 +368,7 @@ export class GameRoom extends Room {
       const base = Math.floor(Math.random() * this.bases[t].length); // 候補部屋からランダムに出現
       const b = this.bases[t][base];
       this.bosses.push({ team: t, base, x: b.x, y: b.y, hp: C.BOSS_HP, dmgAtBase: 0, target: null, cooldownUntil: 0, moved: false, moving: false, shotAt: 0, holdUntil: 0 });
-      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [1, 2, 3], win: false, pen: false, chain: 0, tier: 0, payoutAt: null, holdUntil: 0, holds: [], cur: null, reachSent: false }, m: this.modern ? new ModernSlot(C.SLOT_MODERN, C.TOKU_INIT) : null, powerTier: 0 });
+      this.teams.push({ toku: C.TOKU_INIT, wanted: null, slot: { start: 0, reels: [1, 2, 3], win: false, pen: false, chain: 0, tier: 0, top: 0, payoutAt: null, holdUntil: 0, holds: [], cur: null, reachSent: false }, m: this.modern ? new ModernSlot(C.SLOT_MODERN, C.TOKU_INIT) : null, powerTier: 0 });
       if (!this.modern) this.teams[t].slot.holds = Array.from({ length: C.SLOT_MODERN.holds }, () => this.classicHold(t));
     }
   }
@@ -1350,29 +1351,50 @@ export class GameRoom extends Room {
   // ---- スロット ----
 
   // 保留を1つ作る: 当否はこの時点の徳で1回のくじ（当たり・罰の確率は徳で決まる、残りは外れ）。見た目はモダンの選択率。act を渡すとその演出（null＝リーチなし）
-  // 出目はリールの絵柄の番号（見た目だけ。払い出しとは連動しない）。罰は ×××、リーチの外れは2つそろえて3つ目をずらす、リーチなしの外れは1つ目と2つ目を違える
+  // 当たりは払い出しの対象（そろう絵柄）もここで決める。先バレは対象の本人に SLOT.saki.win、ほかのプレイヤーには保留ごとに SLOT.saki.miss（罰の保留は出さない）
   classicHold(team: number, result?: CHold['outcome'], act?: string | null): CHold {
     const toku = this.teams[team].toku, u = Math.random(), pw = slotRate(toku);
     const outcome = result ?? (u < pw ? 'win' : u < pw + penaltyRate(toku) ? 'pen' : 'miss');
     const d = dress(C.SLOT_MODERN, outcome, Math.random);
     if (act !== undefined) d.act = act;
-    const n = C.SLOT_MODERN.reel.syms.length, r = () => 1 + Math.floor(Math.random() * n);
-    let reels: number[];
-    if (outcome === 'win') { const k = r(); reels = [k, k, k]; }
-    else if (outcome === 'pen') reels = [-1, -1, -1];
-    else { const a = r(), b = 1 + ((a + Math.floor(Math.random() * (n - 1))) % n); reels = d.act ? [a, a, b] : [a, b, r()]; }
-    return { outcome, ...d, reels };
+    const target = outcome === 'win' ? this.slotTarget(team) : null, S = C.SLOT.saki;
+    const saki = outcome === 'pen' ? [] : this.slotPlayers(team).filter((p) => Math.random() < (target?.kind === 'ult' && target.id === p.id ? S.win : S.miss)).map((p) => p.id);
+    return { outcome, color: d.color, act: d.act, target, saki, reels: [] };
   }
 
-  // 回転を始める: 先頭の保留を消化して1つ積む（先バレはここで自陣へ）。result を渡すとその結果に差し替える（e2e・検証用）
+  slotPlayers(team: number) { return [...this.players.values()].filter((p) => p.team === team && !p.assist); }
+  teamAssist(team: number) { return [...this.players.values()].find((p) => p.assist && p.team === team && p.alive); }
+
+  // 当選の対象: SLOT.assistShare でアシスト（出ていればそのアシスト、いなければ4人から等確率）、残りは今いるプレイヤーから等確率
+  slotTarget(team: number): SlotTarget {
+    const ps = this.slotPlayers(team);
+    if (!ps.length || Math.random() < C.SLOT.assistShare) return { kind: 'assist', char: this.teamAssist(team)?.char ?? pick(Object.keys(C.ASSIST.units)) };
+    return { kind: 'ult', id: pick(ps).id };
+  }
+
+  // リールの絵柄（SLOT.syms からいないプレイヤーを除く）。クライアントは編成（roster）から同じ並びを作る
+  slotSyms(team: number): SlotTarget[] {
+    const ps = this.slotPlayers(team), as = Object.keys(C.ASSIST.units);
+    return C.SLOT.syms.flatMap((x): SlotTarget[] => { const [k, i] = x.split(':'); return k === 'assist' ? [{ kind: 'assist', char: as[+i] }] : ps[+i] ? [{ kind: 'ult', id: ps[+i].id }] : []; });
+  }
+
+  // 回転を始める: 先頭の保留を消化して1つ積む（先バレはここで本人へ）。result を渡すとその結果に差し替える（e2e・検証用）
+  // 出目はこのときの編成で決める: 当たりは対象の絵柄の3つそろい（対象が抜けていたら今いる人から選び直す。アシストが出ていればそのアシスト）、罰は ×××、リーチの外れは2つそろえて3つ目をずらす、リーチなしの外れは1つ目と2つ目を違える
   startSpin(team: number, result?: CHold['outcome'], act?: string | null) {
     const sl = this.teams[team].slot;
     let h = sl.holds.shift() ?? this.classicHold(team);
     const add = this.classicHold(team); sl.holds.push(add);
-    if (add.saki) this.mslot(team, { type: 'saki' });
+    for (const c of this.clients) if (add.saki.includes(this.owners.get(c.sessionId) ?? '')) c.send('mslot', { team, type: 'saki' });
     if (result) h = this.classicHold(team, result, act);
     else if (this.slotMiss && h.outcome !== 'miss') h = this.classicHold(team, 'miss'); // e2e: 技の検証中は外れに固定
-    Object.assign(sl, { start: this.now, reels: h.reels, win: h.outcome === 'win', pen: h.outcome === 'pen', chain: 0, tier: 0, payoutAt: null, holdUntil: 0, cur: h, reachSent: false });
+    const t = h.target, a = this.teamAssist(team);
+    if (t?.kind === 'ult' && !this.players.has(t.id)) h.target = this.slotTarget(team);
+    else if (t?.kind === 'assist' && a) t.char = a.char;
+    const syms = this.slotSyms(team), n = syms.length, r = () => 1 + Math.floor(Math.random() * n);
+    if (h.outcome === 'win') { const g = h.target!, k = 1 + syms.findIndex((x) => (x.kind === 'ult' ? g.kind === 'ult' && g.id === x.id : g.kind === 'assist' && g.char === x.char)); h.reels = [k, k, k]; }
+    else if (h.outcome === 'pen') h.reels = [-1, -1, -1];
+    else { const x = r(), y = 1 + ((x + Math.floor(Math.random() * (n - 1))) % n); h.reels = h.act ? [x, x, y] : [x, y, r()]; }
+    Object.assign(sl, { start: this.now, reels: h.reels, win: h.outcome === 'win', pen: h.outcome === 'pen', chain: 0, tier: 0, top: 0, payoutAt: null, holdUntil: 0, cur: h, reachSent: false });
   }
 
   mslot(team: number, msg: any) { for (const c of this.clients) c.send('mslot', { team, ...msg }); }
@@ -1417,24 +1439,41 @@ export class GameRoom extends Room {
         this.mslot(team, { type: 'stop', reels: sl.reels, outcome: sl.win ? 'win' : sl.pen ? 'pen' : 'miss' });
         if (sl.pen) { this.penalty(team); sl.holdUntil = this.now + C.SLOT.penHold; return; }
         if (!sl.win) return this.startSpin(team);
+        // チャンスアップ: 外れるまで最大 SLOT.chance.n 回の連続抽選（当選時の徳）。結果は先に決め、カットインで1段ずつ見せて最後に払い出す
+        const rate = this.slotChance ?? chanceRate(t.toku);
+        let top = 0; while (top < C.SLOT.chance.n && Math.random() < rate) top++;
         this.addToku(team, null, 'slot');
-        Object.assign(sl, { chain: 1, tier: C.SLOT.firstTier, payoutAt: this.now });
+        Object.assign(sl, { chain: 1, tier: 0, top: Math.min(top, C.POWER_TIERS.length - 1), payoutAt: this.now });
       }
       if (this.now < sl.payoutAt!) return;
-      this.payout(team, sl.chain, sl.tier);
-      const top = C.POWER_TIERS.length - 1;
-      if (Math.random() < (sl.tier + 1 >= top ? C.SLOT.chainBreak : this.slotChain)) Object.assign(sl, { chain: sl.chain + 1, tier: Math.min(C.POWER_TIERS.length - 1, sl.tier + 1), payoutAt: this.now + C.SLOT.gap });
-      else this.startSpin(team);
+      const tg = sl.cur!.target!, kind = tg.kind, who = tg.kind === 'ult' ? this.players.get(tg.id)?.char ?? '' : tg.char;
+      for (const c of this.clients) c.send('slot', { team, chain: sl.chain, kind, tier: sl.tier, char: who }); // 両陣営にカットイン
+      this.cm.slot(team, sl.chain, kind, who);
+      if (sl.tier < sl.top) Object.assign(sl, { chain: sl.chain + 1, tier: sl.tier + 1, payoutAt: this.now + C.SLOT.gap });
+      else { this.payout(team, tg, sl.tier); this.startSpin(team); }
     });
   }
 
-  // 払い出し: ウルト（自陣の生存者全員が変身）かアシスト召喚（1体）。両陣営にカットイン
-  payout(team: number, chain: number, tier: number) {
-    const kind = Object.keys(C.SLOT.payout)[lottery(Object.values(C.SLOT.payout))];
-    if (kind === 'ult') for (const q of this.players.values()) { if (q.team === team && q.alive && !q.assist) this.giveUlt(q, tier); }
-    else this.summonAssist(team, tier);
-    for (const c of this.clients) c.send('slot', { team, chain, kind, tier });
-    this.cm.slot(team, chain, kind);
+  // 払い出し（handoff_slot4）: そろった絵柄のプレイヤー1人がパワーアップ（反省中なら復帰後。パワーアップ中ならレベルは高い方・効果時間は最初から）
+  // アシストの絵柄: 出ていなければそのアシストを召喚。出ていればレベルは高い方、上がったら最大HPの増えた分・上がらなければ SLOT.assistHeal だけ回復
+  payout(team: number, t: SlotTarget, tier: number) {
+    if (t.kind === 'ult') {
+      const q = this.players.get(t.id);
+      if (!q) return;
+      if (!q.ult) return this.giveUlt(q, tier);
+      q.ult.tier = Math.max(q.ult.tier, tier);
+      if (!q.ult.pending) q.ult.until = this.now + C.ULT_DURATION;
+      return;
+    }
+    const a = this.teamAssist(team);
+    if (!a) return void this.summonAssist(team, tier, t.char);
+    const m0 = this.maxHp(a);
+    if (tier > a.tier) {
+      a.tier = tier; a.hp += this.maxHp(a) - m0;
+      for (const c of this.clients) c.send('assistUp', { char: a.char, tier: a.tier, team }); // 両陣営に通知
+      this.cm.assistUp(a);
+    } else a.hp = Math.min(m0, a.hp + m0 * C.SLOT.assistHeal);
+    this.addFx(a, 'aura', { r: 40, color: 'assist' });
   }
 
   // ---- モダンのスロット（handoff_slot3）----
@@ -1836,9 +1875,9 @@ export class GameRoom extends Room {
   }
 
   // モダンのスロットの表示用（当否は送らない）: モード・引き戻しの残り・保留（色・先バレ・高確率）・回転中の保留・レベル（Lv.4+N の表示）
-  // クラシックの保留の表示（色・先バレ）。cur: 回っている保留（払い出し・罰の表示中はなし）、chain: 払い出し中の連チャン数
-  classicView(sl: Slot) {
-    const h = (x: CHold) => [x.color, x.saki ? 1 : 0, 0];
+  // クラシックの保留の表示（色・先バレ）。先バレは見る人（me）が対象の保留だけ。cur: 回っている保留（払い出し・罰の表示中はなし）、chain: 払い出し中のカットインの段
+  classicView(sl: Slot, me?: string) {
+    const h = (x: CHold) => [x.color, me && x.saki.includes(me) ? 1 : 0, 0];
     return { kind: 'classic', holds: sl.holds.map(h), cur: sl.cur && sl.payoutAt === null && !sl.holdUntil ? h(sl.cur) : null, chain: sl.payoutAt !== null ? sl.chain : 0 };
   }
 
@@ -1876,7 +1915,7 @@ export class GameRoom extends Room {
       const myTeam = me ? me.team : 0;
       client.send('s', {
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
-        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot) })),
+        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({
           id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,

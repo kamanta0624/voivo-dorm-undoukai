@@ -574,7 +574,7 @@ console.log('--- E. 読みの指定・雑談');
 }
 console.log('--- 6. 全体・進行');
 {
-  const { r, keys } = mk('sayo', 'metan');
+  const { r, keys, got } = mk('sayo', 'metan');
   r.damageBoss(r.bosses[1], C.BOSS_HP * 0.26, r.players.get('a'));
   ok('大将HP75%を切った → 割り込み', keys().includes('boss75') && !keys().includes('boss50'), keys());
   Object.assign(r.bosses[1], { moving: false, dmgAtBase: 0 }); // 拠点移動の予告（無敵）を解く
@@ -585,8 +585,8 @@ console.log('--- 6. 全体・進行');
   ok('優劣逆転', keys().includes('reverse'), keys());
   const b = r.bosses[0]; b.moved = false; r.moveBoss(b); r.moveBoss(b);
   ok('拠点移動: 1回目は第2形態、2回目以降はまた移した', keys().includes('boss_form2') && keys().includes('boss_move'));
-  r.payout(0, 1, 'ult'); r.payout(0, 2, 'ult');
-  ok('スロット当選（払い出しの種類）と連チャン', keys().some((k) => k === 'slot_ult' || k === 'slot_assist') && keys().includes('slot_chain'));
+  r.cm.slot(0, 1, 'ult', 'sayo'); r.cm.slot(0, 2, 'ult', 'sayo');
+  ok('スロット当選（対象の名前つき）とチャンスアップ', keys().includes('slot_ult') && keys().includes('slot_chain') && got.some((u) => u.s.some((x: any) => x.k === 'slot_ult' && clips(x).some((c) => c.sub.startsWith('小夜')))));
   r.penalty(1);
   ok('スロットの罰', keys().some((k) => k.startsWith('pen_')));
 }

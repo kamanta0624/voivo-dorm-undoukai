@@ -186,12 +186,16 @@ export const CONFIG = {
     stops: [0.5, 0.7, 1], // 各リールが止まる時刻（1回転に対する割合）。2つ目が止まった時点で2つそろっていればリーチ
     rate: [[0, 0.01], [5, 0.08], [10, 0.25]] as number[][], // [徳, 当たる確率]。間は線形補間
     rateMult: 0.7, // 当たる確率（rate）に掛ける倍率
-    winToku: -2, // 当たったときの徳の増減（最初の当選時だけ）
-    payout: { ult: 50, assist: 50 } as Record<string, number>, // 払い出しの抽選（ult=自陣の生存者全員が変身、assist=アシスト1体）
-    chain: 0.35, // 払い出しのあと連チャンする確率
-    chainBreak: 0.15, // 連チャンの先がバランスブレーカー（POWER_TIERS の最後）のときの確率
-    firstTier: 1, // 最初の払い出しの強さ（POWER_TIERS の添字。連チャンのたびに1段階上がる）
-    gap: 1.5, // 連チャンの払い出しの間隔(秒)。この間スロットは止まる
+    winToku: -2, // 当たったときの徳の増減（チャンスアップでは変わらない）
+    // 以下 handoff_slot4。値は仮置き
+    // リールの絵柄（自陣のプレイヤー4人＋アシスト4人＝ASSIST.units の順）。プレイヤーが4人未満なら、いない人の絵柄は外す
+    syms: ['player:0', 'assist:0', 'player:1', 'assist:1', 'player:2', 'assist:2', 'player:3', 'assist:3'],
+    assistShare: 0.5, // 当選がアシストの絵柄になる確率（残りは今いるプレイヤーで等分）。アシストが出ているときはそのアシストの絵柄だけ
+    chance: { n: 3, rate: [[0, 0.2], [5, 0.35], [10, 0.6]] as number[][] }, // チャンスアップ: 当選後に外れるまで最大 n 回の連続抽選。rate: [徳, 当たる確率]（当選時の徳。間は線形補間）。当たるたびにレベル+1（初当たりは POWER_TIERS[0]）
+    assistHeal: 0.2, // 出ているアシストの絵柄で、レベルが上がらないときの回復（最大HPに対する割合）。上がったときは最大HPの増えた分だけ回復
+    // 先バレ: 自分がパワーアップの対象で当たる保留だけ、本人に出す。miss は外れ側（ほかの保留）で1人ごとに出る固定の確率。徳5・4人のとき信頼度40%になる値
+    saki: { win: 0.3, miss: (0.3 * ((0.7 * 0.08 * 0.5) / 4) * 0.6) / (0.4 * (1 - (0.7 * 0.08 * 0.5) / 4)) },
+    gap: 1.5, // チャンスアップの段の間隔(秒)。この間スロットは止まる
     penHold: 1.5, // 罰の出目を見せる秒数（この間スロットは止まる）
     // 罰の出目（徳が低いほど出やすい）。当たり・罰・外れを1回のくじで決める。kinds: 罰の内容の抽選
     penalty: {
@@ -205,7 +209,7 @@ export const CONFIG = {
   },
   SLOT_MODE: 'classic' as 'modern' | 'classic', // 試合のスロット: classic＝抽選・払い出しは SLOT、保留・色・先バレ・リーチ演出はモダンの見た目（handoff_tune5）、modern＝SLOT_MODERN（handoff_slot3）
   // モダン（転落スペック）のスロット。handoff_slot2。単体画面（slot.html）と試合（SLOT_MODE が modern のとき）で使う。値はすべて仮置き
-  // クラシックでも保留の数・色・先バレ・リーチ演出の選択率と秒数・リールの絵柄はここの値を使う（当否は SLOT）
+  // クラシックでも保留の数・色・リーチ演出の選択率と秒数はここの値を使う（当否・先バレ・リールの絵柄は SLOT）
   // 確率は徳 5 の基準値。徳 t で 当選 × 2^((t−5)/win)、転落 × 2^((5−t)/fall)。t < lowBelow で当選 × lowWin・転落 × lowFall
   SLOT_MODERN: {
     interval: { normal: 2, ct: 1, back: 0.5 }, // 抽選間隔(秒)。通常・チャンスタイム（CT）・引き戻し
@@ -396,6 +400,12 @@ export const bossIntensity = (t: number, hpRatio: number) => {
   const kt = T.max - (T.max - T.min) * Math.min(1, t / CONFIG.MATCH_TIME) ** T.curve;
   const kh = H.min + (H.max - H.min) * Math.max(0, 1 - hpRatio) ** H.curve;
   return kt * kh;
+};
+// 徳 → スロットのチャンスアップの当たる確率（SLOT.chance.rate の線形補間）
+export const chanceRate = (toku: number) => {
+  const r = CONFIG.SLOT.chance.rate;
+  for (let i = 1; i < r.length; i++) if (toku <= r[i][0]) return r[i - 1][1] + ((r[i][1] - r[i - 1][1]) * (toku - r[i - 1][0])) / (r[i][0] - r[i - 1][0]);
+  return r[r.length - 1][1];
 };
 // 徳 → スロットの罰の出る確率（SLOT.penalty.rate の線形補間）
 export const penaltyRate = (toku: number) => {

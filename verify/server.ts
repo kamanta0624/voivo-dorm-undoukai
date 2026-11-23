@@ -2,7 +2,7 @@
 import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/server/GameRoom';
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
-import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
+import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { solarPct } from '../src/shared/solar';
@@ -571,7 +571,6 @@ console.log('--- バランス（ending1）');
 {
   ok('POWER_MULT は旧の0.7倍 [0.49, 0.7, 0.98, 1.4]（見た目のオーラは据え置き）', JSON.stringify(C.POWER_MULT) === JSON.stringify([0.49, 0.7, 0.98, 1.4]) && JSON.stringify(C.POWERUP_AURA.scale) === JSON.stringify([1.2, 1.2 + 0.8 / 3, 1.2 + 1.6 / 3, 2]));
   ok('POWER_WEIGHTS: レベル3・4はコバコから出ない [30, 40, 0, 0]', JSON.stringify(C.POWER_WEIGHTS) === JSON.stringify([30, 40, 0, 0]));
-  ok('連チャン確率: レベル3へ 0.35、レベル4へ 0.15', C.SLOT.chain === 0.35 && C.SLOT.chainBreak === 0.15);
   const K = CHARS.kiritan, cannon = K.aa.find((m) => m.name === 'きりたん砲')!, knife = K.aa.find((m) => m.name === '包丁')!;
   ok('きりたん: 包丁は不変（近接・ダメージ1.2）、きりたん砲 射程310・ダメージ0.85、全弾斉射 射程310・1発6（tune5）', knife.kind === 'melee' && knife.dmg === 1.2 && knife.range === C.ATTACK_RANGE && cannon.range === 310 && cannon.dmg === 0.85 && K.skill.range === 310 && K.skill.dmg === 6);
   ok('めたんのドリル: 持続2.4秒', CHARS.metan.skill.dur === 2.4);
@@ -758,48 +757,73 @@ console.log('--- ブイブイ・コバコ（巡回・1発でKO・荷物・復活
   ok(`Bot: コバコが${C.BOT_COURIER_RANGE}px以内なら攻撃し、遠ければ狙わない`, !bn.r.couriers.length && !bf.A.goal.startsWith('c:'), { far: bf.A.goal });
 }
 
-console.log('--- スロット（当たる確率・連チャン・払い出し）');
+console.log('--- スロット（当たる確率・チャンスアップ・払い出し。handoff_slot4）');
 {
   const N = 10000, { r } = mk('sayo');
   const rate = (toku: number) => { r.teams[0].toku = toku; let w = 0, bad = 0; for (let i = 0; i < N; i++) { r.startSpin(0); const q = r.teams[0].slot; if (q.win) w++; if (q.win !== (q.reels[0] >= 0 && q.reels[0] === q.reels[1] && q.reels[1] === q.reels[2])) bad++; } return { p: w / N, bad }; };
   const M = C.SLOT.rateMult, res = [0, 5, 10].map(rate), want = [0.01, 0.08, 0.25].map((v) => v * M);
   ok(`当たる確率 徳0/5/10 = ${res.map((x) => (x.p * 100).toFixed(1) + '%').join('/')}（期待 1/8/25%×${M}。各1万回）。当たりだけ3つそろう`, res.every((x, i) => Math.abs(x.p - want[i]) < 3 * Math.sqrt((want[i] * (1 - want[i])) / N) + 0.002 && x.bad === 0));
   ok(`間は線形補間（徳2.5→4.5%×${M}、徳7.5→16.5%×${M}）`, Math.abs(slotRate(2.5) - 0.045 * M) < 1e-9 && Math.abs(slotRate(7.5) - 0.165 * M) < 1e-9);
-  // 連チャン: 必ず続く設定で、強さが 普通→強い→バランスブレーカー→（上限）。徳が下がるのは最初の当選時だけ
-  const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; const sent: any[] = [];
-  Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 'slot') sent.push(m); } }] });
-  const cb = C.SLOT.chainBreak; (C.SLOT as any).chainBreak = 1;
-  q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay(); q.teams[0].toku = 6; q.slotChain = 1; q.startSpin(0, 'win'); q.teams[1].slot.start = 1e9;
-  let t = 0; while (sent.length < 4 && t < 30) { q.now += 0.05; t += 0.05; q.updateSlots(); }
+  // チャンスアップ（handoff_slot4）: 必ず当たる設定で、カットインの段が 大当たり L1 → L2 → L3 → L4。徳が下がるのは当選時だけ。払い出しは最後の段で1回
+  const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; const sent: any[] = [], paid: any[] = [];
+  Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 'slot') sent.push([m, q.now]); } }] });
+  q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay(); q.teams[0].toku = 6; q.slotChance = 1; q.startSpin(0, 'win'); q.teams[1].slot.start = 1e9;
+  const pay0 = q.payout.bind(q); q.payout = (...a: any[]) => { paid.push([a[2], q.now]); pay0(...a); };
+  const t0 = q.now; let t = 0; while (!paid.length && t < 30) { q.now += 0.05; t += 0.05; q.updateSlots(); }
   const tokuAfter = q.teams[0].toku;
-  q.slotChain = 0; (C.SLOT as any).chainBreak = 0; for (let i = 0; i < 40; i++) { q.now += 0.05; q.updateSlots(); }
-  (C.SLOT as any).chainBreak = cb;
-  ok(`当たると徳${C.SLOT.winToku}（最初の当選時だけ）、連チャンのたびに強さが1段階上がる（上限バランスブレーカー）: ${sent.map((m) => `${m.chain}:${C.POWER_TIERS[m.tier]}`).join(' ')}`,
-    JSON.stringify(sent.slice(0, 4).map((m) => [m.team, m.chain, m.tier])) === JSON.stringify([[0, 1, 1], [0, 2, 2], [0, 3, 3], [0, 4, 3]]) && tokuAfter === 6 + C.SLOT.winToku && q.teams[0].toku === tokuAfter);
-  ok(`連チャンの払い出しは${C.SLOT.gap}秒おき、終わったら次の回転`, Math.abs(t - (C.SLOT.spin + 3 * C.SLOT.gap)) < 0.11 && q.teams[0].slot.payoutAt === null && !q.teams[0].slot.win || q.teams[0].slot.start > 0, { t });
-  ok(`初回の払い出しはバランスブレーカーにならない（${C.POWER_TIERS[C.SLOT.firstTier]}）`, C.SLOT.firstTier < C.POWER_TIERS.length - 1 && sent[0].tier === C.SLOT.firstTier);
-  // バランスブレーカー段階への連チャンは別の確率（chainBreak）。通常の連チャンを必ず続く設定にして数える
+  ok(`チャンスアップ: 段ごとにカットイン（${sent.map(([m]) => `${m.chain}:${C.POWER_TIERS[m.tier]}`).join(' ')}）、最大${C.SLOT.chance.n}回で${C.POWER_TIERS.at(-1)}、徳${C.SLOT.winToku}は当選時だけ`,
+    JSON.stringify(sent.map(([m]) => [m.team, m.chain, m.tier])) === JSON.stringify([[0, 1, 0], [0, 2, 1], [0, 3, 2], [0, 4, 3]]) && tokuAfter === 6 + C.SLOT.winToku && paid.length === 1 && paid[0][0] === 3);
+  ok(`段の間隔は${C.SLOT.gap}秒、払い出しは最後の段で1回、そのあと次の回転`, sent.every(([, at]: any, i: number) => Math.abs(at - (t0 + C.SLOT.spin + i * C.SLOT.gap)) < 0.06 * (i + 1)) && Math.abs(paid[0][1] - sent[3][1]) < 1e-9 && q.teams[0].slot.payoutAt === null && q.teams[0].slot.start === paid[0][1], sent.map(([, at]: any) => +(at - t0).toFixed(2)));
   {
-    const NB = 4000, top = C.POWER_TIERS.length - 1, z: any = new (GameRoom as any)(); z.setSimulationInterval = () => {}; const got: number[] = [];
-    Object.defineProperty(z, 'clients', { value: [] });
-    z.onCreate(); z.notice = () => {}; z.startMatch(); z.beginPlay(); z.slotChain = 1; z.teams[1].slot.start = 1e9; z.payout = (_t: number, _c: number, tier: number) => got.push(tier);
-    let reach = 0, broke = 0;
-    for (let i = 0; i < NB; i++) {
-      got.length = 0; z.startSpin(0, 'win'); z.now += C.SLOT.spin;
-      for (let j = 0; j < top; j++) { z.updateSlots(); z.now += C.SLOT.gap; } // 普通 → 強い →（連チャンすれば）バランスブレーカー
-      if (got.includes(top - 1)) reach++;
-      if (got.includes(top)) broke++;
-    }
-    const pb = broke / reach;
-    ok(`バランスブレーカー段階への連チャン = ${(pb * 100).toFixed(1)}%（期待 ${C.SLOT.chainBreak * 100}%、通常の連チャンは ${C.SLOT.chain * 100}%）`, Math.abs(pb - C.SLOT.chainBreak) < 0.03 && C.SLOT.chain === 0.35, { reach, broke });
+    q.slotChance = 0; sent.length = 0; paid.length = 0; q.startSpin(0, 'win'); for (let i = 0; i < Math.round((C.SLOT.spin + 0.1) / 0.05); i++) { q.now += 0.05; q.updateSlots(); }
+    ok('チャンスアップが外れたら大当たり（レベル1）だけ', sent.length === 1 && sent[0][0].tier === 0 && paid.length === 1 && paid[0][0] === 0);
   }
-  // 払い出し: ウルト（自陣の生存者全員が変身）
-  const u = mk('sayo'); u.r.addPlayer('d', 0, true); const D = u.r.players.get('d'); Object.assign(D, { alive: true, x: 1500, y: 900 }); const orig = Math.random; Math.random = () => 0.1; u.r.payout(0, 2, 2); Math.random = orig;
-  ok('払い出し「ウルト」: 自陣の生存者全員が変身（強さはその回の段階）', u.A.ult?.tier === 2 && D.ult?.tier === 2 && ![...u.r.players.values()].some((p: any) => p.team === 1 && p.ult));
-  Math.random = () => 0.9; u.r.payout(0, 1, 3); Math.random = orig;
-  ok('払い出し「アシスト召喚」: 1体（強さはその回の段階）', [...u.r.players.values()].filter((p: any) => p.assist && p.team === 0 && p.tier === 3).length === 1);
-  const pw = [0, 0]; for (let i = 0; i < N; i++) pw[lottery(Object.values(C.SLOT.payout))]++;
-  ok(`払い出しの抽選 ult/assist = ${pw.map((x) => (x / N * 100).toFixed(1) + '%').join('/')}（期待 50/50）`, pw.every((x) => Math.abs(x / N - 0.5) < 0.02));
+  // 到達率: 徳で連続抽選の確率が変わる（徳が高いほど続く）
+  {
+    const NB = 20000, z: any = new (GameRoom as any)(); z.setSimulationInterval = () => {}; Object.defineProperty(z, 'clients', { value: [] });
+    z.onCreate(); z.notice = () => {}; z.startMatch(); z.beginPlay(); z.teams[1].slot.start = 1e9; z.payout = () => {}; z.addToku = () => {};
+    const reach = (toku: number) => { const n = [0, 0, 0, 0]; z.teams[0].toku = toku; for (let i = 0; i < NB; i++) { z.startSpin(0, 'win'); z.now += C.SLOT.spin; z.updateSlots(); n[z.teams[0].slot.top]++; } return [1, 2, 3].map((k) => n.slice(k).reduce((a, b) => a + b, 0) / NB); };
+    const res = [0, 5, 10].map(reach), want = [0, 5, 10].map((t) => [1, 2, 3].map((k) => chanceRate(t) ** k));
+    const rep = [0, 5, 10].map((t, i) => `徳${t}（${(chanceRate(t) * 100).toFixed(0)}%）: L2 ${(res[i][0] * 100).toFixed(1)}%・L3 ${(res[i][1] * 100).toFixed(1)}%・L4 ${(res[i][2] * 100).toFixed(1)}%`);
+    ok(`チャンスアップの到達率（各${NB}回）: ${rep.join(' / ')}`, res.every((r, i) => r.every((v, k) => Math.abs(v - want[i][k]) < 0.015)) && res[0][0] < res[1][0] && res[1][0] < res[2][0]);
+  }
+  // 払い出しの対象
+  {
+    const u = mk('sayo'); u.r.addPlayer('d', 0, true); const D = u.r.players.get('d'); Object.assign(D, { alive: true, x: 1500, y: 900 });
+    u.r.payout(0, { kind: 'ult', id: 'a' }, 1);
+    ok('パワーアップの絵柄: そろった1人だけ（ほかの生存者は変わらない）', u.A.ult?.tier === 1 && !D.ult && ![...u.r.players.values()].some((p: any) => p !== u.A && p.ult));
+    u.r.now += 5; u.r.payout(0, { kind: 'ult', id: 'a' }, 0); const k0 = u.A.ult.tier, left0 = u.A.ult.until - u.r.now; u.r.payout(0, { kind: 'ult', id: 'a' }, 3);
+    ok('パワーアップ中にまた当たる: レベルは高い方、効果時間は最初から', k0 === 1 && Math.abs(left0 - C.ULT_DURATION) < 1e-9 && u.A.ult.tier === 3);
+    Object.assign(D, { alive: false }); u.r.payout(0, { kind: 'ult', id: 'd' }, 2);
+    ok('反省中の人が当たる: 復帰したときにそのレベルでパワーアップ', D.ult?.pending === true && D.ult.tier === 2);
+    u.r.payout(0, { kind: 'assist', char: 'ritsu' }, 1); const as = () => [...u.r.players.values()].filter((p: any) => p.assist && p.team === 0);
+    const a = as()[0];
+    ok('アシストの絵柄（出ていない）: そろったアシストを召喚（レベルは当選のレベル）', as().length === 1 && a.char === 'ritsu' && a.tier === 1);
+    a.hp = 10; const m1 = u.r.maxHp(a); u.r.payout(0, { kind: 'assist', char: 'ritsu' }, 3); const up = a.hp - 10, m3 = u.r.maxHp(a);
+    a.hp = 10; u.r.payout(0, { kind: 'assist', char: 'ritsu' }, 0);
+    ok(`アシストの絵柄（出ている）: レベルは高い方。上がったら最大HPの増えた分だけ回復、上がらなければ最大HPの${C.SLOT.assistHeal * 100}%回復`, as().length === 1 && a.tier === 3 && Math.abs(up - (m3 - m1)) < 1e-9 && Math.abs(a.hp - (10 + m3 * C.SLOT.assistHeal)) < 1e-9, { up, m1, m3, hp: a.hp });
+    const NT = 20000, cnt: Record<string, number> = {}; for (let i = 0; i < NT; i++) { const g = u.r.slotTarget(0); const k = g.kind === 'ult' ? g.id : g.char; cnt[k] = (cnt[k] ?? 0) + 1; }
+    const ps = u.r.slotPlayers(0).map((p: any) => p.id);
+    ok(`対象の抽選（アシストが出ている）: アシスト${C.SLOT.assistShare * 100}%はそのアシストだけ、残りはプレイヤー${ps.length}人で等分（${Object.entries(cnt).map(([k, v]) => `${k} ${(v / NT * 100).toFixed(1)}%`).join('・')}）`,
+      Object.keys(cnt).filter((k) => !ps.includes(k)).join() === 'ritsu' && Math.abs(cnt.ritsu / NT - C.SLOT.assistShare) < 0.015 && ps.every((id: string) => Math.abs((cnt[id] ?? 0) / NT - (1 - C.SLOT.assistShare) / ps.length) < 0.015));
+    for (const p of as()) u.r.players.delete(p.id);
+    const c2: Record<string, number> = {}; for (let i = 0; i < NT; i++) { const g = u.r.slotTarget(0); if (g.kind === 'assist') c2[g.char] = (c2[g.char] ?? 0) + 1; }
+    ok('対象の抽選（アシストが出ていない）: アシスト4人から等確率', Object.keys(c2).length === 4 && Object.values(c2).every((v) => Math.abs(v / NT - C.SLOT.assistShare / 4) < 0.01), c2);
+    // 出目: 当たりは対象の絵柄の3つそろい。絵柄は SLOT.syms からいないプレイヤーを除いた並び
+    u.r.players.delete('d'); const syms = u.r.slotSyms(0), sl = u.r.teams[0].slot; let bad = 0;
+    for (let i = 0; i < 300; i++) { u.r.startSpin(0, 'win'); const g = sl.cur.target, x = syms[sl.reels[0] - 1]; if (!(sl.reels[0] === sl.reels[1] && sl.reels[1] === sl.reels[2]) || x.kind !== g.kind || (x.kind === 'ult' ? x.id !== g.id : x.char !== g.char)) bad++; }
+    ok(`当たりの出目は対象の絵柄の3つそろい（絵柄${syms.length}つ＝プレイヤー${ps.length - 1}人＋アシスト4人）`, bad === 0 && syms.length === ps.length - 1 + 4);
+  }
+}
+{
+  // 先バレ: 自分がパワーアップの対象で当たる保留だけ本人に。信頼度は徳5・4人で40%（徳が上がると上がる）
+  const N = 400000, q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; Object.defineProperty(q, 'clients', { value: [] });
+  q.onCreate(); q.notice = () => {}; q.startMatch(); q.beginPlay();
+  const me = q.slotPlayers(0)[0].id;
+  const rel = (toku: number) => { q.teams[0].toku = toku; let n = 0, hit = 0; for (let i = 0; i < N; i++) { const h = q.classicHold(0); if (h.saki.includes(me)) { n++; if (h.outcome === 'win' && h.target.kind === 'ult' && h.target.id === me) hit++; } } return { n, r: hit / n }; };
+  const res = [0, 5, 10].map(rel);
+  const rep = [0, 5, 10].map((t, i) => `徳${t}: ${(res[i].r * 100).toFixed(1)}%（${res[i].n}回）`);
+  ok(`先バレの信頼度（自分の絵柄の当たり、各${N}保留、${q.slotPlayers(0).length}人）: ${rep.join(' / ')}`, Math.abs(res[1].r - 0.4) < 0.04 && res[0].r < res[1].r && res[1].r < res[2].r);
 }
 
 classic(false);
@@ -2268,32 +2292,32 @@ console.log('--- クラシックのスロット（保留・演出。handoff_tune
     const N = 20000, cnt = (toku: number) => { q.teams[0].toku = toku; let w = 0, p = 0; for (let i = 0; i < N; i++) { const h = q.classicHold(0); if (h.outcome === 'win') w++; if (h.outcome === 'pen') p++; } return [w / N, p / N]; };
     const res = [0, 5, 10].map(cnt), tol = (v: number) => 3 * Math.sqrt((v * (1 - v)) / N) + 0.002;
     ok(`保留の当否は旧クラシックの確率のまま（当たり ${res.map((x) => (x[0] * 100).toFixed(1)).join('/')}%・罰 ${res.map((x) => (x[1] * 100).toFixed(1)).join('/')}%、徳0/5/10）`, res.every(([w, p], i) => { const t = [0, 5, 10][i]; return Math.abs(w - slotRate(t)) < tol(slotRate(t)) && Math.abs(p - penaltyRate(t)) < tol(penaltyRate(t)); }));
-    const hs = Array.from({ length: 4000 }, () => q.classicHold(0)), bad = hs.filter((h: any) => h.outcome === 'win' ? !(h.reels[0] === h.reels[1] && h.reels[1] === h.reels[2] && h.reels[0] >= 1) : h.outcome === 'pen' ? h.reels.some((v: number) => v !== -1) || h.saki || h.act : (h.reels[0] === h.reels[1]) !== !!h.act);
-    ok(`出目: 当たりは9絵柄の3つそろい、罰は ×××（先バレ・リーチなし）、外れはリーチのときだけ2つそろう`, bad.length === 0, bad.slice(0, 3));
+    const n = q.slotSyms(0).length, hs = Array.from({ length: 4000 }, () => { q.startSpin(0); return sl.cur; }), bad = hs.filter((h: any) => h.outcome === 'win' ? !(h.reels[0] === h.reels[1] && h.reels[1] === h.reels[2] && h.reels[0] >= 1 && h.reels[0] <= n) : h.outcome === 'pen' ? h.reels.some((v: number) => v !== -1) || h.saki.length || h.act : (h.reels[0] === h.reels[1]) !== !!h.act);
+    ok(`出目: 当たりは${n}絵柄の3つそろい、罰は ×××（先バレ・リーチなし）、外れはリーチのときだけ2つそろう`, bad.length === 0, bad.slice(0, 3));
   }
   // リーチ・全回転は回転の終わり（SLOT.spin 秒）を変えず、演出の秒数だけ前から
   for (const [res, act] of [['miss', 'plain'], ['win', 'allSpin'], ['miss', 'fish']] as const) {
-    const q = room(); q.slotChain = 0; q.startSpin(0, res, act); const t0 = q.now; run(q, C.SLOT.spin + 0.1);
+    const q = room(); q.slotChance = 0; q.startSpin(0, res, act); const t0 = q.now; run(q, C.SLOT.spin + 0.1);
     const ev = q.sent.filter(([t, m]: any) => t === 'mslot' && m.team === 0 && m.type !== 'saki'), sec = act === 'allSpin' ? M.allSpinSec : M.reach[act].sec;
     const sp = ev.find(([, m]: any) => m.type === 'spin'), st = ev.find(([, m]: any) => m.type === 'stop');
     ok(`${act}: 演出は回転の終わりの${sec}秒前から、結果は${C.SLOT.spin}秒で出る`, !!sp && sp[1].act === act && Math.abs(sp[2] - (t0 + C.SLOT.spin - sec)) < 0.06 && Math.abs(sp[1].sec - sec) < 0.06 && !!st && Math.abs(st[2] - (t0 + C.SLOT.spin)) < 0.06 && st[1].outcome === res, ev.map(([, m, t]: any) => [m.type, +(t - t0).toFixed(2)]));
   }
   // 払い出し・罰の表示中は消化を止める
   {
-    const q = room(), sl = q.teams[0].slot; q.slotChain = 1; const cb = C.SLOT.chainBreak; (C.SLOT as any).chainBreak = 1;
+    const q = room(), sl = q.teams[0].slot; q.slotChance = 1;
     q.startSpin(0, 'win'); run(q, C.SLOT.spin + 0.05); const h0 = [...sl.holds]; run(q, C.SLOT.gap * 2);
     const stopped = sl.payoutAt !== null && sl.holds.every((h: any, i: number) => h === h0[i]) && q.classicView(sl).cur === null && q.classicView(sl).chain >= 2;
-    (C.SLOT as any).chainBreak = cb;
     const p = room(), pl = p.teams[0].slot; p.startSpin(0, 'pen'); run(p, C.SLOT.spin + 0.05); const p0 = [...pl.holds]; run(p, C.SLOT.penHold - 0.2);
     const held = pl.holdUntil > 0 && pl.holds.every((h: any, i: number) => h === p0[i]); run(p, 0.3);
-    ok('連チャンの払い出し・罰の出目の表示中は保留の消化を止める（終わったら次の回転）', stopped && held && pl.holdUntil === 0 && pl.cur !== null && pl.start > C.SLOT.spin, { stopped, held });
+    ok('チャンスアップのカットイン・罰の出目の表示中は保留の消化を止める（終わったら次の回転）', stopped && held && pl.holdUntil === 0 && pl.cur !== null && pl.start > C.SLOT.spin, { stopped, held });
   }
-  // 先バレは積んだ時点で自陣へ。表示は保留4つと回っている保留
+  // 先バレは積んだ時点で本人（見せる対象のプレイヤーの画面）だけへ。表示は保留4つと回っている保留。先バレの印は見る人ごと
   {
-    const q = room(); let sk = 0, made = 0;
-    for (let i = 0; i < 3000; i++) { q.sent.length = 0; q.startSpin(0); made++; if (q.sent.some(([t, m]: any) => t === 'mslot' && m.type === 'saki')) { sk++; if (!q.teams[0].slot.holds.at(-1).saki) made = -1e9; } }
-    const v = q.classicView(q.teams[0].slot);
-    ok(`先バレは保留を積んだときに通知（${sk}/3000 回）。表示: 保留${M.holds}つ・回っている保留・陣営の種類`, sk > 0 && made > 0 && v.kind === 'classic' && v.holds.length === M.holds && Array.isArray(v.cur), { sk, v });
+    const q = room(), me = q.slotPlayers(0)[0].id, other = q.slotPlayers(0)[1].id; q.owners.set('x', me); let sk = 0, mine = 0, bad = 0;
+    for (let i = 0; i < 20000; i++) { q.sent.length = 0; q.startSpin(0); const h = q.teams[0].slot.holds.at(-1), got = q.sent.some(([t, m]: any) => t === 'mslot' && m.type === 'saki'); if (h.saki.includes(me)) mine++; if (got) sk++; if (got !== h.saki.includes(me)) bad++; }
+    const sl = q.teams[0].slot; sl.holds[0].saki = [me];
+    const v = q.classicView(sl, me), vo = q.classicView(sl, other);
+    ok(`先バレは保留を積んだときに、見せる対象の本人にだけ通知（${sk}/20000 回）。表示: 保留${M.holds}つ・回っている保留・陣営の種類、先バレの印は本人の表示だけ`, sk > 0 && sk === mine && bad === 0 && v.kind === 'classic' && v.holds.length === M.holds && Array.isArray(v.cur) && v.holds[0][1] === 1 && vo.holds[0][1] === 0, { sk, mine, bad });
   }
   // 実況のリーチ（既存のクラシックの判定）: リーチの出目の回転で言う
   {

@@ -33,7 +33,7 @@ const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), �
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
 const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
-const TITLE = 'ブイブイ運動会';
+const TITLE = 'VOICE SQUAD';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
 const CARD_W = 56, TACHIE_BROWSE_H = 80, BAR_COPIES = 3; // BAR_COPIES: 選択バーのループのために全員分を並べる回数
@@ -42,7 +42,7 @@ const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサ�
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
 const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, box_assist: 0x66ccff, assist: 0x66ccff };
 const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'パワーアップ箱', box_assist: 'アシスト箱' };
-const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト召喚' };
+const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト' };
 // バフ／デバフ欄: サーバーの buffs の key → [名前, 良い効果か]。技名は技名定義から。ここにない key は出さない
 const BUFF: Record<string, [string, boolean]> = {
   upgrade: [DEFS.ierutan.skill.name, true], boost: ['加速（アシスト）', true], dance: [DEFS.sayo.skill.name, true], overload: [DEFS.bii.skill.name, true], overloadPose: ['ポーズ', true],
@@ -529,7 +529,7 @@ class GameScene extends Phaser.Scene {
       room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
       room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
-      room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier));
+      room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier, m.char));
       room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト レベルアップ: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
       room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
       room.onMessage('mslot', (m: any) => this.mslotEv(m));
@@ -733,7 +733,7 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  // モダンのスロット（handoff_slot3）: 徳のゲージの下にリール・保留・モード（slot_modern_fx）。リールの絵柄は試合の編成（奇数＝陣営のプレイヤー、偶数＝アシスト、7＝大将）
+  // モダンのスロット（handoff_slot3）: 徳のゲージの下にリール・保留・モード（slot_modern_fx）。リールの絵柄は試合の編成（モダン: 奇数＝陣営のプレイヤー、偶数＝アシスト、7＝大将。クラシック: SLOT.syms）
   // 演出（リーチ・全回転）は自陣だけ、演出の層（.mfxl）に出す。編成が変わったら作り直す
   modernHud(s: any, t: number, k: number, tm: any, chars: string[]) {
     const myTeam = s.players.find((p: any) => p.id === s.me)?.team ?? -1, key = `${myTeam}:${s.roster.map((r: any) => `${r.team}${r.char}`).join()}`;
@@ -743,7 +743,8 @@ class GameScene extends Phaser.Scene {
       this.mfx = [0, 1].map((team) => {
         const el = $(`.tk .s${team}`), cs = s.roster.filter((r: any) => r.team === team).map((r: any) => r.char), ass = Object.keys(C.ASSIST.units);
         el.innerHTML = '<div class="tkg"></div><div class="mh"></div>';
-        const syms = C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]));
+        const syms = C.SLOT_MODE === 'modern' ? C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]))
+          : C.SLOT.syms.flatMap((x) => (x.startsWith('assist:') ? [ass[Number(x.slice(7))]] : cs[Number(x.slice(7))] ? [cs[Number(x.slice(7))]] : [])); // クラシック: プレイヤー＋アシスト。いないプレイヤーの絵柄は外す（サーバーの slotSyms と同じ並び）
         const f = new ModernFx(el.querySelector<HTMLElement>('.mh')!, team === myTeam ? $('.mfxl') : document.createElement('div'), syms, cs, css16(TEAM_COLOR[team]));
         f.idle(performance.now());
         return f;
@@ -760,7 +761,7 @@ class GameScene extends Phaser.Scene {
       this.mfxView[k] = v;
       const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
       f.holds(m.holds.map(h), m.cur && h(m.cur));
-      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり ${m.chain}連` : '';
+      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり ${C.POWER_TIERS[m.chain - 1]}` : '';
       else f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
     }
     if (t === this.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
@@ -795,18 +796,18 @@ class GameScene extends Phaser.Scene {
     if (m.team === this.mfxMine) this.mfx[m.team]?.beep();
   }
   // クラシックの払い出し（両陣営）: 当選の音（自陣だけ）とカットイン
-  slotWin(team: number, chain: number, kind: string, tier: number) {
-    this.slotCutin(team, chain, kind, tier);
+  slotWin(team: number, chain: number, kind: string, tier: number, char: string) {
+    this.slotCutin(team, chain, kind, tier, char);
     if (team === this.mfxMine) this.mfx[team]?.beep();
   }
-  // スロットの当たり・連チャンのカットイン（両陣営）: 当てた陣営と連チャン数、払い出し
-  slotCutin(team: number, chain: number, kind: string, tier: number) {
+  // スロットの当たり・チャンスアップのカットイン（両陣営）: 当てた陣営、対象の名前と払い出し・レベル。chain 2〜はチャンスアップの段
+  slotCutin(team: number, chain: number, kind: string, tier: number, char: string) {
     fx.querySelector('.scut')?.remove();
     const el = document.createElement('div');
     el.className = 'scut';
     el.style.setProperty('--d', `${C.SLOT_CUTIN_MS}ms`);
     el.style.setProperty('--c', css16(TEAM_COLOR[team]) + 'cc');
-    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : `${chain}連チャン！`}</b><span>${TEAM_NAME[team]}　${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）</span>`;
+    el.innerHTML = `<b>${chain === 1 ? '大当たり！' : 'チャンスアップ！'}</b><span>${TEAM_NAME[team]}　${charName(char)} ${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）</span>`;
     fx.appendChild(el);
     setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
   }

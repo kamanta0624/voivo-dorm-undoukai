@@ -597,9 +597,10 @@ export class Director {
   }
   bossWarn(boss: { team: number }) { this.emit([this.say('boss_warn', { 大将: boss.team })]); }
   bossMoved(boss: { team: number }, first: boolean) { this.emit([this.say(first ? 'boss_form2' : 'boss_move', { 大将: boss.team })]); }
-  slot(team: number, chain: number, kind: string) {
+  // クラシックの当選（handoff_slot4）: 大当たりは対象の名前つき（who: パワーアップするキャラかアシスト）、チャンスアップ（chain 2〜）は「まだ止まらない、[組]！」
+  slot(team: number, chain: number, kind: string, who: string) {
     this.wins[team].push(this.now);
-    this.emit([this.say(chain >= 2 ? 'slot_chain' : kind === 'ult' ? 'slot_ult' : 'slot_assist', { 組: [team] })]);
+    this.emit([chain >= 2 ? this.say('slot_chain', { 組: [team] }, [1]) : kind === 'ult' ? this.say('slot_ult', { 組: [team], A: who }) : this.say('slot_assist', { 組: [team], 助っ人: who })]);
   }
   penalty(team: number, kind: string) { this.emit([this.say(`pen_${kind}`, { 組: [team] })]); }
   // モダンのスロット（handoff_slot3）: リーチ（until: 結果の出る時刻。言う前に過ぎたら捨てる）・当選（初当たり／連チャン）・ペナルティ（1＝転落、2＝引き戻し失敗）
