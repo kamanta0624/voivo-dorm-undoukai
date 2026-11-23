@@ -3,3 +3,5 @@
 public/assets/gen/
 # ルール説明の背景（ゲーム画面のスクショ）
 public/assets/tutorial/
+# マップチップ（元素材は ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_）
+public/assets/mapchip/

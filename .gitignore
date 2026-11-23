@@ -5,6 +5,8 @@ logs/
 public/assets/gen/
 # ルール説明の背景（ゲーム画面のスクショ。ドット・立ち絵が写るので同じく管理外。tools/deploy.sh が公開側へ写す）
 public/assets/tutorial/
+# マップチップ（煮 マップチップ素材基本セット01。再配布禁止なので管理外。元素材からコピー: CLAUDE.md）
+public/assets/mapchip/
 verify/evidence/
 .env
 .env.*
@@ -18,5 +20,7 @@ cert.pem
 *.pem
 dist.new/
 dist.old/
+# マップチップ試験（handoff_maptile1）の素材へのリンク。再配布禁止の素材なので管理外
+assets_local/
 # Claude Code の agent view が作る並列作業用の worktree
 .claude/worktrees/

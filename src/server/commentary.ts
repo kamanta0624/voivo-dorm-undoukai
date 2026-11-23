@@ -131,10 +131,13 @@ export function pickPattern(n: number, last: number | undefined, r: number, allo
   if (list.length > 1 && last !== undefined) list = list.filter((i) => i !== last);
   return list[Math.floor(r * list.length)] ?? 0;
 }
-// 座標 → 部屋の id（map.json の rooms。どこにも入らなければ null）
+// 座標 → 部屋の id（map.json の rooms。どこにも入らなければ null）。同じ名前の部屋どうしの境目（道場・茶室の撤去した壁の行）は先の部屋
 export function roomAt(x: number, y: number) {
   const tx = Math.floor(x / C.TILE), ty = Math.floor(y / C.TILE);
-  return MAP.rooms.find((r) => tx > r.rect[0] && tx < r.rect[2] && ty > r.rect[1] && ty < r.rect[3])?.id ?? null;
+  const r = MAP.rooms.find((q) => tx > q.rect[0] && tx < q.rect[2] && ty > q.rect[1] && ty < q.rect[3]);
+  if (r) return r.id;
+  const on = MAP.rooms.filter((q) => tx >= q.rect[0] && tx <= q.rect[2] && ty >= q.rect[1] && ty <= q.rect[3]);
+  return on.length === 2 && on[0].name && on[0].name === on[1].name ? on[0].id : null;
 }
 
 // ---- 状態 ----

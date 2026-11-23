@@ -12,6 +12,7 @@ import MAP from '../shared/map.json';
 import { Controls } from './input';
 import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
+import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
 import { GUMI, TEAM_GUMI } from '../shared/commentary';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
@@ -49,6 +50,7 @@ const BUFF: Record<string, [string, boolean]> = {
 const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
+const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）
@@ -340,7 +342,9 @@ class GameScene extends Phaser.Scene {
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
   fxQueue: any[] = []; // 受信した技のエフェクト（スナップショットごとに届く）
-  layer!: Phaser.Tilemaps.TilemapLayer;
+  mapTex!: Phaser.Textures.CanvasTexture; // マップの絵（床・壁・家具。静的な層）
+  chips: Pics | null = null; // マップチップの素材（なければ単色）
+  homeG!: Phaser.GameObjects.Graphics; // 大将の候補部屋の床に重ねる組の色
   miniTex!: Phaser.Textures.CanvasTexture;
   walls = C.WALLS; // 自キャラの移動予測に使う壁（壁破壊で変わる）
   seeWalls = C.SEE_WALLS; // 視界の壁（透過壁を除く。資材の表示）
@@ -365,6 +369,7 @@ class GameScene extends Phaser.Scene {
   preload() {
     for (const k of DOT_KEYS) for (const f of DOT_FRAMES) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`);
     for (const [k, f] of DOT_EXTRA) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`); // 技の見た目用のコマ（client/skills）
+    for (const [k, f] of Object.entries(CHIP_FILES)) this.load.image(`chip_${k}`, CHIP_DIR + f); // マップチップ（public/assets/mapchip/、管理外）
   }
 
   create() {
@@ -373,14 +378,16 @@ class GameScene extends Phaser.Scene {
       this.anims.create({ key: `${k}_blink`, frames: ['half', 'close', 'half', 'idle'].map((f) => ({ key: `${k}_${f}` })), frameRate: 14 });
     }
 
-    // タイル: 0=外 1=床 2=壁 3,4=自宅の床（陣営色）
-    const tex = this.textures.createCanvas('tiles', T * 5, T)!;
-    ['#1a1a1a', '#b9b2a2', '#4a423a', '#d9a878', '#9fca86'].forEach((c, i) => { tex.context.fillStyle = c; tex.context.fillRect(i * T, 0, T, T); });
-    tex.refresh();
-    // 自宅（その試合の大将の部屋）の床の色は、最初のスナップショットで塗る（applyHomes）
-    const data = (this.tileKinds = MAP.tiles.map((row) => [...row].map((c) => (c === '#' ? 2 : c === '.' ? 1 : 0))));
-    const map = this.make.tilemap({ data, tileWidth: T, tileHeight: T });
-    this.layer = map.createLayer(0, map.addTilesetImage('tiles', 'tiles', T, T, 0, 0)!, 0, 0)!;
+    // マップ: チップ（mapchip/paint.ts）で1枚の絵に描く（静的な層。壁が壊れた時だけその周りを描き直す）。キャラ・弾・エフェクト・資材より下
+    // 素材がなければ単色で描き、画面の隅に出す
+    const chipKeys = Object.keys(CHIP_FILES) as (keyof typeof CHIP_FILES)[];
+    this.chips = chipKeys.every((k) => this.textures.exists(`chip_${k}`)) ? (Object.fromEntries(chipKeys.map((k) => [k, this.textures.get(`chip_${k}`).getSourceImage()])) as Pics) : null;
+    if (!this.chips) { const e = document.createElement('div'); e.textContent = 'マップチップの素材がない（public/assets/mapchip/）。単色で表示中'; e.style.cssText = 'position:absolute;left:4px;top:4px;color:#f88;font:12px sans-serif;background:#000a;padding:2px 6px;pointer-events:none'; fx.appendChild(e); }
+    this.mapTex = this.textures.createCanvas('map', MAP.width * T, MAP.height * T)!;
+    paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh();
+    this.add.image(0, 0, 'map').setOrigin(0).setDepth(0);
+    this.homeG = this.add.graphics().setDepth(0.5);
+    this.tileKinds = MAP.tiles.map((row) => [...row].map((c) => (c === '#' ? 2 : c === '.' ? 1 : 0))); // ミニマップ: 0=外 1=床 2=壁 3,4=自宅の床（陣営色）
 
     // ミニマップの下絵
     this.miniTex = this.textures.createCanvas('mini', Math.ceil(MAP.width * MINI), Math.ceil(MAP.height * MINI))!;
@@ -550,21 +557,22 @@ class GameScene extends Phaser.Scene {
   resetMatch() {
     MAP.tiles.forEach((row, y) => (tiles[y] = row));
     wallVer++;
-    this.tileKinds.forEach((row, y) => row.forEach((v, x) => this.layer.putTileAt(v, x, y)));
+    paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh(); this.homeG.clear();
     this.paintMini();
     Object.assign(this, { walls: C.WALLS, seeWalls: C.SEE_WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
     $('.kills').innerHTML = '';
   }
 
-  // この試合の大将の部屋を陣営色に塗る（画面のタイルとミニマップ）
+  // この試合の大将の部屋を陣営色に塗る（画面はチップの床に半透明で重ねる・ミニマップ）
   applyHomes(names: string[]) {
     this.homes = roomLayout(names).homes;
+    this.homeG.clear();
+    this.homes.forEach((hs, t) => hs.forEach((h) => this.homeG.fillStyle(HOME_TINT[t], HOME_TINT_ALPHA).fillRect(h.x, h.y, h.w, h.h)));
     for (const r of MAP.rooms) {
       if (!r.team || !names.includes(r.id.replace(/_[LR]$/, ''))) continue;
       const v = r.team === 'kiritan' ? 3 : 4;
       for (let y = r.rect[1] + 1; y < r.rect[3]; y++) for (let x = r.rect[0] + 1; x < r.rect[2]; x++) {
         if (tiles[y][x] !== '.') continue;
-        this.layer.putTileAt(v, x, y);
         this.miniTex.context.fillStyle = ['', '', '', '#c08050', '#70a060'][v];
         this.miniTex.context.fillRect(x * MINI, y * MINI, MINI + 0.2, MINI + 0.2);
       }
@@ -1092,11 +1100,11 @@ class GameScene extends Phaser.Scene {
       for (const [x, y] of s.broken.slice(this.brokenN)) {
         tiles[y] = tiles[y].slice(0, x) + '.' + tiles[y].slice(x + 1);
         wallVer++;
-        this.layer.putTileAt(1, x, y);
+        paintMap(this.mapTex.context, this.chips, tiles, x - 2, y - 2, x + 2, y + 2); // そのマスと周りのオートタイル・壁の正面
         this.miniTex.context.fillStyle = '#8a8478';
         this.miniTex.context.fillRect(x * MINI, y * MINI, MINI + 0.2, MINI + 0.2);
       }
-      this.miniTex.refresh();
+      this.miniTex.refresh(); this.mapTex.refresh();
       this.walls = wallRects(tiles);
       this.seeWalls = seeRects(tiles);
       this.brokenN = s.broken.length;

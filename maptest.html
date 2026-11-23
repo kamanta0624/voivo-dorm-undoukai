@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>マップチップ試験</title>
+<style>html,body{margin:0;background:#111;color:#ddd;font:13px sans-serif}#bar{position:fixed;top:0;left:0;right:0;z-index:2;background:#222c;padding:6px;display:flex;gap:6px;align-items:center}#wrap{padding-top:40px}canvas{display:block;image-rendering:pixelated}#credit{position:fixed;right:6px;bottom:6px;z-index:2;background:#000b;padding:4px 8px;border-radius:4px}#credit a{color:#9cf}</style></head>
+<!-- マップチップ試験（handoff_maptile1）。開発サーバーだけで使う（npm run dev → /maptest）。本番ビルド（vite build）には入らない。素材は public/assets/mapchip/（管理外） -->
+<body><div id="bar"><button id="mode"></button><button id="labels">部屋名（N）</button>倍率 <button data-z="1">1</button><button data-z="2">2</button><button data-z="3">3</button><span id="info"></span></div>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<div id="credit">マップチップ: 煮(<a href="https://skima.jp/profile?id=378449" target="_blank">https://skima.jp/profile?id=378449</a>)</div>
+<script type="module" src="/src/maptest/maptest.ts"></script></body></html>

@@ -74,13 +74,14 @@ const who = (key: string): Clip[] => {
   return [];
 };
 const gumi = (team: number): Clip => { const t = P.team[TEAM_GUMI[team]]; return { text: t, sub: t }; };
-// 場所: 陣営側の部屋は「[組]側の[部屋]」（1つの部品）
+// 場所: 左右で名前が違う部屋（台本で [左, 右]）と中央の部屋は名前だけ、左右で同じ名前の場所は「[組]側の[場所]」（1つの部品）。{字幕|読み} 可
 const place = (id: string): Clip[] => {
-  const m = id.match(/^(.*)_([LR])$/), base = m ? m[1] : id, text = P.place[base];
-  if (!text) return [];
-  if (!m) return [{ text, sub: text }];
+  const m = id.match(/^(.*)_([LR])$/), v = P.place[m ? m[1] : id];
+  if (!v) return [];
+  const t: string = Array.isArray(v) ? v[m?.[2] === 'R' ? 1 : 0] : v;
+  if (!m || Array.isArray(v)) return [{ text: reading(t), sub: subtitle(t) }];
   const g = gumi(ROOM_TEAM[m[2]]);
-  return [{ text: g.text + P.side + text, sub: g.sub + P.side + text }];
+  return [{ text: g.text + P.side + reading(t), sub: g.sub + P.side + subtitle(t) }];
 };
 const NAME = /^\[(A|B|C|組|大将|助っ人|技|場所|場所では|n|m|n分|n人で)\]$/;
 // 名前類の部品が取りうるすべての値（音声生成用）

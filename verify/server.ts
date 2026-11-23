@@ -75,18 +75,18 @@ console.log('--- 壁へのめり込み');
   ok('500pxのはじきでも壁を通り抜けない', clear(r, B) && B.x < 27 * T, { x: B.x });
 }
 {
-  // 壁破壊で開いた穴の縁: study の南壁（y=26）のうち x=11〜13 を壊す
+  // 壁破壊で開いた穴の縁: 道場（study・bath）の南壁（y=33）のうち x=11〜13 を壊す
   const { r, A, B } = mk('hanamaru', 'metan');
-  Object.assign(A, { x: 200, y: 400, face: Math.PI / 2 }); A.tgt = null;
+  Object.assign(A, { x: 200, y: 512, face: Math.PI / 2 }); A.tgt = null;
   r.skill('a'); fly(r);
   const hole = r.broken.map(([x, y]: number[]) => `${x},${y}`).join(' ');
   // 穴の縁（壊れていない壁との境）に沿って斜めに歩く
-  Object.assign(A, { x: 11 * T + 2, y: 25 * T + 8 });
+  Object.assign(A, { x: 11 * T + 2, y: 32 * T + 8 });
   let bad = 0;
   for (let i = 0; i < 40; i++) { Object.assign(A, moveBody(A.x, A.y, -3, 3, C.PLAYER_RADIUS, r.obstacles())); if (!clear(r, A)) bad++; }
   ok('穴の縁を斜めに歩いても壁にめり込まない', bad === 0, { hole, at: [Math.round(A.x), Math.round(A.y)] });
   // 穴の縁にいる敵を、横の壁へ向けてはじく
-  Object.assign(B, { x: 11 * T + 6, y: 26 * T + 8 });
+  Object.assign(B, { x: 11 * T + 6, y: 33 * T + 8 });
   r.push({ k: 'p', o: B, x: B.x, y: B.y, r: C.PLAYER_RADIUS }, -1, 0, 120);
   ok('穴の中の敵を横の壁へはじいてもめり込まない', clear(r, B), { x: B.x, y: B.y });
 }
@@ -200,10 +200,10 @@ console.log('--- 技・壁破壊・照準・Bot');
   ok('大将ははじかれない（ダメージは入る）', r.bosses[1].x === 1620 && r.bosses[1].hp < C.BOSS_HP);
   const z = mk('zunko', 'metan'); z.r.skill('a'); for (let i = 0; i < 5; i++) z.r.updateShots(0.05);
   ok('ずんだアローで敵が餅になり技を使えない', !!z.r.stat(z.B, 'mochi') && (z.B.skillReadyAt = 0, z.r.skill('b'), z.B.skillReadyAt === 0));
-  const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 400, face: Math.PI / 2 }); w.A.tgt = null;
-  const los0 = lineOfSight(200, 400, 200, 470, w.r.walls), path0 = findPath(w.A, { x: 200, y: 470 }, w.r.walls, w.r.walls).length;
+  const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 512, face: Math.PI / 2 }); w.A.tgt = null; // 道場（study・bath）の南壁（y=33）の手前
+  const los0 = lineOfSight(200, 512, 200, 582, w.r.walls), path0 = findPath(w.A, { x: 200, y: 582 }, w.r.walls, w.r.walls).length;
   w.r.skill('a'); fly(w.r);
-  ok('壁破壊が視界・経路探索に即反映', !los0 && lineOfSight(200, 400, 200, 470, w.r.walls) && findPath(w.A, { x: 200, y: 470 }, w.r.walls, w.r.walls).length < path0);
+  ok('壁破壊が視界・経路探索に即反映', !los0 && lineOfSight(200, 512, 200, 582, w.r.walls) && findPath(w.A, { x: 200, y: 582 }, w.r.walls, w.r.walls).length < path0);
   const pe = mk('hanamaru'); Object.assign(pe.A, { x: 248, y: 60, face: -Math.PI / 2 }); pe.A.tgt = null; pe.r.skill('a'); fly(pe.r);
   ok('外周の壁は壊せない（拳は外周の壁に当たると消える）', pe.r.broken.length === 0 && ents(pe.r, 'fist').length === 0);
   const m = mk('sayo', 'metan'); m.A.aim = 'nearest'; delete m.A.st.test; m.A.bot = true; m.A.dy = 1; m.r.updatePlayers(0.05);
@@ -423,14 +423,14 @@ console.log('--- 開始演出の横並び・戻る（連戦）');
   r.onCreate(); r.onJoin({ sessionId: 'h1' }); r.onJoin({ sessionId: 'h2' }); r.players.get('h1').char = 'metan'; r.startMatch();
   const row = [0, 1].map((t) => [...r.players.values()].filter((p: any) => p.team === t));
   ok('開始演出: 各陣営の4人が開始部屋（食堂）の中に横一列に並ぶ', row.every((l, t) => l.length === 4 && l.every((p: any) => p.y === l[0].y && inRoom(p, C.START_ROOMS[t])) && l.every((p: any, i: number) => !i || p.x - l[i - 1].x === C.INTRO_GAP)));
-  r.beginPlay(); r.breakWalls([[11, 26]]); r.teams[0].toku = 9; r.materials = [{ id: 99, x: 0, y: 0 }]; r.endMatch(0);
+  r.beginPlay(); r.breakWalls([[11, 33]]); r.teams[0].toku = 9; r.materials = [{ id: 99, x: 0, y: 0 }]; r.endMatch(0);
   ok('リザルト: 押した人数／全人数（Botは押した扱い）', JSON.stringify(r.backCount()) === JSON.stringify({ n: 6, total: 8 }));
   r.messages.back({ sessionId: 'h1' });
   ok('人間の1人だけ押した段階では戻らない', r.phase === 'ended' && r.backCount().n === 7);
   r.messages.back({ sessionId: 'h2' });
   const ps = [...r.players.values()];
   ok('人間全員が押したら待機画面へ（Botは消え、人間は陣営・キャラのまま。壁・資材・徳も最初から）', r.phase === 'waiting' && ps.length === 2 && ps.every((p: any) => !p.bot) && r.players.get('h1').char === 'metan' && r.players.get('h1').team === 0 && r.players.get('h2').team === 1
-    && r.broken.length === 0 && r.tiles[26][11] === '#' && r.materials.length === 0 && r.teams[0].toku === C.TOKU_INIT && r.timeLeft === C.MATCH_TIME && r.winner === -1 && unlocked);
+    && r.broken.length === 0 && r.tiles[33][11] === '#' && r.materials.length === 0 && r.teams[0].toku === C.TOKU_INIT && r.timeLeft === C.MATCH_TIME && r.winner === -1 && unlocked);
   r.startMatch(); r.beginPlay(); for (let i = 0; i < 20; i++) r.tick(0.05);
   ok('同じ部屋で次の試合を始められる', r.phase === 'playing' && r.players.size === 8 && r.timeLeft < C.MATCH_TIME);
 }
@@ -880,10 +880,10 @@ console.log('--- アルの突撃（タメ・方向・壁とバリケードの破
   z = aru(1552, 900, 0, 0, 'metan'); z.A.face = Math.PI; z.A.tgt = { k: 'p', o: z.B, x: 1552, y: 1000, r: 10 }; z.r.skill('a');
   const z2 = aru(1552, 900, 0, 0); z2.A.face = Math.PI; z2.r.skill('a');
   ok('移動入力がなければ照準の対象の方向、それもなければ向いている方向', Math.abs(z.A.sk.a - Math.PI / 2) < 1e-9 && Math.abs(z2.A.sk.a - Math.PI) < 1e-9);
-  // 壁・バリケードを壊して進む（study の南壁）。外周の壁は壊さずそこで止まる
-  z = aru(248, 360, 0, 1); z.r.skill('a'); step(z, AR.windup + 0.6);
-  const broke = z.r.broken.filter(([, y]: number[]) => y === 26).length;
-  ok(`壁を壊して進む（study の南壁を${broke}マス、壊した壁は床になる）`, broke >= 4 && z.r.tiles[26][12] === '.' && z.A.y > 26 * T + 16 && JSON.stringify(z.r.walls) !== JSON.stringify(C.WALLS));
+  // 壁・バリケードを壊して進む（道場の南壁 y=33）。外周の壁は壊さずそこで止まる
+  z = aru(248, 472, 0, 1); z.r.skill('a'); step(z, AR.windup + 0.6);
+  const broke = z.r.broken.filter(([, y]: number[]) => y === 33).length;
+  ok(`壁を壊して進む（道場の南壁を${broke}マス、壊した壁は床になる）`, broke >= 4 && z.r.tiles[33][12] === '.' && z.A.y > 33 * T + 16 && JSON.stringify(z.r.walls) !== JSON.stringify(C.WALLS));
   ok(`壁を壊したら徳${C.TOKU.wall}（1回の突撃で1回）`, Math.abs(z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9);
   z = aru(248, 120, 0, -1); z.r.skill('a'); step(z, AR.windup + 0.3); const mid = !!z.r.stat(z.A, 'rush');
   step(z, AR.dur);
@@ -1161,12 +1161,12 @@ console.log('--- 花丸（パッシブの押し込み・花丸パンチ）');
     for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
     return { z, n: z.r.broken.length - b0 };
   };
-  const wallY = 26 * T; // study の南壁（内側の壁）
+  const wallY = 33 * T; // 道場（study・bath）の南壁（内側の壁）
   const touch = push('hanamaru', 200, wallY - 11, 0, 1, 0.05); // 1tick目: 壁に阻まれて押し込み始め（まだ0秒）。2tick目で0.05秒
   const held = push('hanamaru', 200, wallY - 11, 0, 1, H.push + 0.11);
-  ok(`パッシブ: 壁へ${H.push}秒押し込み続けると壊す（触れてすぐでは壊れない）`, touch.n === 0 && held.n > 0 && held.z.r.tiles[26][12] === '.', { touch: touch.n, held: held.n });
+  ok(`パッシブ: 壁へ${H.push}秒押し込み続けると壊す（触れてすぐでは壊れない）`, touch.n === 0 && held.n > 0 && held.z.r.tiles[33][12] === '.', { touch: touch.n, held: held.n });
   ok(`パッシブで壊したら徳${C.TOKU.wall}、クールダウンなし（技のCTも消費しない）`, Math.abs(held.z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9 && held.z.A.skillReadyAt === 0);
-  const again = held.z; Object.assign(again.A, { x: 200, y: 33 * T - 11, dx: 0, dy: 1 }); const b1 = again.r.broken.length;
+  const again = held.z; Object.assign(again.A, { x: 27 * T - 11, y: 200, dx: 1, dy: 0 }); const b1 = again.r.broken.length; // 道場の東壁（x=27）
   for (let i = 0; i < Math.round((H.push + 0.11) / 0.05); i++) { again.r.now += 0.05; again.r.updatePlayers(0.05); }
   ok('続けて別の壁も壊せる（クールダウンなし）', again.r.broken.length > b1);
   const per = push('hanamaru', 200, 3 * T + 11, 0, -1, 1);
@@ -1183,9 +1183,9 @@ console.log('--- 花丸（パッシブの押し込み・花丸パンチ）');
   fly(f.r);
   const dist = (H.range / H.speed);
   ok(`花丸パンチ: ${H.range}px 飛ぶと消える`, ents(f.r, 'fist').length === 0 && dist > 0);
-  const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 360, face: Math.PI / 2 }); w.A.tgt = null; w.r.skill('a'); fly(w.r);
+  const w = mk('hanamaru'); Object.assign(w.A, { x: 488, y: 472, face: Math.PI / 2 }); w.A.tgt = null; w.r.skill('a'); fly(w.r); // 弓道場（library）から南へ
   const ys = new Set(w.r.broken.map(([, y]: number[]) => y));
-  ok('花丸パンチ: 壁に当たると壊して貫通し、その先の壁も壊す（study の南壁 → bath の南壁）', ys.has(26) && ys.has(33) && w.r.tiles[26][12] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
+  ok('花丸パンチ: 壁に当たると壊して貫通し、その先の壁も壊す（弓道場の南壁 → 北廊下の南壁）', ys.has(33) && ys.has(38) && w.r.tiles[33][30] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
   ok('花丸パンチ: 命中・破壊はサーバーで判定し、拳の位置をスナップショットで送る', (() => { const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; let got: any = null; Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 's') got = m; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay(); const P = q.players.get('x'); P.char = 'hanamaru'; q.skill('x'); q.skillUp('x'); q.sendSnapshots(); const fs = got.ents.filter((e: any) => e.kind === 'fist'); return fs.length === 1 && fs[0].team === P.team; })());
   // 壁の中央・終端・角を上下左右から押し込む。終端・角は壁タイルの正面から（一部だけ触れる位置からは、移動の当たり判定で丸めた角に沿って滑るので押し込めない）
   {
@@ -1601,11 +1601,11 @@ console.log('--- 扉の縁・壁の終端（移動の当たり判定）');
     }
     return { ...p, stuck, inside };
   };
-  // study↔bath の扉（y=26、x=20〜24）。左の縁は x=320px、右の縁は x=400px
-  const y0 = 26 * T, cases: [string, number, number, number, number][] = [
+  // 道場（bath）↔北廊下の扉（y=33、x=20〜24）。左の縁は x=320px、右の縁は x=400px
+  const y0 = 33 * T, cases: [string, number, number, number, number][] = [
     ['真下へ・左の縁に掛かる', 318, y0 - 30, 0, 1], ['真下へ・右の縁に掛かる', 402, y0 - 30, 0, 1],
     ['右下へ斜め・左の縁', 290, y0 - 40, 1, 1], ['左下へ斜め・右の縁', 430, y0 - 40, -1, 1],
-    ['真上へ・左の縁に掛かる（bath から）', 318, y0 + 16 + 30, 0, -1],
+    ['真上へ・左の縁に掛かる（北廊下から）', 318, y0 + 16 + 30, 0, -1],
   ];
   const res = cases.map(([name, x, y, dx, dy]) => { const r = walk(x, y, dx, dy, 12); return { name, through: dy > 0 ? r.y > y0 + T + C.PLAYER_RADIUS : r.y < y0 - C.PLAYER_RADIUS, stuck: r.stuck, inside: r.inside }; });
   ok('扉の縁に斜め・まっすぐ当たっても止まらず抜ける。壁の中には入らない', res.every((q) => q.through && q.stuck === 0 && q.inside === 0), res);
