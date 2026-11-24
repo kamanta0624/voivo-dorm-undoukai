@@ -691,7 +691,7 @@ async function aruCheck(A: Tab) {
   const b1 = (await A.snap()).broken.length;
   check('アルの突撃: 四方向とも R を押したままマウスで向けた矢印の方向にタメ（警告）→ 突撃（渦と煙）', got.every((g) => g.arrow !== null && g.charge !== null && g.dash !== null && angDiff(g.dash, want[g.key]) < 0.05 && g.dash === g.charge), got);
   // タメ中に押し直して向きを変えると、変えた向きへ突撃
-  // 1回目のタメが始まったのを確かめてから押し直す。撃破・スロットのウルトなどでタメが出なかった回だけやり直す
+  // 1回目のタメが始まったのを確かめてから押し直す。撃破・スロットのウルトなどでタメが出なかった回と、タメは出たのに突撃が記録できなかった回はやり直す（最大2回）
   let ra: number | undefined;
   for (let tries = 0; tries < 2; tries++) {
     await aliveOf(A); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.ult, (C.ULT_DURATION + 1) * 1000);
@@ -701,7 +701,8 @@ async function aruCheck(A: Tab) {
     if (!charged) { const m = await A.me(); log('  タメが出なかった（再試行）', { alive: m.alive, ult: m.ult, skillCd: m.skillCd }); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500); continue; }
     await aimSkill(A, 'r', Math.PI / 2, 'r4_reaim');
     await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); ra = (await A.me()).st.rush?.a;
-    break;
+    if (ra !== undefined || tries === 1) break;
+    const m = await A.me(); log('  タメは出たが突撃が記録できなかった（再試行）', { alive: m.alive, ult: m.ult, skillCd: m.skillCd }); await A.until((x) => { const q = x.players.find((p: any) => p.id === x.me); return !q?.st.charge && !q?.st.rush; }, 3000); // 撃破などで突撃が出なかった回
   }
   check('アルの突撃: タメ中に R を押し直してマウスで向きを変えると、変えた向き（下）へ突撃', ra !== undefined && angDiff(ra, Math.PI / 2) < 0.05, { ra });
   await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
