@@ -377,6 +377,7 @@ class GameScene extends Phaser.Scene {
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
+  mmSnap: any = null; mmMats: any[] = []; // ミニマップに出す資材（mmSnap を受信した時に判定）
   visDrawn: { ver: number; polys: { x: number; y: number }[][] } | null = null; // 今マスク（visG）に描いてある視界ポリゴン
   fxFit = FX_FIT_FRAMES; // #fx の位置を測り直す残りフレーム数（起動時・リサイズ・拡大率の変更の後）
   chips: Pics | null = null; // マップチップの素材（なければ単色）
@@ -1689,10 +1690,13 @@ class GameScene extends Phaser.Scene {
     // 指名手配中のキャラ: 敵の視界外でも位置を出す（赤い枠）
     for (const w of s.wanted) ui.lineStyle(1.5, 0xff3030).strokeRect(mx + w.x * ms - 3, my + w.y * ms - 3, 7, 7);
     // 資材: 味方の視界内にあるもの（観戦者はすべて）
-    const eyes = this.eyes(s, myTeam, sinceSnap);
-    const seeObs = this.seeWalls;
-    for (const m of s.materials) {
-      if (mine && !eyes.some((e) => Math.hypot(e.x - m.x, e.y - m.y) <= e.r && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) continue;
+    // 見えているかの判定（資材×味方の視界の見通し）はスナップショットを受信した時だけ（毎フレームはしない。点の出入りは最大で受信の間隔だけ遅れる）
+    if (s !== this.mmSnap) {
+      this.mmSnap = s;
+      const eyes = this.eyes(s, myTeam, sinceSnap), seeObs = this.seeWalls;
+      this.mmMats = mine ? s.materials.filter((m: any) => eyes.some((e) => Math.hypot(e.x - m.x, e.y - m.y) <= e.r && lineOfSight(e.x, e.y, m.x, m.y, seeObs))) : s.materials;
+    }
+    for (const m of this.mmMats) {
       if (m.big) ui.fillStyle(0x7fe8ff).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高性能の徳は水色で大きく
       else if (m.hi) ui.fillStyle(0xff7ad9).fillRect(mx + m.x * ms - 2, my + m.y * ms - 2, 4, 4); // 高ポイントはピンクで大きく
       else ui.fillStyle(0xffd700).fillRect(mx + m.x * ms - 1, my + m.y * ms - 1, 2.5, 2.5);
