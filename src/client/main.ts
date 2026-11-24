@@ -54,7 +54,6 @@ const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
-const MAP_PART = 512; // マップの絵の区画の大きさ(px)。壁が壊れた時はその範囲に掛かる区画だけ GPU へ送り直す
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
 let wallGrid: Uint8Array | null = null, wallGridVer = -1;
@@ -368,10 +367,9 @@ class GameScene extends Phaser.Scene {
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
   fxQueue: any[] = []; // 受信した技のエフェクト（スナップショットごとに届く）
-  // マップの絵（床・壁・家具。静的な層）: mapCtx はマップ全体を描く作業用の canvas（GPU には載せない）。画面には MAP_PART px 四方の区画のテクスチャに分けて写す
-  // 壁が壊れたら作業用の canvas のその周りを描き直し、掛かる区画だけ写して転送する（全体を毎回 GPU へ送ると重い）
-  mapCtx!: CanvasRenderingContext2D;
-  mapParts: { tex: Phaser.Textures.CanvasTexture; x: number; y: number; w: number; h: number }[] = [];
+  // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
+  mapTex!: Phaser.Textures.CanvasTexture;
+  mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
   chips: Pics | null = null; // マップチップの素材（なければ単色）
   homeG!: Phaser.GameObjects.Graphics; // 大将の候補部屋の床に重ねる組の色
   miniTex!: Phaser.Textures.CanvasTexture;
@@ -415,15 +413,9 @@ class GameScene extends Phaser.Scene {
     const chipKeys = Object.keys(CHIP_FILES) as (keyof typeof CHIP_FILES)[];
     this.chips = chipKeys.every((k) => this.textures.exists(`chip_${k}`)) ? (Object.fromEntries(chipKeys.map((k) => [k, this.textures.get(`chip_${k}`).getSourceImage()])) as Pics) : null;
     if (!this.chips) { const e = document.createElement('div'); e.textContent = 'マップチップの素材がない（public/assets/mapchip/）。単色で表示中'; e.style.cssText = 'position:absolute;left:4px;top:4px;color:#f88;font:12px sans-serif;background:#000a;padding:2px 6px;pointer-events:none'; fx.appendChild(e); }
-    const mc = document.createElement('canvas'); mc.width = MAP.width * T; mc.height = MAP.height * T;
-    this.mapCtx = mc.getContext('2d')!;
-    paintMap(this.mapCtx, this.chips, tiles);
-    for (let y = 0; y < mc.height; y += MAP_PART) for (let x = 0; x < mc.width; x += MAP_PART) {
-      const w = Math.min(MAP_PART, mc.width - x), h = Math.min(MAP_PART, mc.height - y), tex = this.textures.createCanvas(`map_${x}_${y}`, w, h)!;
-      this.mapParts.push({ tex, x, y, w, h });
-      this.add.image(x, y, tex.key).setOrigin(0).setDepth(0);
-    }
-    this.mapCopy(0, 0, mc.width, mc.height);
+    this.mapTex = this.textures.createCanvas('map', MAP.width * T, MAP.height * T)!;
+    paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh();
+    this.add.image(0, 0, 'map').setOrigin(0).setDepth(0);
     this.homeG = this.add.graphics().setDepth(0.5);
     this.tileKinds = MAP.tiles.map((row) => [...row].map((c) => (c === '#' ? 2 : c === '.' ? 1 : 0))); // ミニマップ: 0=外 1=床 2=壁 3,4=自宅の床（陣営色）
 
@@ -618,22 +610,33 @@ class GameScene extends Phaser.Scene {
     this.miniTex.refresh();
   }
 
-  // 作業用のマップの canvas の範囲 [x0,x1)×[y0,y1)（px）を、掛かる区画へ写して転送する
-  mapCopy(x0: number, y0: number, x1: number, y1: number) {
-    for (const p of this.mapParts) {
-      const ax = Math.max(x0, p.x), ay = Math.max(y0, p.y), bx = Math.min(x1, p.x + p.w), by = Math.min(y1, p.y + p.h);
-      if (ax >= bx || ay >= by) continue;
-      p.tex.context.clearRect(ax - p.x, ay - p.y, bx - ax, by - ay);
-      p.tex.context.drawImage(this.mapCtx.canvas, ax, ay, bx - ax, by - ay, ax - p.x, ay - p.y, bx - ax, by - ay);
-      p.tex.refresh();
+  // マップの canvas の矩形 [x0,x1)×[y0,y1)（px）だけを GPU のテクスチャへ送る（texSubImage2D。Phaser の refresh は全量を送るので初回・リセットだけ）
+  // Phaser を通さず WebGL を直接呼ぶ: 描画バッチを先に flush し、Phaser の _processTexture と同じく TEXTURE0 で今のバインドを退避→転送→元に戻す
+  // 送る設定（premultiplied alpha・flipY・形式）は Phaser が最初に送った時の値（テクスチャの wrapper）をそのまま使う。コンテキストを失っている間は送らない（復帰時に Phaser が canvas から全量で作り直す）
+  mapSub(rects: number[][]) {
+    const r = this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer, gl = r.gl, w = this.mapTex.source[0].glTexture!, src = this.mapTex.canvas, c = this.mapSubCv;
+    if (gl.isContextLost()) return;
+    r.flush();
+    gl.activeTexture(gl.TEXTURE0);
+    const cur = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    gl.bindTexture(gl.TEXTURE_2D, w.webGLTexture);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, w.pma);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, w.flipY);
+    for (let [x0, y0, x1, y1] of rects) {
+      x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(src.width, x1); y1 = Math.min(src.height, y1);
+      if (x0 >= x1 || y0 >= y1) continue;
+      c.width = x1 - x0; c.height = y1 - y0;
+      c.getContext('2d')!.drawImage(src, x0, y0, c.width, c.height, 0, 0, c.width, c.height);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, w.format, gl.UNSIGNED_BYTE, c); // canvas のテクスチャは flipY なし
     }
+    gl.bindTexture(gl.TEXTURE_2D, cur);
   }
 
   // 連戦: 待機画面に戻ったら、壊れた壁・自宅の色・キルログなどを最初の状態に戻す
   resetMatch() {
     MAP.tiles.forEach((row, y) => (tiles[y] = row));
     wallVer++;
-    paintMap(this.mapCtx, this.chips, tiles); this.mapCopy(0, 0, MAP.width * T, MAP.height * T); this.homeG.clear();
+    paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh(); this.homeG.clear();
     this.paintMini();
     Object.assign(this, { walls: C.WALLS, seeWalls: C.SEE_WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
     $('.kills').innerHTML = '';
@@ -1299,16 +1302,16 @@ class GameScene extends Phaser.Scene {
     if (s.bossRooms && s.bossRooms.join() !== this.homesKey) { this.homesKey = s.bossRooms.join(); this.applyHomes(s.bossRooms); }
     // 壁破壊の反映（タイル・ミニマップ・移動予測の壁）
     if (s.broken.length > this.brokenN) {
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // 描き直したマスの範囲（区画へ写す範囲）
+      const rects: number[][] = []; // 描き直した矩形（px。GPU へ送る範囲）
       for (const [x, y] of s.broken.slice(this.brokenN)) {
         tiles[y] = tiles[y].slice(0, x) + '.' + tiles[y].slice(x + 1);
         wallVer++;
-        paintMap(this.mapCtx, this.chips, tiles, x - 2, y - 2, x + 2, y + 2); // そのマスと周りのオートタイル・壁の正面
-        x0 = Math.min(x0, x - 2); y0 = Math.min(y0, y - 2); x1 = Math.max(x1, x + 2); y1 = Math.max(y1, y + 2);
+        paintMap(this.mapTex.context, this.chips, tiles, x - 2, y - 2, x + 2, y + 2); // そのマスと周りのオートタイル・壁の正面
+        rects.push([(x - 2) * T, (y - 2) * T, (x + 3) * T, (y + 3) * T]);
         this.miniTex.context.fillStyle = '#8a8478';
         this.miniTex.context.fillRect(x * MINI, y * MINI, MINI + 0.2, MINI + 0.2);
       }
-      this.miniTex.refresh(); this.mapCopy(x0 * T, y0 * T, (x1 + 1) * T, (y1 + 1) * T);
+      this.miniTex.refresh(); this.mapSub(rects);
       this.walls = wallRects(tiles);
       this.seeWalls = seeRects(tiles);
       this.brokenN = s.broken.length;
