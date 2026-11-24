@@ -13,9 +13,10 @@ export function slotSpecHtml() {
   return `${START}
     <p>スロットは${S.spin}秒に1回転（リーチの演出・チャンスアップ（${S.gap}秒）・罰の出目（${S.penHold}秒）の間は止まる）。当たりの確率は回転ごと。</p>
     <table class="stack slotspec">
-      <thead><tr><th>徳</th><th>当たる</th><th>当たりのうち7</th><th>チャンスアップが続く</th><th>罰が出る</th></tr></thead>
+      <thead><tr><th>徳</th><th>当たり</th><th>7</th><th>連チャン</th><th>罰</th></tr></thead>
       ${rows}
     </table>
+    <p class="note">当たり＝1回転で当たる確率／7＝当たりのうち7（大将の絵柄）になる割合／連チャン＝チャンスアップの抽選が当たる確率（1回ごと）／罰＝1回転で罰の出目が出る確率</p>
     <ul>
       <li>当たると徳が${-S.winToku}下がる（チャンスアップでは変わらない）</li>
       <li>チャンスアップ: 当たりのあと最大${S.chance.n}回の抽選。当たるたびに強さが1段上がり、外れたら終わり（確率は当たった時の徳で決まる）</li>

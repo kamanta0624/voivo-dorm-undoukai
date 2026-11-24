@@ -78,6 +78,7 @@ footer{border-top:1px solid var(--line)}
 @media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 12px;padding-inline-start:7em;text-align:start;white-space:normal}.stack td::before{content:attr(data-l);float:inline-start;width:6.5em;margin-inline-start:-6.5em;color:var(--sub);font-weight:700;font-size:12px}.stack td:empty{display:none}.vs{font-size:16px}}
 @media(prefers-reduced-motion:no-preference){.pulse{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.35}}}
 .aura{display:block;width:100%;max-width:440px;margin:6px auto}
+section[id]{scroll-margin-top:72px} /* 目次（.scroll）は上に固定なので、ページ内移動で節の冒頭が隠れないように帯の高さ分下げて止める */
 </style>
 <script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
 </head>
@@ -184,7 +185,7 @@ footer{border-top:1px solid var(--line)}
     <!-- slot-spec:start -->
     <p>スロットは5秒に1回転（リーチの演出・チャンスアップ（1.5秒）・罰の出目（1.5秒）の間は止まる）。当たりの確率は回転ごと。</p>
     <table class="stack slotspec">
-      <thead><tr><th>徳</th><th>当たる</th><th>当たりのうち7</th><th>チャンスアップが続く</th><th>罰が出る</th></tr></thead>
+      <thead><tr><th>徳</th><th>当たり</th><th>7</th><th>連チャン</th><th>罰</th></tr></thead>
       <tr><td>0</td><td>0.7%</td><td>0%</td><td>20%</td><td>20%</td></tr>
       <tr><td>2.5</td><td>3.1%</td><td>0%</td><td>27.5%</td><td>10%</td></tr>
       <tr><td>5</td><td>5.6%</td><td>0%</td><td>35%</td><td>0%</td></tr>
@@ -192,6 +193,7 @@ footer{border-top:1px solid var(--line)}
       <tr><td>9</td><td>15.1%</td><td>3%</td><td>55%</td><td>0%</td></tr>
       <tr><td>10</td><td>17.5%</td><td>6%</td><td>60%</td><td>0%</td></tr>
     </table>
+    <p class="note">当たり＝1回転で当たる確率／7＝当たりのうち7（大将の絵柄）になる割合／連チャン＝チャンスアップの抽選が当たる確率（1回ごと）／罰＝1回転で罰の出目が出る確率</p>
     <ul>
       <li>当たると徳が2下がる（チャンスアップでは変わらない）</li>
       <li>チャンスアップ: 当たりのあと最大3回の抽選。当たるたびに強さが1段上がり、外れたら終わり（確率は当たった時の徳で決まる）</li>
@@ -204,7 +206,7 @@ footer{border-top:1px solid var(--line)}
     <div class="card"><h3>パワーアップ・アシスト</h3>
       <p>パワーアップは約20秒の変身。強さはパワーアップ1・2・3・MAXの4段で、キャラの頭上と上の一覧に「1」「2」「3」「MAX」の札が出る。専用のHPがあり、0になると解ける。背後のオーラ（大きな自分）は強いほど大きく、MAXで大将と同じ大きさ。</p>
       <!-- オーラの大きさは src/shared/config.ts の POWERUP_AURA.scale（キャラの何倍か） -->
-      <svg class="aura" viewBox="0 0 440 150" role="img" aria-label="パワーアップの強さと背後のオーラの大きさ"><g transform="translate(55 120)"><g transform="scale(1.200)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">パワーアップ1</text></g><g transform="translate(165 120)"><g transform="scale(1.467)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">パワーアップ2</text></g><g transform="translate(275 120)"><g transform="scale(1.733)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">パワーアップ3</text></g><g transform="translate(385 120)"><g transform="scale(2.000)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">パワーアップMAX</text></g></svg>
+      <svg class="aura" viewBox="0 0 440 150" role="img" aria-label="パワーアップの強さと背後のオーラの大きさ"><g transform="translate(55 120)"><g transform="scale(1.200)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">1</text></g><g transform="translate(165 120)"><g transform="scale(1.467)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">2</text></g><g transform="translate(275 120)"><g transform="scale(1.733)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">3</text></g><g transform="translate(385 120)"><g transform="scale(2.000)" opacity="0.35"><circle cx="0" cy="-34" r="7" fill="#ffd040"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#ffd040"/></g><circle cx="0" cy="-34" r="7" fill="#fff"/><rect x="-9" y="-26" width="18" height="26" rx="6" fill="#fff"/><text x="0" y="22" text-anchor="middle" fill="#ffe066" font-weight="900" font-size="15">MAX</text></g></svg>
       <p>アシストは味方の助っ人。各組1体まで。強さは★〜★★★★で、頭上と一覧に★の札が出る。</p><div class="dots" id="assists"></div>
     </div>
     <div class="card"><h3><img class="dot sm" src="/assets/gen/dot/kobako/idle.png" alt="">ブイブイ・コバコ</h3>
