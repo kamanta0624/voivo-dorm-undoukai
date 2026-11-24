@@ -161,13 +161,19 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby button.big{position:absolute;z-index:2;border:0;cursor:pointer;font:900 calc(var(--z) * 13px) sans-serif;color:#fff;border-radius:calc(var(--z) * 6px);padding:calc(var(--z) * 3px) calc(var(--z) * 14px)}
 #lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
 #lobby:not(.browse) #okbtn{display:block}
-#lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 10px) #ff7a3c;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
+#lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:none;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
+/* 出撃ボタンの光: 影＋光（小・橙）と影＋光（大・黄）の2枚をボタンの後ろに置き、透明度で入れ替える（box-shadow を毎フレーム描き直さない: render_policy 5）。両端は以前の box-shadow の点滅と同じ */
+#lobby.sortie #okbtn::before,#lobby.sortie #okbtn::after{content:'';position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;animation:1.2s ease-in-out infinite}
+#lobby.sortie #okbtn::before{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c;animation-name:startglowA}
+#lobby.sortie #okbtn::after{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a;animation-name:startglowB}
 #lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
 #lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby:not(.browse) #backsel{display:block}
 #lobby .grace{display:none;position:absolute;left:50%;top:3%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
 
-@keyframes startpulse{0%,100%{filter:brightness(1);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c}50%{filter:brightness(1.18);box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a}}
+@keyframes startpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
+@keyframes startglowA{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes startglowB{0%,100%{opacity:0}50%{opacity:1}}
 #fx .skill .seal{display:none;position:absolute;left:-10%;right:-10%;top:38%;background:#b00d;color:#fff;font:900 calc(var(--z) * 8px)/1.3 sans-serif;transform:rotate(-14deg);z-index:2}
 #fx .skill.sealed::after{content:'×';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff3030cc;font:900 calc(var(--z) * 40px)/1 sans-serif;z-index:1}
 #fx .skill.sealed .seal{display:block}
