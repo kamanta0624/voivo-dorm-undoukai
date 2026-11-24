@@ -48,8 +48,8 @@ const CSS = `
 @property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
 `;
 
-// 視界の円（画面中央・半径 VISION_RADIUS）とキルログ域。試合は setArea で実際の視界・キルログ域に差し替える
-const VIS0 = `<circle cx="${W / 2}" cy="${H / 2}" r="${C.VISION_RADIUS}" fill="black"/>`;
+// 視界の円（画面中央・半径 VISION_RADIUS×VISION_SCALE）とキルログ域。試合は setArea で実際の視界・キルログ域に差し替える
+const VIS0 = `<circle cx="${W / 2}" cy="${H / 2}" r="${C.VISION_RADIUS * C.VISION_SCALE}" fill="black"/>`;
 const rectSvg = (k: { x: number; y: number; w: number; h: number }) => `<rect x="${k.x}" y="${k.y}" width="${k.w}" height="${k.h}" fill="black"/>`;
 // holes（黒で描いた図形）を抜いたマスク（SVG）
 function maskUrl(holes: string) {

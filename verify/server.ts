@@ -154,7 +154,7 @@ console.log('--- キャラの数値（speed1 でロール補正・近接補正�
     const hit = Math.round(atk * m.dmg * C.DAMAGE_MULT), dealt = h0 - t.B.hp;
     const stOk = st.hp === step(hp, STAT_STEPS.hp) && st.speed === step(sp, STAT_STEPS.speed) && st.aa.every((x, i) => x.atk === step((atk * CHARS[ch].aa[i].dmg) / CHARS[ch].aa[i].cd, STAT_STEPS.atk));
     ok(`${ch}（${CHARS[ch].role ?? 'ロールなし'}）HP${r.maxHp(A)} 攻撃${atk}（1発${dealt}） 移動${r.speedOf(A)} 視界${visionRadius(ch)}・選択画面の段階 HP${st.hp} 移動${st.speed} 攻撃${st.aa.map((x) => x.atk).join('/')}`,
-      r.maxHp(A) === hp && charAtk(ch) === atk && dealt === hit && r.speedOf(A) === sp && visionRadius(ch) === vis && stOk, { dealt, hit });
+      r.maxHp(A) === hp && charAtk(ch) === atk && dealt === hit && r.speedOf(A) === sp && visionRadius(ch) === vis * C.VISION_SCALE && stOk, { dealt, hit });
   }
 }
 {
@@ -1397,7 +1397,7 @@ console.log('--- 冥鳴ひまり（死神の鎌: 透明化・鎌・跳ぶ）');
   const n = mk('himari', 'metan'); n.A.face = 0; n.A.tgt = null; n.r.attack('a');
   ok('透明化していないときは通常攻撃（鎌ではない）', n.B.alive && n.B.hp < n.r.maxHp(n.B) && !n.A.st.leap);
   // Bot: 透明化 → 接近 → 鎌
-  const bt = mk('himari', 'sayo'); bt.A.bot = true; bt.A.aim = C.BOT_AIM; Object.assign(bt.B, { x: 1552 + 200 }); bt.B.hp = 1e9;
+  const bt = mk('himari', 'sayo'); bt.A.bot = true; bt.A.aim = C.BOT_AIM; Object.assign(bt.B, { x: 1552 + 150 }); bt.B.hp = 1e9; // 視界（ひまり 180）の内側
   let used = false, swung = false;
   for (let i = 0; i < 100 && !swung; i++) { bt.r.now += 0.05; bt.r.updateBots(); bt.r.updatePlayers(0.05); used ||= !!bt.r.stat(bt.A, 'cloak'); swung = bt.r.fx.some((f: any) => f.color === 'scythe'); bt.r.fx = []; }
   ok('Bot: 敵が近いと透明化し、近づいて鎌を振る', used && swung);
@@ -1930,9 +1930,10 @@ console.log('--- プレイテスト3（Botのリコール判断・撃破後の�
   ok('低HPのBot: 視界内に敵がいる間はリコールを始めない／敵がいなくなれば始める／溜め中に敵が見えたら中断', noStart && started && canceled, { noStart, started, canceled });
   // 2. 残りHPの多い敵からは給湯室方向へ離れ、少ない敵には攻撃する
   const K0 = C.RECALL_ROOMS[0], kc = { x: K0.x + K0.w / 2, y: K0.y + K0.h / 2 }, dd = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
-  const f = lowBot(999); const fk0 = dd(f.A, kc), fb0 = dd(f.A, f.B); run(f, 1);
+  const f = lowBot(999, 100); const fk0 = dd(f.A, kc), fb0 = dd(f.A, f.B); run(f, 1); // 100: 視界（180）の外に出るまで十分に逃げられる距離から
   const flee = { kitchen: Math.round(fk0 - dd(f.A, kc)), away: Math.round(dd(f.A, f.B) - fb0), recall: f.A.recallAt };
-  ok(`低HPのBot: 自分より残りHPの多い敵からは離れ、給湯室へ向かう（リコールは敵が ${C.BOT_AGGRO_RANGE}px より離れて脅威なしになってから）`, flee.kitchen > 50 && flee.away > 50 && (flee.recall === null || dd(f.A, f.B) > C.BOT_AGGRO_RANGE) && !f.A.lowFight, flee);
+  const threatR = Math.min(C.BOT_AGGRO_RANGE, visionRadius('sayo')); // 脅威とみなす距離（視界の外の敵は見えないので脅威にならない）
+  ok(`低HPのBot: 自分より残りHPの多い敵からは離れ、給湯室へ向かう（リコールは敵が ${threatR}px より離れて脅威なしになってから）`, flee.kitchen > 50 && flee.away > 50 && (flee.recall === null || dd(f.A, f.B) > threatR) && !f.A.lowFight, flee);
   const g = lowBot(1); g.B.st.test = NOAUTO(); delete g.A.st.test; const gb0 = dd(g.A, g.B); run(g, 1);
   ok('低HPのBot: 自分より残りHPの少ない敵には攻撃する（離れない・倒す）', g.A.lowFight && (!g.B.alive || dd(g.A, g.B) <= gb0), { fight: g.A.lowFight, foeAlive: g.B.alive, d: Math.round(dd(g.A, g.B)) });
   // 決定は BOT_FLEE_COMMIT 秒維持
@@ -1961,7 +1962,7 @@ console.log('--- プレイテスト3（Botのリコール判断・撃破後の�
   // 5. 味方が近くにいれば、絞り中・絞り切り後も味方の視界内の敵は見え続ける
   const w = mk('sayo'); w.r.addPlayer('ally', 0, false); w.r.addPlayer('foe', 1, false);
   const ally = w.r.players.get('ally'), foe = w.r.players.get('foe');
-  Object.assign(ally, { x: w.A.x - 100, y: w.A.y }); Object.assign(foe, { x: w.A.x + 150, y: w.A.y });
+  Object.assign(foe, { x: w.A.x + 150, y: w.A.y }); Object.assign(ally, { x: foe.x - (visionRadius('sayo') - 10), y: w.A.y }); // 敵は味方の視界の内側
   w.A.rage = 0; w.r.damagePlayer(w.A, 1e9, null); const wobs = w.r.obstacles();
   const seen = [end + 0.3, C.RESPAWN_BASE - 0.01, C.RESPAWN_BASE + 0.5].map((t) => { w.r.now = w.A.koAt + t; return w.r.visibleTo(0, foe.x, foe.y, wobs); });
   ally.alive = false; ally.koAt = -99; w.r.now = w.A.koAt + C.RESPAWN_BASE; const alone = w.r.visibleTo(0, foe.x, foe.y, wobs);

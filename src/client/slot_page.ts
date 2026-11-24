@@ -15,12 +15,13 @@ const actName = (a: string | null) => (a === 'allSpin' ? '全回転' : a ? spec.
 const pct = (a: number, b: number) => (b ? `${((a / b) * 100).toFixed(1)}%` : '-');
 const oneIn = (a: number, b: number) => (a ? `1/${(b / a).toFixed(1)}` : '-');
 
+const VR = C.VISION_RADIUS * C.VISION_SCALE; // 視界の半径（試合と同じく率を掛ける）
 document.head.insertAdjacentHTML('beforeend', `<style>
 #app{display:flex;flex-wrap:wrap;gap:12px;padding:12px}
 .frame{position:relative;background:#000;overflow:hidden;flex:none}
 .logic{position:absolute;left:0;top:0;width:${C.VIEW_W}px;height:${C.VIEW_H}px;transform-origin:0 0;overflow:hidden;background:repeating-linear-gradient(45deg,#4a4438 0 16px,#524b3e 16px 32px)}
-.fog{position:absolute;inset:0;background:radial-gradient(circle ${C.VISION_RADIUS}px at 50% 50%,transparent ${C.VISION_RADIUS - 0.5}px,#000d ${C.VISION_RADIUS}px)}
-.vis{position:absolute;left:${C.VIEW_W / 2 - C.VISION_RADIUS}px;top:${C.VIEW_H / 2 - C.VISION_RADIUS}px;width:${C.VISION_RADIUS * 2}px;height:${C.VISION_RADIUS * 2}px;border:1px dashed #0f08;border-radius:50%;box-sizing:border-box}
+.fog{position:absolute;inset:0;background:radial-gradient(circle ${VR}px at 50% 50%,transparent ${VR - 0.5}px,#000d ${VR}px)}
+.vis{position:absolute;left:${C.VIEW_W / 2 - VR}px;top:${C.VIEW_H / 2 - VR}px;width:${VR * 2}px;height:${VR * 2}px;border:1px dashed #0f08;border-radius:50%;box-sizing:border-box}
 .kl{position:absolute;border:1px dashed #f80c;color:#f80;font-size:7px;box-sizing:border-box;padding:1px}
 .me{position:absolute;left:${C.VIEW_W / 2 - 16}px;top:${C.VIEW_H / 2 - 36}px}
 .hudpos{position:absolute;left:50%;top:6.4%;transform:translateX(-50%)}
@@ -36,7 +37,7 @@ textarea{width:100%;height:140px;background:#111;color:#cfc;font:11px monospace}
 .sw{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
 </style>`);
 document.body.innerHTML = `<div id="app">
-<div><div class="row"><b>演出の範囲</b><button id="pc" class="on">PC 1280×720</button><button id="sp">スマホ 844×390</button><span style="color:#888">緑の点線＝視界（半径${C.VISION_RADIUS}）、橙＝キルログ域</span></div>
+<div><div class="row"><b>演出の範囲</b><button id="pc" class="on">PC 1280×720</button><button id="sp">スマホ 844×390</button><span style="color:#888">緑の点線＝視界（半径${VR}）、橙＝キルログ域</span></div>
 <div class="frame" id="frame"><div class="logic" id="logic"><div class="fog"></div><div class="vis"></div><div class="kl" id="kl">キルログ域</div><img class="me" src="assets/gen/dot/zunko/idle.png" style="image-rendering:pixelated"><div class="hudpos" id="hud"></div><div id="layer" style="position:absolute;inset:0"></div></div></div></div>
 <div class="panel"><h3>操作</h3>
 <div class="row">徳 <input id="toku" type="range" min="0" max="10" step="0.1" style="width:180px"><b id="tokuV"></b><label><input id="fixed" type="checkbox">徳を固定（当選で減らさない）</label></div>

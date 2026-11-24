@@ -372,7 +372,7 @@ console.log('--- 2. 個別プレー');
   const { r, A, B, keys } = mk('sayo', 'metan');
   B.alive = false; B.x = B.y = -999;
   const boss = r.bosses[1];
-  Object.assign(boss, { x: 1552 + 200, y: 900 });
+  Object.assign(boss, { x: 1552 + 150, y: 900 }); // 大将の視界（180）の内側
   r.cm.focus = 'a'; r.cm.attn.set('a', 60);
   run(r, 1.05);
   ok('敵大将の近くで大将側に見えた → 接近', keys().includes('play_boss_near') && r.cm.nearAt.has('a'), keys());

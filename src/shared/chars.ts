@@ -87,7 +87,7 @@ export const BOSS_CHAR = [0, 1].map((t) => Object.keys(JSON_CHARS).find((k) => J
 // キャラのロール。char なし（大将）や role なしは null
 export const roleOf = (char?: string) => { const r = CHARS[char ?? '']?.role; return r ? { name: r } : null; };
 // キャラの視界半径。char なし（大将）・定義のないキャラ（アシスト）は基本値
-export const visionRadius = (char?: string) => CHARS[char ?? '']?.stat.vision ?? C.VISION_RADIUS;
+export const visionRadius = (char?: string) => (CHARS[char ?? '']?.stat.vision ?? C.VISION_RADIUS) * C.VISION_SCALE; // 視界の率（VISION_SCALE）を掛けた半径
 // 撃破後の視界半径（サーバー・クライアント共通）。ko: 撃破からの秒数（null＝生存）。大爆発までは visionRadius、その後 RESPAWN_BASE までに (1−t)^2 で0へ縮む。アシストは大爆発で0
 export const eyeRadius = (char: string, ko: number | null, assist = false) => {
   const r = visionRadius(char), K = C.KO_FX, end = K.shake + K.boom;
