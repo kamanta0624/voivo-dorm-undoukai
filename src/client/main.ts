@@ -285,7 +285,12 @@ fx.appendChild(kohow);
 const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
 fx.appendChild(hudEl);
-const $ = (q: string) => hudEl.querySelector<HTMLElement>(q)!;
+// HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
+const $cache = new Map<string, HTMLElement>();
+const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hudEl.querySelector<HTMLElement>(q)!; $cache.set(q, e); } return e; };
+// 毎フレームの style の書き込みは、最後に書いた値と違う時だけ書く（render_policy 5）。ほかの場所から同じ style を書く要素には使わない
+const styled = new WeakMap<HTMLElement, Record<string, string>>();
+const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; el.style.setProperty(k, v); } };
 // 練習パネル（handoff_practice1。練習の部屋の試合中だけ）: タイマーの位置のボタンで開閉
 hudEl.insertAdjacentHTML('beforeend', `<button class="prbtn">練習 ▼</button><div class="prp">
 <div class="r"><b>相手</b><select class="pfoe">${PICKABLE.map((k) => `<option value="${k}">${CHARS[k].name}</option>`).join('')}</select></div>
@@ -1199,8 +1204,8 @@ class GameScene extends Phaser.Scene {
   // 練習パネルの表示: 試合中だけボタンを出す（タイマーの代わり）。相手・動き・レベルはサーバーの値
   practiceHud(s: any) {
     const on = !!s.practice && s.phase === 'playing', btn = $('.prbtn'), prp = $('.prp');
-    btn.style.display = on ? 'block' : 'none';
-    $('.timer').style.visibility = s.practice ? 'hidden' : '';
+    setCss(btn, 'display', on ? 'block' : 'none');
+    setCss($('.timer'), 'visibility', s.practice ? 'hidden' : '');
     if (!on) { prp.classList.remove('open'); return; }
     const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TIERS[t]);
     setText($('.lv0'), lv(P.lv[0])); setText($('.lv1'), lv(P.lv[1]));
@@ -1477,7 +1482,7 @@ class GameScene extends Phaser.Scene {
     else this.introCamNew(s, myTeam, sinceSnap, camera, labelSeen);
     const fcam = s.phase === 'finale'; // 決着演出のカメラ（finaleView）
     const mmOn = !!this.mmCam && !this.introCam && s.phase !== 'waiting' && !fcam;
-    $('.mm').style.display = this.introCam || s.phase === 'waiting' ? 'none' : 'block';
+    setCss($('.mm'), 'display', this.introCam || s.phase === 'waiting' ? 'none' : 'block');
     if (mmOn) camera.stopFollow();
     else if (this.mmHeld && meUnit && !freeCam && !fcam) { camera.centerOn(meUnit.s.x, meUnit.s.y); camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP); }
     else if (this.mmHeld && freeCam) camera.centerOn(this.me.x, this.me.y);
@@ -1637,36 +1642,36 @@ class GameScene extends Phaser.Scene {
     const sec = Math.ceil(s.timeLeft);
     setText($('.timer'), `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
     this.practiceHud(s);
-    [0, 1].forEach((t) => { const el = $(`.b${t} i`); el.style.width = `${s.teams[t].bossHpRatio * 100}%`; el.style.background = css16(TEAM_COLOR[t]); }); // 左＝陣営0、右＝陣営1
+    [0, 1].forEach((t) => { const el = $(`.b${t} i`); setCss(el, 'width', `${s.teams[t].bossHpRatio * 100}%`); setCss(el, 'background', css16(TEAM_COLOR[t])); }); // 左＝陣営0、右＝陣営1
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;
-    back.style.display = s.phase === 'ended' && mine ? 'block' : 'none';
-    $('.totitle').style.display = back.style.display;
+    const backDisp = s.phase === 'ended' && mine ? 'block' : 'none';
+    setCss(back, 'display', backDisp); setCss($('.totitle'), 'display', backDisp);
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
     this.buffHud(s, mine, myTeam, sinceSnap);
     if (s.phase !== 'waiting') this.tokuHud(s);
-    $('.tk').style.display = s.phase === 'waiting' ? 'none' : 'flex';
+    setCss($('.tk'), 'display', s.phase === 'waiting' ? 'none' : 'flex');
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);
     this.staging(s, mine, myTeam, sinceSnap);
     // 技のアイコンとクールタイム
     const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
-    skEl.style.display = sk ? 'flex' : 'none';
+    setCss(skEl, 'display', sk ? 'flex' : 'none');
     skEl.classList.toggle('sealed', !!sk && ['waiting', 'intro', 'countdown'].includes(s.phase)); // 封印: 戦闘開始前
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
       setText($('.skill .sn'), sk.name);
       setText($('.skill b'), hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK');
-      $('.skill i').style.setProperty('--p', `${(cd / sk.ct) * 360}deg`);
-      skEl.style.borderColor = cd > 0 || hud ? '#888' : '#ffe066';
+      setCss($('.skill i'), '--p', `${(cd / sk.ct) * 360}deg`);
+      setCss(skEl, 'border-color', cd > 0 || hud ? '#888' : '#ffe066');
       // そらのチャージ: 技ボタンのゲージと％（本人だけ。撤退中は0%）。スナップショットの値のまま（間を足すと届いたときに数字が戻ることがある）
       const ch = mine.st?.solarCharge;
       skEl.classList.toggle('charge', mine.char === 'sora');
       if (mine.char === 'sora') {
         const pct = mine.alive && ch !== undefined ? Math.round(solarPct(Number(ch))) : 0;
         setText($('.skill small'), `${pct}%`);
-        const g = $('.skill s'); g.style.setProperty('--g', `${Math.min(100, pct)}%`); g.classList.toggle('over', pct > 100);
+        const g = $('.skill s'); setCss(g, '--g', `${Math.min(100, pct)}%`); g.classList.toggle('over', pct > 100);
       }
     }
     { const t = `照準<br>${AIM_SHORT[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}`; if ($('.aimb').innerHTML !== t) $('.aimb').innerHTML = t; }
@@ -1703,19 +1708,19 @@ class GameScene extends Phaser.Scene {
       const img = down.querySelector('img')!, koed = CHARS[mine.char].koed;
       const src = TACHIE(mine.char, koed ? 'koed' : 'select');
       if (!img.src.endsWith(src)) img.src = src;
-      img.style.filter = koed ? '' : 'grayscale(1)';
+      setCss(img, 'filter', koed ? '' : 'grayscale(1)');
       img.classList.toggle('fall', !koed); // やられ顔がないキャラは傾けながらずり落とす
-      down.style.setProperty('--d', `${C.CUTIN_MS}ms`);
-      down.querySelector('div')!.textContent = `反省中 あと${Math.max(0, mine.respawnIn - (performance.now() - this.snapAt) / 1000).toFixed(1)}秒`; // 受信後の経過分を毎フレーム引く
-      down.style.display = 'block';
+      setCss(down, '--d', `${C.CUTIN_MS}ms`);
+      setText(down.querySelector('div')!, `反省中 あと${Math.max(0, mine.respawnIn - (performance.now() - this.snapAt) / 1000).toFixed(1)}秒`); // 受信後の経過分を毎フレーム引く
+      setCss(down, 'display', 'block');
       // 倒した相手: 立ち絵（KOした時の表情。大将・プレイヤー以外は立ち絵なし）と、誰に何で倒されたか
       const by = this.koedBy, kimg = killer.querySelector('img')!, ksrc = by?.kc && CHARS[by.kc] ? TACHIE(by.kc, 'ko') : '';
       if (ksrc && !kimg.src.endsWith(ksrc)) kimg.src = ksrc;
-      kimg.style.display = ksrc ? '' : 'none';
+      setCss(kimg, 'display', ksrc ? '' : 'none');
       const kt = by ? [by.kc ? charName(by.kc) : '', by.how].filter((x) => x).join('\n') : ''; // 1行目: 倒したキャラ名、2行目: 倒した手段
       if (kohow.textContent !== kt) kohow.textContent = kt;
-      killer.style.display = kohow.style.display = by ? 'block' : 'none';
-    } else { down.style.display = 'none'; killer.style.display = 'none'; kohow.style.display = 'none'; }
+      setCss(killer, 'display', by ? 'block' : 'none'); setCss(kohow, 'display', by ? 'block' : 'none');
+    } else { setCss(down, 'display', 'none'); setCss(killer, 'display', 'none'); setCss(kohow, 'display', 'none'); }
 
     const result = s.winner === 2 ? '引き分け' : s.winner >= 0 ? `${TEAM_NAME[s.winner]}の勝ち` : '';
     setText($('#info'), [
