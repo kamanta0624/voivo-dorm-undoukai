@@ -2527,5 +2527,15 @@ console.log('--- 自動照準は自陣営の画面に映っている敵だけ（
   ok('Bot: 射程内でも視界外の敵は狙わず撃たない', tgt === null && shots === 0, { tgt: tgt && tgt.k, shots });
 }
 
+console.log('--- WhiteCUL のクナイ（fb1124）');
+{
+  const W = CHARS.whitecul, [k] = W.aa;
+  ok(`通常攻撃はクナイ（遠距離）: 射程 ${k.range}（吹雪の長さと同じ）、間隔 ${k.cd}秒（近接の1.1倍）、威力の倍率 ${k.dmg}（近接と同じ）`, W.aa.length === 1 && k.name === 'クナイ' && k.kind === 'shot' && k.shot === 'kunai' && k.range === 200 && k.range === W.skill.len && Math.abs(k.cd - C.ATTACK_COOLDOWN_MELEE * 1.1) < 1e-12 && k.dmg === 1);
+  const w = mk('whitecul', 'sayo'); Object.assign(w.B, { x: 1552 + 150, y: 900, hp: 9999 }); w.B.st.test = NOAUTO(); delete w.A.st.test; w.A.tgt = null;
+  w.r.updatePlayers(0.05); const sh = w.r.shots.find((q: any) => q.owner === 'a'), cd0 = w.A.cooldownUntil - w.r.now;
+  let t = 0; while (w.B.hp === 9999 && t < 2) { w.r.now += 0.05; t += 0.05; w.r.updateShots(0.05); }
+  ok('クナイが飛んで当たる（射程200・間隔1.1秒）', !!sh && sh.kind === 'kunai' && sh.left <= 200 + 1e-9 && w.B.hp < 9999 && Math.abs(cd0 - 1.1) < 1e-9, { kind: sh?.kind, left: sh?.left, cd0, hp: w.B.hp });
+}
+
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

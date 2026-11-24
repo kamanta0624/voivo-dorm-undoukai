@@ -5,7 +5,7 @@ import CHARS_JSON from './chars.json';
 import MAP from './map.json';
 
 // 通常攻撃のモード。kind: melee=前方の扇形（ATTACK_ARC）、shot=弾。dmg: ダメージ倍率。far: 対象がこれより遠い（対象なしを含む）ときだけ使う。fx: 近接の斬撃のエフェクトを技ごとの描画（client/skills の fx）に差し替える color
-export type AaMode = { name: string; kind: 'melee' | 'shot'; range: number; cd: number; dmg: number; shot?: 'bullet' | 'cannon'; speed?: number; far?: number; fx?: string };
+export type AaMode = { name: string; kind: 'melee' | 'shot'; range: number; cd: number; dmg: number; shot?: 'bullet' | 'cannon' | 'kunai'; speed?: number; far?: number; fx?: string };
 export type CharDef = {
   role?: string; // ロール（balance・attacker・speed・defense・support。ロール固有の効果と選択画面のロール表示。なし可）
   stat: { hp: number; atk: number; speed: number; vision: number }; // 最大HP・通常攻撃の基本値・移動(px/秒)・視界半径(px)
@@ -25,7 +25,8 @@ export const CHARS: Record<string, CharDef> = {
   // 花丸パンチ: CT 明けから自動でチャージ（発射・撤退で0）。チャージの秒数が lv[i].t 以上でレベル i+1（最後のレベルで止まる）。発動（矢印で向きを決める）で lv[i].wind 秒溜めて（移動不可・向きは変えられる）から拳を発射。拳はレベルの size 倍の半径・dmg 倍の威力・speed 倍の弾速
   // 拳: 前方へ直進（speed px/秒、range px で消える）、半径 r の拳がキャラ（1体1回）にダメージ・壁を破壊して貫通。芯（半径 core、タメで変わらない）が壊せない壁に触れると消える。パッシブ: 壁へ push 秒押し込み続けるとその壁を壊す（reach: 前方の壁を探すタイル数、w×d: 壊す範囲(タイル)）。Bot: 壁破壊で経路が botSave(px)以上短くなるなら使う（botCheck 秒ごとに判定。壁破壊はタメなし）。敵へはその時のチャージのレベルで撃つ
   hanamaru: def({ stat: { hp: 120, atk: 24, speed: 170, vision: 300 }, desc: '時間とともに力が溜まり、溜まった分だけ大きな拳をまっすぐ飛ばす（大きいほど撃つ前の溜めが長い）。溜まるほど拳が大きく強く、遅くなる。当たった敵にダメージ、壁を壊して突き進む', passive: '壁に押し込み続けると、その壁を壊す', role: 'balance', skill: { name: '花丸パンチ', ct: 10, speed: 360, range: 520, r: 30, core: 15, dmg: 40, reach: 3, w: 3, d: 2, push: 0.05, botSave: 320, botCheck: 0.25, lv: [{ t: 0, size: 1, dmg: 0.8, speed: 1, wind: 0 }, { t: 10, size: 1.5, dmg: 1.2, speed: 0.75, wind: 0.5 }, { t: 25, size: 2, dmg: 1.76, speed: 0.55, wind: 1 }] } }),
-  whitecul: def({ stat: { hp: 96, atk: 19.2, speed: 187, vision: 390 }, desc: '前方に吹雪を起こし、範囲の敵にダメージを与えてはじき飛ばす', role: 'speed', skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
+  // 通常攻撃はクナイ投げ（中距離。射程は吹雪の長さと同じ 200、間隔は近接の1.1倍、威力の倍率は近接と同じ。fb1124）。弾速は仮置き
+  whitecul: def({ stat: { hp: 96, atk: 19.2, speed: 187, vision: 390 }, desc: '中距離でクナイを投げて戦う。技は前方に吹雪を起こし、範囲の敵にダメージを与えてはじき飛ばす', role: 'speed', aa: [{ name: 'クナイ', kind: 'shot', range: 200, cd: C.ATTACK_COOLDOWN_MELEE * 1.1, dmg: 1, shot: 'kunai', speed: 600 }], skill: { name: '吹雪', ct: 7.2, len: 200, w: 80, dmg: 20, push: 80 } }),
   sayo: def({ stat: { hp: 84, atk: 33.6, speed: 170, vision: 300 }, desc: 'しばらく足が速くなり、自分のまわりの敵を斬り続ける', role: 'attacker', skill: { name: '疾風乱舞', ct: 8, dur: 3, speed: 1.6, every: 0.3, r: 60, dmg: 12 } }),
   // ドリル: dur 秒、前方（向きは移動・照準に追従）に長さ len・幅 w のドリルを出しっぱなし。触れた敵に dmg ＋自分から離れる向きへ push はじく。同じ相手には rehit 秒おき。ドリル中は通常攻撃しない（移動は可）
   metan: def({ stat: { hp: 168, atk: 21.6, speed: 144.5, vision: 300 }, desc: 'しばらく前方にドリルを出し続ける。触れた敵にダメージを与えてはじく（その間は通常攻撃しない）', role: 'defense', skill: { name: 'ドリル', ct: 4.8, dur: 2.4, len: 70, w: 36, dmg: 12, push: 40, rehit: 0.4 } }),

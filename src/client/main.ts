@@ -346,6 +346,7 @@ class GameScene extends Phaser.Scene {
   pingAt = -Infinity;
   pingPending: number | null = null;
   sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
+  kunais = new Map<number, Phaser.GameObjects.Image>(); kunaiSeen = new Set<number>(); // クナイの弾の絵（弾の id ごと）と、このフレームに見えた弾
   finishMeasure() {
     if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
     this.measureSent = true;
@@ -751,6 +752,13 @@ class GameScene extends Phaser.Scene {
       c.fillStyle = '#7fd4ff'; c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1; c.stroke();
     }
     t.refresh();
+    // クナイ（WhiteCUL の通常攻撃の弾）: 右向き。刃（銀）・柄（紺）・輪。起動時に1回だけ作り、弾は Image で置く（render_policy 3）
+    const k = this.textures.createCanvas('kunai', 18, 8)!, q = k.context;
+    q.fillStyle = '#d8dee8'; q.strokeStyle = '#2a3040'; q.lineWidth = 1;
+    q.beginPath(); q.moveTo(17.5, 4); q.lineTo(9, 1); q.lineTo(7, 4); q.lineTo(9, 7); q.closePath(); q.fill(); q.stroke(); // 刃
+    q.fillStyle = '#2a3a6a'; q.fillRect(3, 3, 4.5, 2); // 柄
+    q.strokeStyle = '#d8dee8'; q.beginPath(); q.arc(2, 4, 1.6, 0, Math.PI * 2); q.stroke(); // 輪
+    k.refresh();
   }
 
   // 斬撃の絵（arc の角度ごとに1回だけ作る）: 中心から右向き、外周に三日月の刃
@@ -1283,6 +1291,14 @@ class GameScene extends Phaser.Scene {
   }
 
   // 資材: 黄色の箱。高ポイント（裏側）はピンクの大きい箱、高性能の徳（コバコが置く）は水色のさらに大きい箱で、明滅する光をまとう
+  // クナイの弾: 弾の向きに回して置く。画面外は描かない
+  placeKunai(sh: any) {
+    this.kunaiSeen.add(sh.id);
+    let im = this.kunais.get(sh.id);
+    if (!im) { im = this.add.image(sh.x, sh.y, 'kunai').setDepth(20); this.kunais.set(sh.id, im); }
+    im.setPosition(sh.x, sh.y).setRotation(Math.atan2(sh.vy, sh.vx)).setVisible(this.inView(sh.x, sh.y, 10));
+  }
+
   // (x, y) が今のカメラの表示範囲（余白 m px を足す）に入るか。worldView は描画の直前に更新されるので、スクロール位置・ズームから求める。余白は追従の遅れ・揺れの分も含める（画面外は描かない: render_policy 4）
   inView(x: number, y: number, m: number) {
     const c = this.cameras.main, w = c.width / c.zoom, h = c.height / c.zoom, x0 = c.scrollX + (c.width - w) / 2, y0 = c.scrollY + (c.height - h) / 2, M = m + CULL_MARGIN;
@@ -1610,11 +1626,15 @@ class GameScene extends Phaser.Scene {
       selfView(fxG, { me: this.me, s, myTeam, time, pos: (id: string) => this.interp.at(id, now) });
     this.aimArrow(fxG, mine);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
+    this.kunaiSeen.clear();
     for (const sh of s.shots) {
       if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）
+      if (sh.kind === 'kunai') { this.placeKunai(sh); continue; } // クナイ: 起動時に作った絵を Image で置く
       if (sh.kind === 'cannon') fxG.fillStyle(0xc87a3a).fillCircle(sh.x, sh.y, 5).lineStyle(1, 0x5a3010).strokeCircle(sh.x, sh.y, 5); // きりたん砲
       else fxG.fillStyle(0x8fdf5f).fillCircle(sh.x, sh.y, C.BULLET_RADIUS).lineStyle(1, 0x2f6f1f).strokeCircle(sh.x, sh.y, C.BULLET_RADIUS);
     }
+    for (const [id, im] of this.kunais) if (!this.kunaiSeen.has(id)) { im.destroy(); this.kunais.delete(id); } // 消えた弾の絵を片付ける
+
 
     const g = this.g.clear();
     // 自陣の大将の候補部屋の縁取り
