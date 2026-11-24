@@ -1046,6 +1046,7 @@ class GameScene extends Phaser.Scene {
   // 画面上部の一覧（左＝陣営0、右＝陣営1）。どちらもアイコン4つを横並び、反省中はグレー
   // 味方: アイコンの下部に体力バー、反省中は復活までの残り秒数を重ねる。アシストは一番左のアイコンの下に（アイコン＋体力バー）。敵: アイコンだけ
   buffHtml = '';
+  buffTopOf: string | null = null; // バフ欄の位置を測った時の .r0 の中身
   rosterHud(s: any, myTeam: number, sinceSnap: number) {
     const c = css16(TEAM_COLOR[myTeam]), bar = (p: any) => `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>`;
     const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
@@ -1071,7 +1072,8 @@ class GameScene extends Phaser.Scene {
     const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
     const el = $('.buffs'), r0 = $('.r0');
     if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
-    el.style.top = `${r0.offsetTop + r0.offsetHeight + 4}px`;
+    // 位置は左上の一覧（.r0）の中身が変わった時と、リサイズ等の後だけ測る（毎フレーム offsetTop を読むと DOM を書いた後なので強制レイアウトになる）
+    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.offsetTop + r0.offsetHeight + 4}px`; }
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
