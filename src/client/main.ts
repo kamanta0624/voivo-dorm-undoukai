@@ -118,7 +118,7 @@ css.textContent = `
 #fx #info{position:absolute;left:.6%;bottom:1%;color:#fff;background:#0009;font:calc(var(--z) * 6.5px)/1.35 sans-serif;padding:.3em .5em;white-space:pre}
 #fx .notes{position:absolute;top:30%;left:50%;transform:translateX(-50%);text-align:center}
 #fx .notes div{background:#000b;color:#ffe066;font:bold calc(var(--z) * 8px) sans-serif;padding:.2em .8em;margin-bottom:.3em;border-radius:3px;white-space:nowrap}
-#fx .pop{position:absolute;left:0;top:0;transform:translate(-50%,-100%);font:bold calc(var(--z) * 8px) sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;animation:popup var(--d) ease-out forwards}
+#fx .pop{position:absolute;transform:translate(-50%,-100%);font:bold calc(var(--z) * 8px) sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;animation:popup var(--d) ease-out forwards}
 #fx .pop.dmg{color:#ff5050}
 #fx .pop.plus{color:#ffe066;font-size:calc(var(--z) * 10px)}
 #fx .pop.plus.hi{color:#ff7ad9;font-size:calc(var(--z) * 13px)}
@@ -201,7 +201,7 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .fin .kn small{display:block;font-size:calc(var(--z) * 9px);color:#fff}
 #fx .fin .kn.k0{left:6%}
 #fx .fin .kn.k1{right:6%;text-align:right}
-#fx .lbl{position:absolute;left:0;top:0;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
+#fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
 #fx .skill{isolation:isolate}
@@ -1145,11 +1145,10 @@ class GameScene extends Phaser.Scene {
     setTimeout(() => el.remove(), C.NOTIFY_MS);
   }
 
-  // DOM の要素をワールド座標 (x, y) の位置（fx 内の px）に置く。left/top ではなく transform で動かす（毎フレーム動かしてもレイアウトを起こさない: render_policy 5）
-  // 位置は今までの left/top と同じく小数 px のまま（丸めると文字の位置が最大 0.5px ずれて見た目が変わる）。anchor: 要素の基準点のずらし（CSS の transform と同じ値）
-  place(el: HTMLElement, x: number, y: number, anchor: string) {
+  // ワールド座標 → fx 内の座標(px)
+  toScreen(x: number, y: number) {
     const cam = this.cameras.main, v = cam.worldView, z = this.game.scale.zoom * cam.zoom;
-    setCss(el, 'transform', `translate(${(x - v.x) * z}px,${(y - v.y) * z}px) ${anchor}`);
+    return { left: `${(x - v.x) * z}px`, top: `${(y - v.y) * z}px` };
   }
 
   // ワールド座標に付く常時表示のラベル（毎フレーム呼んだものだけ残す）
@@ -1163,7 +1162,7 @@ class GameScene extends Phaser.Scene {
       this.labels.set(key, el);
     }
     if (el.textContent !== text) el.textContent = text;
-    this.place(el, x, y, 'translate(-50%,-50%)');
+    Object.assign(el.style, this.toScreen(x, y));
   }
 
   lobbyUpdate(s: any) {
@@ -1707,7 +1706,7 @@ class GameScene extends Phaser.Scene {
     const cam = this.cameras.main.worldView;
     ui.lineStyle(1, 0xffffff, 0.6).strokeRect(mx + cam.x * ms, my + cam.y * ms, cam.width * ms, cam.height * ms);
     // ワールドに付く一時表示とラベルの位置
-    this.pops = this.pops.filter((p) => (now < p.until ? (this.place(p.el, p.x, p.y, 'translate(-50%,-100%)'), true) : (p.el.remove(), false)));
+    this.pops = this.pops.filter((p) => (now < p.until ? (Object.assign(p.el.style, this.toScreen(p.x, p.y)), true) : (p.el.remove(), false)));
     for (const [key, el] of this.labels) if (!labelSeen.has(key)) { el.remove(); this.labels.delete(key); }
 
     // KOされた時: やられ顔と復活までの残り時間
