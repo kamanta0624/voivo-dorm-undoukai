@@ -49,6 +49,7 @@ css.textContent = `
 #title .msg{min-height:1.2em;color:#ffb0b0;text-align:center;font-weight:bold}
 #title .rooms{display:flex;flex-direction:column;gap:8px}
 #title .room{display:flex;justify-content:space-between;align-items:center;border:0;border-radius:8px;padding:12px 16px;font:bold 17px sans-serif;color:#fff;background:linear-gradient(#ff9a3c,#e8541e);cursor:pointer}
+#title .room.practice{background:linear-gradient(#5ab0ff,#2a5ad8)}
 #title .room:disabled{background:#444;color:#aaa;cursor:default}
 #title .row{display:flex;gap:8px}
 #title .row button,#title .pop button{flex:1;border:1px solid #fff8;background:#000a;color:#fff;border-radius:6px;padding:8px;font:bold 14px sans-serif;cursor:pointer}
@@ -93,7 +94,7 @@ function showTitle() {
   const el = document.createElement('div');
   el.id = 'title';
   el.innerHTML = `<div class="in"><h1>${TITLE}</h1><div class="me">あなたの名前: <b></b></div><div class="notice" hidden></div><div class="msg"></div><div class="rooms"></div>
-<div class="row"><button class="practice">練習</button><button class="rules">ルール説明</button><button class="notes">更新情報</button><button class="credits">クレジット</button></div><div class="news" hidden></div></div>
+<div class="row"><button class="rules">ルール説明</button><button class="notes">更新情報</button><button class="credits">クレジット</button></div><div class="news" hidden></div></div>
 <div class="pop"><div class="body"></div><button>閉じる</button></div>`;
   document.body.appendChild(el);
   const $ = (s: string) => el.querySelector<HTMLElement>(s)!;
@@ -111,7 +112,6 @@ function showTitle() {
     $('.notes').onclick = () => open(items.map((x, i) => (i ? fold(x) : md(x))).join(''));
   });
   $('.credits').onclick = () => fetchText('credits.md').then((t) => open(md(t)));
-  $('.practice').onclick = () => join(() => client.create('game', { practice: true, name, bid })); // 練習（handoff_practice1）: 押すたびに本人専用の部屋を作って入る
   $('.rules').onclick = () => location.assign('/rules.html'); // ルール説明のページ（public/rules.html。戻るボタンはページの中）。ADV（tutorial.ts）は将来使うので残す
 
   // 部屋一覧: STATUS_POLL_SEC 秒ごとに自動更新。待機中かつ空きありの部屋だけ押せる。メンテ中は全部押せない
@@ -120,8 +120,11 @@ function showTitle() {
     const n = $('.notice');
     n.hidden = !s.maintenance;
     n.textContent = s.notice;
-    $('.rooms').innerHTML = s.rooms.map((r: any) => `<button class="room" data-id="${esc(r.id)}" ${r.state !== 'waiting' || s.maintenance ? 'disabled' : ''}><span>部屋${r.no}</span><span>${STATE_LABEL[r.state]}${r.state === 'playing' ? '' : `（${r.humans}/${r.max}）`}</span></button>`).join('');
-    el.querySelectorAll<HTMLButtonElement>('.room').forEach((b) => (b.onclick = () => join(() => client.joinById(b.dataset.id!, { name, bid }))));
+    // 部屋の一覧の最後に「練習」（同じ形のボタン、色だけ別。fb1124）
+    $('.rooms').innerHTML = s.rooms.map((r: any) => `<button class="room" data-id="${esc(r.id)}" ${r.state !== 'waiting' || s.maintenance ? 'disabled' : ''}><span>部屋${r.no}</span><span>${STATE_LABEL[r.state]}${r.state === 'playing' ? '' : `（${r.humans}/${r.max}）`}</span></button>`).join('')
+      + '<button class="room practice"><span>練習</span><span>自分1 vs 相手1</span></button>';
+    el.querySelectorAll<HTMLButtonElement>('.room[data-id]').forEach((b) => (b.onclick = () => join(() => client.joinById(b.dataset.id!, { name, bid }))));
+    $('.room.practice').onclick = () => join(() => client.create('game', { practice: true, name, bid })); // 練習（handoff_practice1）: 押すたびに本人専用の部屋を作って入る
   };
   const poll = async () => {
     try {

@@ -99,14 +99,18 @@ css.textContent = `
 #fx .down img.fall{animation:fall var(--d) ease-in forwards}
 @keyframes fall{0%{transform:none}100%{transform:rotate(-14deg) translateY(28%)}}
 #fx .down div{position:absolute;left:0;right:0;bottom:12%;text-align:center;color:#fff;font:bold 3vh sans-serif;text-shadow:0 0 4px #000,0 0 4px #000}
-#fx .prbtn{display:none;position:absolute;top:1.6%;left:50%;transform:translateX(-50%);z-index:5;pointer-events:auto;border:1px solid #ffe066;background:#000c;color:#ffe066;font:bold calc(var(--z) * 9px) sans-serif;padding:0 .6em;border-radius:3px;cursor:pointer}
-#fx .prp{display:none;position:absolute;top:calc(1.6% + var(--z) * 14px);left:50%;transform:translateX(-50%);z-index:5;pointer-events:auto;max-height:70%;overflow:auto;background:#000d;border:1px solid #ffe066;border-radius:4px;padding:calc(var(--z) * 3px) calc(var(--z) * 5px);color:#fff;font:calc(var(--z) * 6.5px) sans-serif;white-space:nowrap}
-#fx .prp.open{display:block}
-#fx .prp .r{display:flex;align-items:center;gap:calc(var(--z) * 2px);margin:calc(var(--z) * 2px) 0}
-#fx .prp .r>b{min-width:calc(var(--z) * 44px);color:#ffe066}
-#fx .prp button,#fx .prp select{font:inherit;color:#fff;background:#333;border:1px solid #888;border-radius:3px;padding:calc(var(--z) * 1px) calc(var(--z) * 3px);cursor:pointer}
+/* 練習パネル（fb1124）: 左端の縦長のタブと、左から出る引き出し（幅は画面の1/4）。開閉は transform のアニメーション。当たり判定は高さ44px以上 */
+#fx .prw{display:none;position:absolute;left:0;top:0;bottom:0;width:25%;z-index:5;transform:translateX(-100%);transition:transform .2s ease-out;pointer-events:none}
+#fx .prw.open{transform:none}
+#fx .prp{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto;box-sizing:border-box;background:#050505;border-right:1px solid #ffe066;padding:8px;display:flex;flex-direction:column;gap:6px;color:#fff;font:max(13px,calc(var(--z) * 6.5px)) sans-serif}
+#fx .prp>b{color:#ffe066;margin-top:4px}
+#fx .prp .r{display:flex;align-items:center;gap:6px}
+#fx .prp .r>*{flex:1}
+#fx .prp button,#fx .prp select{min-height:44px;font:inherit;color:#fff;background:#333;border:1px solid #888;border-radius:6px;padding:0 8px;cursor:pointer}
 #fx .prp button.on{background:#7a5a00;border-color:#ffe066}
-#fx .prp .lv{min-width:calc(var(--z) * 22px);text-align:center}
+#fx .prp .lv{flex:none;min-width:3.2em;text-align:center;font-weight:900;color:#ffe066}
+#fx .prp .end{margin-top:8px}
+#fx .prbtn{position:absolute;left:100%;top:34%;width:max(44px,calc(var(--z) * 22px));height:max(110px,calc(var(--z) * 55px));pointer-events:auto;box-sizing:border-box;border:1px solid #ffe066;border-left:0;border-radius:0 8px 8px 0;background:#000c;color:#ffe066;font:bold max(15px,calc(var(--z) * 8px)) sans-serif;writing-mode:vertical-rl;letter-spacing:.3em;cursor:pointer}
 #lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn{display:none}
 #lobby.practice.foe #backsel{display:block}
 #fx .timer{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);background:#000a;color:#fff;font:bold calc(var(--z) * 13px) sans-serif;padding:0 .5em;border-radius:3px}
@@ -126,7 +130,7 @@ css.textContent = `
 #fx .pop.warn{color:#fff59a;font-size:calc(var(--z) * 7px)}
 @keyframes popup{0%{opacity:1;translate:0 0}100%{opacity:0;translate:0 calc(var(--z) * -14px)}}
 /* 毎フレーム・毎秒変わる HUD の部品は独立した層にする（変わっても #fx 全体を描き直さない: render_policy 5）。ダメージ数値の浮き上がりは margin ではなく translate（レイアウトを起こさない） */
-#fx .timer,#fx .skill,#fx .tk,#fx .prbtn,#fx .prp,#fx .buffs,#fx .roster,#fx #info,#fx .banner,#fx .notes,#fx .down div{will-change:transform}
+#fx .timer,#fx .skill,#fx .tk,#fx .prw,#fx .buffs,#fx .roster,#fx #info,#fx .banner,#fx .notes,#fx .down div{will-change:transform}
 html.touch,html.touch body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc(env(safe-area-inset-bottom) + 1px)!important}
 #lobby .pwa{position:absolute;left:50%;transform:translateX(-50%);top:6px;z-index:3;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
@@ -302,13 +306,14 @@ const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hud
 const styled = new WeakMap<HTMLElement, Record<string, string>>();
 const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; el.style.setProperty(k, v); } };
 // 練習パネル（handoff_practice1。練習の部屋の試合中だけ）: タイマーの位置のボタンで開閉
-hudEl.insertAdjacentHTML('beforeend', `<button class="prbtn">練習 ▼</button><div class="prp">
-<div class="r"><b>相手</b><select class="pfoe">${PICKABLE.map((k) => `<option value="${k}">${CHARS[k].name}</option>`).join('')}</select></div>
-<div class="r"><b>相手の動き</b><button data-mode="stand">棒立ち</button><button data-mode="passive">攻撃なし</button><button data-mode="bot">通常Bot</button></div>
-<div class="r"><b>パワーアップ 自分</b><button data-pw="me" data-d="-1">−</button><span class="lv lv0"></span><button data-pw="me" data-d="1">＋</button></div>
-<div class="r"><b>パワーアップ 相手</b><button data-pw="foe" data-d="-1">−</button><span class="lv lv1"></span><button data-pw="foe" data-d="1">＋</button></div>
-<div class="r"><b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.ASSIST_TAGS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
-<div class="r"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div>`);
+// 左端の縦長のタブ「練習」と、左から出る引き出し（fb1124）。引き出しの中は縦1列。タブは引き出しの右端に付いたまま
+hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
+<b>相手</b><select class="pfoe">${PICKABLE.map((k) => `<option value="${k}">${CHARS[k].name}</option>`).join('')}</select>
+<b>相手の動き</b><button data-mode="stand">棒立ち</button><button data-mode="passive">攻撃なし</button><button data-mode="bot">通常Bot</button>
+<b>パワーアップ 自分</b><div class="r"><button data-pw="me" data-d="-1">−</button><span class="lv lv0"></span><button data-pw="me" data-d="1">＋</button></div>
+<b>パワーアップ 相手</b><div class="r"><button data-pw="foe" data-d="-1">−</button><span class="lv lv1"></span><button data-pw="foe" data-d="1">＋</button></div>
+<b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.ASSIST_TAGS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><div class="r"><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
+<div class="r end"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div><button class="prbtn">練習</button></div>`);
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
 const commentary = new Commentary(fx);
@@ -546,8 +551,8 @@ class GameScene extends Phaser.Scene {
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
     for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
     // 練習パネル: 操作はサーバーへ（pr）。表示は tick の practiceHud
-    const pr = (m: any) => this.room?.send('pr', m), prp = $('.prp');
-    $('.prbtn').onclick = () => prp.classList.toggle('open');
+    const pr = (m: any) => this.room?.send('pr', m), prp = $('.prp'), prw = $('.prw');
+    $('.prbtn').onclick = () => prw.classList.toggle('open'); // 押すたびに開閉（引き出しの外を触っても閉じない）
     $('.pfoe').onchange = (e) => pr({ op: 'foe', char: (e.target as HTMLSelectElement).value });
     prp.onclick = (e) => {
       const b = (e.target as HTMLElement).closest('button');
@@ -556,7 +561,7 @@ class GameScene extends Phaser.Scene {
       if (b.dataset.pw) pr({ op: 'power', who: b.dataset.pw, d: Number(b.dataset.d) });
       if (b.dataset.as) pr({ op: 'assist', side: b.dataset.as, char: ($('.pas') as HTMLSelectElement).value, tier: Number(($('.pat') as HTMLSelectElement).value) });
       if (b.classList.contains('pboss')) pr({ op: 'boss' });
-      if (b.classList.contains('pback')) { pr({ op: 'back' }); prp.classList.remove('open'); }
+      if (b.classList.contains('pback')) { pr({ op: 'back' }); prw.classList.remove('open'); }
     };
 
     // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
@@ -879,7 +884,7 @@ class GameScene extends Phaser.Scene {
     const find = (e: TouchEvent) => [...e.changedTouches].find((t) => t.identifier === this.stickId);
     document.addEventListener('touchstart', (e) => {
       if (this.stickId !== null) return;
-      const t = [...e.changedTouches].find((t) => !(t.target as HTMLElement).closest?.('button, #fx .skill, #fx .mm, #lobby')); // ボタン・ミニマップ・キャラ選択の上は除く
+      const t = [...e.changedTouches].find((t) => !(t.target as HTMLElement).closest?.('button, #fx .skill, #fx .mm, #fx .prw, #lobby')); // ボタン・ミニマップ・練習の引き出し・キャラ選択の上は除く
       if (!t) return;
       this.stickId = t.identifier; this.stickAt = { x: t.clientX, y: t.clientY }; draw(0, 0);
     });
@@ -1245,15 +1250,16 @@ class GameScene extends Phaser.Scene {
     if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
   }
 
-  // 練習パネルの表示: 試合中だけボタンを出す（タイマーの代わり）。相手・動き・レベルはサーバーの値
+  // 練習パネルの表示: 試合中だけ左端のタブと引き出しを出す（タイマーは隠す）。相手・動き・パワーアップはサーバーの値
+  prModes: HTMLElement[] | null = null; prMode = ''; // 練習パネルの動きのボタン（参照は一度だけ取る）と、光らせている動き
   practiceHud(s: any) {
-    const on = !!s.practice && s.phase === 'playing', btn = $('.prbtn'), prp = $('.prp');
-    setCss(btn, 'display', on ? 'block' : 'none');
+    const on = !!s.practice && s.phase === 'playing', prw = $('.prw');
+    setCss(prw, 'display', on ? 'block' : 'none');
     setCss($('.timer'), 'visibility', s.practice ? 'hidden' : '');
-    if (!on) { prp.classList.remove('open'); return; }
+    if (!on) { if (prw.classList.contains('open')) prw.classList.remove('open'); return; }
     const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TAGS[t]);
     setText($('.lv0'), lv(P.lv[0])); setText($('.lv1'), lv(P.lv[1]));
-    prp.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === P.mode));
+    if (P.mode !== this.prMode) { this.prMode = P.mode; (this.prModes ??= [...$('.prp').querySelectorAll<HTMLElement>('[data-mode]')]).forEach((b) => b.classList.toggle('on', b.dataset.mode === P.mode)); } // 値が変わった時だけ書く
     const sel = $('.pfoe') as HTMLSelectElement;
     if (P.foe && document.activeElement !== sel && sel.value !== P.foe) sel.value = P.foe;
   }
