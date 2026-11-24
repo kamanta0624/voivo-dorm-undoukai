@@ -592,12 +592,13 @@ async function hanamaruCheck(A: Tab) {
     return false;
   };
   const key = intact(-1) ? 'w' : 's';
+  const cracks = () => A.page.evaluate(() => (window as any).game.scene.scenes[0].cracks.size as number), c0 = await cracks(); // 拳が当たった壁は割れ目の数・壊れた壁の数で見る（拳の芯が触れない壁にも外側が触れれば段階が進む）
   await A.page.keyboard.down(key); await sleep(120); await A.page.keyboard.up(key); await A.press('r');
   const flying = await A.until((x) => x.ents.some((e: any) => e.kind === 'fist'), 1500); await sleep(250);
   const drawn = await A.page.evaluate(() => (window as any).snap.ents.filter((e: any) => e.kind === 'fist').length); await A.shot('h1_fist');
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
-  const b1 = (await A.snap()).broken.length; await A.shot('h2_fist_after');
-  check('花丸パンチ（タメなし）: 拳が前方へ飛び、壁を壊して貫通する（マップに反映）', flying && drawn > 0 && b1 > b0, { drawn, broken: [b0, b1] });
+  const b1 = (await A.snap()).broken.length, c1 = await cracks(); await A.shot('h2_fist_after');
+  check('花丸パンチ（タメなし）: 拳が前方へ飛び、当たった壁が段階を進める（割れ目が付く。中破だった壁なら壊れてマップに反映）', flying && drawn > 0 && (c1 > c0 || b1 > b0), { drawn, broken: [b0, b1], cracks: [c0, c1] });
   // チャージ（aim1: CT 明けから自動）: 頭上のゲージ。最大（25秒分）でフィールドの右クリック長押し→マウスで上へ向けて離すと、溜め（1秒）の後に最大の拳が上へ。
   // レベル2（10秒分）で技ボタン（左クリック）→マウスで左へ向けて離すと、溜め（0.5秒）の後にレベル2の拳が左へ
   // 敵が来にくい自陣の図書室で行う。溜め中に敵 Bot の攻撃で倒されると不発になるので、被弾・撃破で中断された回だけ最大3回やり直す（中断なしの失敗はやり直さない）
@@ -672,11 +673,12 @@ async function bossCheck(A: Tab) {
   check('大将の第2形態: 範囲内の敵に弾を撃ち、着弾地点で爆発（画面に表示）', shotSeen && boomed && (await log()).slice(t0).some((e) => e.shots > 0), { shotSeen, boomed });
 }
 
-// アルの突撃: 四方向（R を押したままマウスで矢印を向けて離す）。タメ中は進路の警告と白い点滅、突撃中は渦と煙。壁を壊して抜けたあとのマップ
+// アルの突撃: 四方向（R を押したままマウスで矢印を向けて離す）。タメ中は進路の警告と白い点滅、突撃中は渦と煙。壁に当たったあとのマップ（割れ目・壊れた壁）
 async function aruCheck(A: Tab) {
+  const cracks = () => A.page.evaluate(() => (window as any).game.scene.scenes[0].cracks.size as number);
   await send(A, 'e2eClearAssists'); // アシストの確認で出したアシストが hall に残り、突撃中の自キャラを倒すので片付ける
   const want: Record<string, number> = { d: 0, a: Math.PI, w: -Math.PI / 2, s: Math.PI / 2 };
-  const b0 = (await A.snap()).broken.length, got: any[] = [];
+  const b0 = (await A.snap()).broken.length, c0 = await cracks(), got: any[] = [];
   for (const key of ['d', 'a', 'w', 's']) for (let tries = 0; tries < 2; tries++) {
     await aliveOf(A); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.ult, (C.ULT_DURATION + 1) * 1000); // 自然に当たったスロットのウルト中は技が出ない
     await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
@@ -690,7 +692,7 @@ async function aruCheck(A: Tab) {
     const m = await A.me(); log('  突撃が出なかった（再試行）', key, { alive: m.alive, mochi: m.st.mochi, ult: m.ult, skillCd: m.skillCd });
   }
   await A.shot('r3_after_wall');
-  const b1 = (await A.snap()).broken.length;
+  const b1 = (await A.snap()).broken.length, c1 = await cracks();
   check('アルの突撃: 四方向とも R を押したままマウスで向けた矢印の方向にタメ（警告）→ 突撃（渦と煙）', got.every((g) => g.arrow !== null && g.charge !== null && g.dash !== null && angDiff(g.dash, want[g.key]) < 0.05 && g.dash === g.charge), got);
   // タメ中に押し直して向きを変えると、変えた向きへ突撃
   // 1回目のタメが始まったのを確かめてから押し直す。撃破・スロットのウルトなどでタメが出なかった回と、タメは出たのに突撃が記録できなかった回はやり直す（最大2回）
@@ -708,7 +710,7 @@ async function aruCheck(A: Tab) {
   }
   check('アルの突撃: タメ中に R を押し直してマウスで向きを変えると、変えた向き（下）へ突撃', ra !== undefined && angDiff(ra, Math.PI / 2) < 0.05, { ra });
   await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
-  check(`アルの突撃: 壁を壊して抜ける（壊れた壁 ${b0} → ${b1} マス、マップに反映）`, b1 > b0, { b0, b1 });
+  check(`アルの突撃: 当たった壁が段階を進める（割れ目 ${c0} → ${c1} マス・壊れた壁 ${b0} → ${b1} マス）`, c1 > c0 || b1 > b0, { b0, b1, c0, c1 });
 }
 
 // 技の矢印が出っぱなしにならない（aimfix1）: 離した入力（up）を取りこぼす操作のあとでも、次の押下で技が出る。アルの矢印は表示だけの長さ（skill.arrow）

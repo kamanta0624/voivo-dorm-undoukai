@@ -56,6 +56,7 @@ const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候�
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
 const TAG_RES = 4; // 頭上の強さの札の絵の解像度の倍率
+const CRACK_TEX = 'cracks'; // 壁の割れ目（小破・中破）の絵のキー。コマ '1'（小破）・'2'（中破）。素材に差し替えるときはこのキーで読み込む（makeCrackTexture を外す）
 const CULL_MARGIN = 64; // 画面外を描かない判定の余白(px)。カメラの追従の遅れ（描画の直前に動く分）・揺れを含めて余裕を持たせる
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
@@ -394,6 +395,10 @@ class GameScene extends Phaser.Scene {
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
+  // 壁の割れ目（小破・中破）: マップの絵には描かず、壁のマスごとに Blitter の bob を重ねる（段階が変わったマスだけ足す・差し替える・消す）
+  crackBl!: Phaser.GameObjects.Blitter;
+  cracks = new Map<number, Phaser.GameObjects.Bob>(); // y * MAP.width + x → bob
+  crackCull = [NaN, NaN, NaN]; // 画面外の割れ目を隠した時のカメラ（タイル単位の位置・ズーム）。変わった時だけ表示を切り替える
   mmSnap: any = null; mmMats: any[] = []; // ミニマップに出す資材（mmSnap を受信した時に判定）
   visDrawn: { ver: number; polys: { x: number; y: number }[][] } | null = null; // 今マスク（visG）に描いてある視界ポリゴン
   fxFit = FX_FIT_FRAMES; // #fx の位置を測り直す残りフレーム数（起動時・リサイズ・拡大率の変更の後）
@@ -443,6 +448,8 @@ class GameScene extends Phaser.Scene {
     this.mapTex = this.textures.createCanvas('map', MAP.width * T, MAP.height * T)!;
     paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh();
     this.add.image(0, 0, 'map').setOrigin(0).setDepth(0);
+    this.makeCrackTexture();
+    this.crackBl = this.add.blitter(0, 0, CRACK_TEX).setDepth(0.6);
     this.homeG = this.add.graphics().setDepth(0.5);
     this.tileKinds = MAP.tiles.map((row) => [...row].map((c) => (c === '#' ? 2 : c === '.' ? 1 : 0))); // ミニマップ: 0=外 1=床 2=壁 3,4=自宅の床（陣営色）
 
@@ -600,6 +607,7 @@ class GameScene extends Phaser.Scene {
         if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
         this.snap = s;
         this.snapAt = performance.now();
+        if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
         if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
         const m = s.players.find((p: any) => p.id === s.me);
@@ -666,6 +674,7 @@ class GameScene extends Phaser.Scene {
     MAP.tiles.forEach((row, y) => (tiles[y] = row));
     wallVer++;
     paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh(); this.homeG.clear();
+    this.crackBl.clear(); this.cracks.clear();
     this.paintMini();
     Object.assign(this, { walls: C.WALLS, seeWalls: C.SEE_WALLS, brokenN: 0, homesKey: '', lastSeenBoss: null, timed: null, prevTimeLeft: Infinity, backSent: false });
     $('.kills').innerHTML = '';
@@ -753,6 +762,40 @@ class GameScene extends Phaser.Scene {
   }
 
   // 通常攻撃のエフェクトの絵（ドット・立ち絵とは別のスプライト）: 斬撃（角度ごと、右向き・半径 SLASH_R）と汗
+  // 壁の割れ目（仮の線）: 1枚の絵に小破・中破の2コマ（タイル1マスの大きさ）。起動時に1回だけ作る
+  makeCrackTexture() {
+    if (this.textures.exists(CRACK_TEX)) return;
+    const t = this.textures.createCanvas(CRACK_TEX, T * 2, T)!, c = t.context;
+    const lines = [[[3, 2], [6, 6], [5, 9], [8, 12], [7, 15]], [[13, 3], [10, 7], [12, 10]], [[1, 11], [4, 10], [5, 9]], [[15, 13], [12, 12], [8, 12]]]; // 中破は全部、小破は最初の1本
+    for (const [f, n] of [[0, 1], [1, lines.length]]) {
+      for (const [w, col] of [[2, 'rgba(255,255,255,0.35)'], [1, 'rgba(30,20,15,0.9)']] as const) {
+        c.lineWidth = w; c.strokeStyle = col; c.lineJoin = 'round';
+        for (const l of lines.slice(0, n)) { c.beginPath(); l.forEach(([x, y], i) => (i ? c.lineTo : c.moveTo).call(c, f * T + x + 0.5, y + 0.5)); c.stroke(); }
+      }
+      t.add(String(f + 1), 0, f * T, 0, T, T);
+    }
+    t.refresh();
+  }
+
+  // 壁の段階（小破・中破）をサーバーから受け取った分だけ反映（壊れた壁のマスは扱わない）
+  applyCracks(list: number[][]) {
+    for (const [x, y, st] of list) {
+      if (tiles[y]?.[x] !== '#') continue;
+      const k = y * MAP.width + x, b = this.cracks.get(k);
+      if (b) b.setFrame(String(st));
+      else this.cracks.set(k, this.crackBl.create(x * T, y * T, String(st)));
+    }
+    this.crackCull[0] = NaN; // 足したマスの表示を決め直す
+  }
+
+  // 画面外の割れ目は描かない（カメラがタイル単位で動いた時・ズームが変わった時だけ切り替える）
+  cullCracks() {
+    const c = this.cameras.main, cx = Math.floor(c.scrollX / T), cy = Math.floor(c.scrollY / T), q = this.crackCull;
+    if (cx === q[0] && cy === q[1] && c.zoom === q[2]) return;
+    q[0] = cx; q[1] = cy; q[2] = c.zoom;
+    for (const b of this.cracks.values()) b.visible = this.inView(b.x + T / 2, b.y + T / 2, T);
+  }
+
   makeAaTextures() {
     const t = this.textures.createCanvas('sweat', 12, 14)!, c = t.context;
     for (const [x, y, s] of [[4, 6, 1], [9, 3, 0.7]]) {
@@ -1394,6 +1437,8 @@ class GameScene extends Phaser.Scene {
     if (s.broken.length > this.brokenN) {
       const rects: number[][] = []; // 描き直した矩形（px。GPU へ送る範囲）
       for (const [x, y] of s.broken.slice(this.brokenN)) {
+        const ck = y * MAP.width + x, cb = this.cracks.get(ck);
+        if (cb) { cb.destroy(); this.cracks.delete(ck); } // 割れ目を消す
         tiles[y] = tiles[y].slice(0, x) + '.' + tiles[y].slice(x + 1);
         wallVer++;
         paintMap(this.mapTex.context, this.chips, tiles, x - 2, y - 2, x + 2, y + 2); // そのマスと周りのオートタイル・壁の正面
@@ -1406,6 +1451,7 @@ class GameScene extends Phaser.Scene {
       this.seeWalls = seeRects(tiles);
       this.brokenN = s.broken.length;
     }
+    this.cullCracks();
 
     // 自キャラの移動予測
     const mine = s.players.find((p: any) => p.id === s.me);

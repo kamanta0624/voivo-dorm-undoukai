@@ -36,6 +36,8 @@ function mk(a: string, b?: string) {
   if (B) { Object.assign(B, { x: 1592, y: 900 }); B.st.test = NOAUTO(); }
   return { r, A, B };
 }
+// テスト用: 壊せる壁を全部中破にする（あと1段階で壊れる。壁を壊して抜ける動きの確認に使う）
+function worn(r: any) { r.tiles.forEach((row: string, y: number) => [...row].forEach((c, x) => { if (c === '#' && !PERIMETER[y][x]) r.wallDmg.set(y * MAP.width + x, C.WALL_HITS - 1); })); return r; }
 // テスト用: 自動攻撃しない状態（旧「手動」モードの代わり）
 function NOAUTO() { return { until: Infinity, noAuto: true }; }
 // 花丸パンチ: 技ボタンを離して（タメなし）、拳が消えるまで飛ばす
@@ -201,7 +203,7 @@ console.log('--- 技・壁破壊・照準・Bot');
   ok('大将ははじかれない（ダメージは入る）', r.bosses[1].x === 1620 && r.bosses[1].hp < C.BOSS_HP);
   const z = mk('zunko', 'metan'); z.r.skill('a'); for (let i = 0; i < 5; i++) z.r.updateShots(0.05);
   ok('ずんだアローで敵が餅になり技を使えない', !!z.r.stat(z.B, 'mochi') && (z.B.skillReadyAt = 0, z.r.skill('b'), z.B.skillReadyAt === 0));
-  const w = mk('hanamaru'); Object.assign(w.A, { x: 200, y: 512, face: Math.PI / 2 }); w.A.tgt = null; // 道場（study・bath）の南壁（y=33）の手前
+  const w = mk('hanamaru'); worn(w.r); Object.assign(w.A, { x: 200, y: 512, face: Math.PI / 2 }); w.A.tgt = null; // 道場（study・bath）の南壁（y=33）の手前（中破にしておく）
   const los0 = lineOfSight(200, 512, 200, 582, w.r.walls), path0 = findPath(w.A, { x: 200, y: 582 }, w.r.walls, w.r.walls).length;
   w.r.skill('a'); fly(w.r);
   ok('壁破壊が視界・経路探索に即反映', !los0 && lineOfSight(200, 512, 200, 582, w.r.walls) && findPath(w.A, { x: 200, y: 582 }, w.r.walls, w.r.walls).length < path0);
@@ -636,7 +638,7 @@ console.log('--- 徳（各行動の増減・範囲・頭上の表示）');
   ok(`指名手配中の敵をKO: +${C.TOKU.wantedKo}（KOの${C.TOKU.ko}はない）。倒された側の悪行ポイントは残り、手配が外れる`, was === 'b' && tk(wk.r) === C.TOKU_INIT + C.TOKU.wantedKo && wk.B.bad === C.WANTED_MIN && wk.r.teams[1].wanted === null);
   const ak = mk('sayo'); const ea = ak.r.summonAssist(1, 1); ak.r.damagePlayer(ea, 1e9, 'a');
   ok('敵のアシストを倒しても KO では下がらない', tk(ak.r) === C.TOKU_INIT);
-  const wb = mk('hanamaru'); Object.assign(wb.A, { x: 200, y: 400, face: Math.PI / 2 }); wb.A.tgt = null; wb.r.skill('a'); fly(wb.r);
+  const wb = mk('hanamaru'); worn(wb.r); Object.assign(wb.A, { x: 200, y: 400, face: Math.PI / 2 }); wb.A.tgt = null; wb.r.skill('a'); fly(wb.r);
   ok(`壁を壊す（花丸の壁破壊）: ${C.TOKU.wall}（1回の技につき1回）`, wb.r.broken.length > 1 && tk(wb.r) === C.TOKU_INIT + C.TOKU.wall);
   const nb = mk('hanamaru'); Object.assign(nb.A, { x: 248, y: 60, face: -Math.PI / 2 }); nb.A.tgt = null; nb.r.skill('a'); fly(nb.r); // 外周の壁へ（壊れない）
   ok('壁を壊さなかった壁破壊では下がらない', nb.r.broken.length === 0 && tk(nb.r) === C.TOKU_INIT);
@@ -937,8 +939,8 @@ console.log('--- アルの突撃（タメ・方向・壁とバリケードの破
   z = aru(1552, 900, 0, 0, 'metan'); z.A.face = Math.PI; z.A.tgt = { k: 'p', o: z.B, x: 1552, y: 1000, r: 10 }; z.r.skill('a');
   const z2 = aru(1552, 900, 0, 0); z2.A.face = Math.PI; z2.r.skill('a');
   ok('移動入力がなければ照準の対象の方向、それもなければ向いている方向', Math.abs(z.A.sk.a - Math.PI / 2) < 1e-9 && Math.abs(z2.A.sk.a - Math.PI) < 1e-9);
-  // 壁・バリケードを壊して進む（道場の南壁 y=33）。外周の壁は壊さずそこで止まる
-  z = aru(248, 472, 0, 1); z.r.skill('a'); step(z, AR.windup + 0.6);
+  // 壁・バリケードを壊して進む（道場の南壁 y=33。中破にしておく）。外周の壁は壊さずそこで止まる
+  z = aru(248, 472, 0, 1); worn(z.r); z.r.skill('a'); step(z, AR.windup + 0.6);
   const broke = z.r.broken.filter(([, y]: number[]) => y === 33).length;
   ok(`壁を壊して進む（道場の南壁を${broke}マス、壊した壁は床になる）`, broke >= 4 && z.r.tiles[33][12] === '.' && z.A.y > 33 * T + 16 && JSON.stringify(z.r.walls) !== JSON.stringify(C.WALLS));
   ok(`壁を壊したら徳${C.TOKU.wall}（1回の突撃で1回）`, Math.abs(z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9);
@@ -1222,7 +1224,7 @@ console.log('--- 花丸（パッシブの押し込み・花丸パンチ）');
   const touch = push('hanamaru', 200, wallY - 11, 0, 1, 0.05); // 1tick目: 壁に阻まれて押し込み始め（まだ0秒）。2tick目で0.05秒
   const held = push('hanamaru', 200, wallY - 11, 0, 1, H.push + 0.11);
   ok(`パッシブ: 壁へ${H.push}秒押し込み続けると壊す（触れてすぐでは壊れない）`, touch.n === 0 && held.n > 0 && held.z.r.tiles[33][12] === '.', { touch: touch.n, held: held.n });
-  ok(`パッシブで壊したら徳${C.TOKU.wall}、クールダウンなし（技のCTも消費しない）`, Math.abs(held.z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9 && held.z.A.skillReadyAt === 0);
+  ok(`パッシブで壊したら徳${C.TOKU.wall}×${C.WALL_HITS}（一気に破壊）、クールダウンなし（技のCTも消費しない）`, Math.abs(held.z.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall * C.WALL_HITS)) < 1e-9 && held.z.A.skillReadyAt === 0);
   const again = held.z; Object.assign(again.A, { x: 27 * T - 11, y: 200, dx: 1, dy: 0 }); const b1 = again.r.broken.length; // 道場の東壁（x=27）
   for (let i = 0; i < Math.round((H.push + 0.11) / 0.05); i++) { again.r.now += 0.05; again.r.updatePlayers(0.05); }
   ok('続けて別の壁も壊せる（クールダウンなし）', again.r.broken.length > b1);
@@ -1240,9 +1242,9 @@ console.log('--- 花丸（パッシブの押し込み・花丸パンチ）');
   fly(f.r);
   const dist = (H.range / H.speed);
   ok(`花丸パンチ: ${H.range}px 飛ぶと消える`, ents(f.r, 'fist').length === 0 && dist > 0);
-  const w = mk('hanamaru'); Object.assign(w.A, { x: 488, y: 472, face: Math.PI / 2 }); w.A.tgt = null; w.r.skill('a'); fly(w.r); // 弓道場（library）から南へ
+  const w = mk('hanamaru'); worn(w.r); Object.assign(w.A, { x: 488, y: 472, face: Math.PI / 2 }); w.A.tgt = null; w.r.skill('a'); fly(w.r); // 弓道場（library）から南へ（壁は中破にしておく）
   const ys = new Set(w.r.broken.map(([, y]: number[]) => y));
-  ok('花丸パンチ: 壁に当たると壊して貫通し、その先の壁も壊す（弓道場の南壁 → 北廊下の南壁）', ys.has(33) && ys.has(38) && w.r.tiles[33][30] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
+  ok('花丸パンチ: 中破の壁に当たると壊して貫通し、その先の壁も壊す（弓道場の南壁 → 北廊下の南壁）', ys.has(33) && ys.has(38) && w.r.tiles[33][30] === '.' && Math.abs(w.r.teams[0].toku - (C.TOKU_INIT + C.TOKU.wall)) < 1e-9, [...ys]);
   ok('花丸パンチ: 命中・破壊はサーバーで判定し、拳の位置をスナップショットで送る', (() => { const q: any = new (GameRoom as any)(); q.setSimulationInterval = () => {}; q.lock = () => {}; let got: any = null; Object.defineProperty(q, 'clients', { value: [{ sessionId: 'x', send: (t: string, m: any) => { if (t === 's') got = m; } }] }); q.onCreate(); q.onJoin({ sessionId: 'x' }); q.startMatch(); q.beginPlay(); const P = q.players.get('x'); P.char = 'hanamaru'; q.skill('x'); q.skillUp('x'); q.sendSnapshots(); const fs = got.ents.filter((e: any) => e.kind === 'fist'); return fs.length === 1 && fs[0].team === P.team; })());
   // 壁の中央・終端・角を上下左右から押し込む。終端・角は壁タイルの正面から（一部だけ触れる位置からは、移動の当たり判定で丸めた角に沿って滑るので押し込めない）
   {
@@ -1337,7 +1339,7 @@ console.log('--- 壊せない壁の近く（犬走りの通路で花丸パンチ
   const H = CHARS.hanamaru.skill, AR = CHARS.aru.skill, cy = 21.5 * T, top = 19 * T;
   ok('通路の条件: 高さ80pxで上下が外周（壊せない壁）', 24 * T - top === 80 && [53, 84, 109, 140].every((x) => PERIMETER[18][x] && PERIMETER[24][x]) && !PERIMETER[24][90] && tileAt(mk('hanamaru').r, 90 * T + 8, 24 * T + 8) === '#');
   const punch = (x: number, y: number, a: number, hold: number, ex?: number, ey?: number) => {
-    const z = mk('hanamaru', 'metan'); Object.assign(z.A, { x, y, face: a }); z.A.tgt = null;
+    const z = mk('hanamaru', 'metan'); worn(z.r); Object.assign(z.A, { x, y, face: a }); z.A.tgt = null; // 壁は中破にしておく
     if (ex !== undefined) Object.assign(z.B, { x: ex, y: ey, hp: 9999 }); else Object.assign(z.B, { x: -999, y: -999 });
     z.A.skillReadyAt = z.r.now - hold; z.r.skill('a', a); for (let i = 0; i < 40 && !ents(z.r, 'fist').length; i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); } // hold: チャージ秒
     const f = ents(z.r, 'fist')[0], ys: number[] = [];
@@ -1348,7 +1350,7 @@ console.log('--- 壊せない壁の近く（犬走りの通路で花丸パンチ
     const q = punch(1120, cy, 0, hold, 1120 + 480, cy);
     ok(`花丸パンチ（${name}、半径${q.f.r}）: 外周に挟まれた通路に沿って射程いっぱい（${H.range}px）まで飛び、通路の先の敵に当たる`, q.f.left <= 1e-9 && Math.abs(q.f.x - (1120 + H.range)) < 1e-6 && q.dmg > 0, { left: q.f.left, x: q.f.x, dmg: q.dmg });
     const per = q.z.r.broken.filter(([x, y]: number[]) => PERIMETER[y][x]).length, inner = q.z.r.broken.filter(([, y]: number[]) => y === 24).length;
-    ok(`花丸パンチ（${name}）: 範囲内の壊せる壁は壊れ、外周は壊れない`, per === 0 && (q.f.r + cy > 24 * T ? inner > 0 : inner === 0), { per, inner });
+    ok(`花丸パンチ（${name}）: 範囲内の壊せる壁（中破）は壊れ、外周は壊れない`, per === 0 && (q.f.r + cy > 24 * T ? inner > 0 : inner === 0), { per, inner });
   }
   const h = punch(1800, cy, -Math.PI / 2, 0), gone = h.f.y, touched = h.ys.filter((y) => y - h.f.r < top);
   ok(`花丸パンチ: 外周に正面から撃つと、芯（半径${H.core}）が外周に触れた位置で消える（拳の外側が触れただけでは消えない）`, ents(h.z.r, 'fist').length === 0 && gone - H.core <= top && gone - H.core > top - 8 && touched.length > 0 && h.z.r.broken.length === 0, { gone, touched: touched.length });
@@ -1357,9 +1359,9 @@ console.log('--- 壊せない壁の近く（犬走りの通路で花丸パンチ
   const dash = (x: number, y: number, a: number, b?: string) => { const z = mk('aru', b); z.A.bot = true; Object.assign(z.A, { x, y, dx: Math.cos(a), dy: Math.sin(a) }); z.A.tgt = null; z.r.skill('a'); z.A.dx = z.A.dy = 0; return z; };
   let z = dash(1800, cy, 0, 'metan'); Object.assign(z.B, { x: 1800 + 300, y: cy, hp: 9999 }); step(z, AR.windup + 0.05); const mid = !!z.r.stat(z.A, 'rush'); step(z, AR.dur);
   ok('アルの突撃: 外周に挟まれた通路（幅126の範囲＞80px）でも止まらず通路に沿って進み、通路の先の敵に当たる', mid && z.A.x > 1800 + 300 && Math.abs(z.A.y - cy) < 1e-6 && z.B.hp < 9999 && z.r.broken.length === 0, { x: z.A.x, y: z.A.y, hp: z.B.hp });
-  z = dash(1120, cy, 0); step(z, AR.windup + AR.dur);
+  z = dash(1120, cy, 0); worn(z.r); step(z, AR.windup + AR.dur);
   const per = z.r.broken.filter(([x, y]: number[]) => PERIMETER[y][x]).length, inner = z.r.broken.filter(([, y]: number[]) => y === 24).length;
-  ok('アルの突撃: 範囲内の壊せる壁（通路の南の壁）は壊れ、外周は壊れない', inner > 0 && per === 0, { per, inner });
+  ok('アルの突撃: 範囲内の壊せる壁（通路の南の壁、中破）は壊れ、外周は壊れない', inner > 0 && per === 0, { per, inner });
   z = dash(1800, cy, Math.PI / 6); step(z, AR.windup + 0.6); const x1 = z.A.x, y1 = z.A.y, on = !!z.r.stat(z.A, 'rush'); step(z, 0.4);
   ok('アルの突撃: 外周に斜めに当たると、壁に沿って滑って進む（突撃は続く）', on && !!z.r.stat(z.A, 'rush') && z.A.x > x1 + 20 && Math.abs(z.A.y - y1) < 1e-6 && y1 < 24 * T && clear(z.r, z.A), { x1, y1, x: z.A.x, y: z.A.y });
 }
@@ -2109,10 +2111,10 @@ console.log('--- 九州そら（ソーラーキャノン）');
   const le = mk('sora', 'sayo'); Object.assign(le.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); le.B.st.h = { until: Infinity, hidden: true }; fire(le, 30, 0); delete le.B.st.h; run(le, 0.15); le.r.fx = []; le.B.y = 900; run(le, 0.05);
   ok('途中からビームに入ってきたキャラでも爆発する', le.r.fx.some((f: any) => f.color === 'solar' && Math.abs(f.x - le.B.x) < 1e-9));
   // 壁: 壊せる壁は壊して進み、外壁で止まる。壁（長方形）ごとに1回爆発し、範囲の壁も壊す
-  const w = mk('sora'); Object.assign(w.A, { x: 300, y: 150 }); w.r.fx = []; const walls0 = w.r.walls; fire(w, 30, 0); run(w, 0.05);
+  const w = mk('sora'); worn(w.r); Object.assign(w.A, { x: 300, y: 150 }); w.r.fx = []; const walls0 = w.r.walls; fire(w, 30, 0); run(w, 0.05);
   const wb = w.A.sk.beam, wfx = w.r.fx.filter((f: any) => f.color === 'solar').length, wbroken = w.r.broken.length, wlen = wb.len;
   run(w, DUR(30) - 0.1, [0, -1]); const rects = new Set(w.r.broken.map(([x, y]: number[]) => walls0.findIndex((o: any) => x * T >= o.x && x * T < o.x + o.w && y * T >= o.y && y * T < o.y + o.h)));
-  ok(`壊せる壁（study の東壁の扉のない所）は壊して進み（チャージ${K[2][0]}秒の射程${K[2][2]}px）、壁の長方形ごとに1照射1回爆発（範囲の壁も壊す）、射程の端でも1回`, wbroken > 0 && Math.abs(wlen - K[2][2]) <= 4 && wfx === wb.wallsBoomed.size + 1 && wb.wallsBoomed.size >= 1 && w.r.fx.filter((f: any) => f.color === 'solar').length <= rects.size + 1, { wbroken, wlen, wfx, walls: wb.wallsBoomed.size });
+  ok(`壊せる壁（study の東壁の扉のない所、中破）は壊して進み（チャージ${K[2][0]}秒の射程${K[2][2]}px）、壁の長方形ごとに1照射1回爆発（範囲の壁も壊す）、射程の端でも1回`, wbroken > 0 && Math.abs(wlen - K[2][2]) <= 4 && wfx === wb.wallsBoomed.size + 1 && wb.wallsBoomed.size >= 1 && w.r.fx.filter((f: any) => f.color === 'solar').length <= rects.size + 1, { wbroken, wlen, wfx, walls: wb.wallsBoomed.size });
   const pe = mk('sora'); Object.assign(pe.A, { x: 248, y: 60 }); fire(pe, 294, -Math.PI / 2); run(pe, 0.05);
   ok('壊せない外壁で止まる（最大チャージでも外周の壁は壊れない）', pe.A.sk.beam.len < 60 && pe.r.broken.every(([x, y]: number[]) => !PERIMETER[y][x]), { len: pe.A.sk.beam.len });
   // 大将: ビームが当たっている間は拠点移動しない（予告・無敵も起きない）。離れたら通常どおり
@@ -2542,6 +2544,60 @@ console.log('--- ルール説明のスロットのスペック表（fb1124）');
 {
   const html = (await import('node:fs')).readFileSync('public/rules.html', 'utf8');
   ok('rules.html のスロットの表が今の設定（CONFIG.SLOT）と同じ（違えば npx tsx tools/render_rules_slot.ts で作り直す）', html.includes(slotSpecHtml()));
+}
+
+console.log('--- 壁の段階破壊（walldmg1）');
+{
+  const tk = (r: any) => r.teams[0].toku, W = C.TOKU.wall, I = C.TOKU_INIT;
+  const tick = (z: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); } };
+  // 段階: 1回の発動で1マス1段階、WALL_HITS 段階目で壊れる。途中は壁のまま
+  const a = mk('sayo'), w0 = a.r.walls, s0 = a.r.seeWalls, h1 = new Set<number>();
+  a.r.hitWalls([[12, 33]], h1); a.r.hitWalls([[12, 33]], h1);
+  const one = a.r.wallStage(12, 33) === 1 && a.r.tiles[33][12] === '#' && a.r.walls === w0 && a.r.seeWalls === s0 && a.r.broken.length === 0;
+  for (let i = 0; i < 400; i++) a.r.tick(0.05, false); // 20秒
+  const kept = a.r.wallStage(12, 33) === 1;
+  a.r.hitWalls([[12, 33]], new Set()); const two = a.r.wallStage(12, 33) === 2 && a.r.tiles[33][12] === '#';
+  a.r.hitWalls([[12, 33]], new Set());
+  ok(`壁の段階: 1回の発動で1マス1段階（同じ発動で何度当てても1段階）、${C.WALL_HITS}段階目で壊れて床になる。小破・中破は壁のまま（当たり判定・視界の壁は変わらない）で、時間で直らない`, one && kept && two && a.r.tiles[33][12] === '.' && a.r.broken.length === 1 && a.r.wallStage(12, 33) === 0 && JSON.stringify(a.r.crackLog) === '[[12,33,1],[12,33,2]]', { one, kept, two, log: a.r.crackLog });
+  // 花丸パンチ: 無傷の壁は小破になるだけ。拳はそこで消える。3発で壊れる
+  const f = mk('hanamaru'); Object.assign(f.A, { x: 200, y: 512, face: Math.PI / 2 }); f.A.tgt = null; f.r.skill('a'); fly(f.r);
+  const fk = [...f.r.wallDmg.entries()];
+  ok(`花丸パンチ: 無傷の壁（道場の南壁）は小破になるだけで拳はそこで消える（壁は通れないまま）。徳${W}は1回分`, f.r.broken.length === 0 && fk.length > 0 && fk.every(([k, v]) => v === 1 && Math.floor(k / MAP.width) === 33) && ents(f.r, 'fist').length === 0 && f.r.tiles[33][12] === '#' && Math.abs(tk(f.r) - (I + W)) < 1e-9, fk);
+  for (let i = 0; i < 2; i++) { f.A.skillReadyAt = f.r.now; f.r.skill('a'); fly(f.r); }
+  ok(`花丸パンチ: ${C.WALL_HITS}発目で壊れて通れる（徳${W}は1発ごと）`, f.r.tiles[33][12] === '.' && Math.abs(tk(f.r) - (I + W * C.WALL_HITS)) < 1e-9, { toku: tk(f.r) });
+  // パッシブ: 無傷でも中破でも一気に壊す（徳は WALL_HITS 回分）
+  const pz = mk('hanamaru'); pz.A.bot = true; pz.r.wallDmg.set(33 * MAP.width + 12, C.WALL_HITS - 1); Object.assign(pz.A, { x: 200, y: 33 * T - 11, dx: 0, dy: 1 }); tick(pz, CHARS.hanamaru.skill.push + 0.11);
+  ok(`花丸のパッシブ: 段階に関係なく一気に壊す（徳${W}×${C.WALL_HITS}）`, pz.r.tiles[33][12] === '.' && pz.r.tiles[33][11] === '.' && Math.abs(tk(pz.r) - (I + W * C.WALL_HITS)) < 1e-9, { toku: tk(pz.r) });
+  // アルの突撃: 無傷の壁は小破で、体は壁で止まる（滑る）
+  const z = mk('aru'); z.A.bot = true; Object.assign(z.A, { x: 248, y: 472, dx: 0, dy: 1 }); z.A.tgt = null; z.r.skill('a'); tick(z, CHARS.aru.skill.windup + CHARS.aru.skill.dur + 0.1);
+  ok(`アルの突撃: 無傷の壁は小破になるだけで抜けられない（壁の手前で止まる）。徳${W}は1回分`, z.r.broken.length === 0 && z.r.wallStage(15, 33) === 1 && [...z.r.wallDmg.values()].every((v: number) => v === 1) && z.A.y < 33 * T && Math.abs(tk(z.r) - (I + W)) < 1e-9, { y: z.A.y, toku: tk(z.r) });
+  // そら: 1発射で1段階（照射の多段・爆発を含めても）。チャージ keys の最後から2番目の秒数（4分30秒）を超えたら即破壊
+  const SK = CHARS.sora.skill.keys as number[][], sora = (c: number) => {
+    const q = mk('sora'); Object.assign(q.A, { x: 300, y: 150 }); q.A.sk.charge = c; q.A.sk.koAt = q.A.koAt; q.A.face = 0; q.A.tgt = null; q.r.skill('a');
+    let L = 0; for (let i = 0; i < 200 && (q.A.sk.beam || i < 5); i++) { q.r.now += 0.05; q.r.updatePlayers(0.05); L = Math.max(L, q.A.sk.beam?.len ?? 0); }
+    return { q: q.r, L };
+  };
+  const s30 = sora(30), s270 = sora(SK[SK.length - 2][0]), s280 = sora(SK[SK.length - 2][0] + 10), wallX = 27 * T - 300; // study の東壁までの距離
+  ok(`そら（チャージ30秒・爆発あり）: 無傷の壁は小破になるだけ（照射の多段・爆発を含めても1段階）、ビームは壁で止まる。徳${W}は1回分`, s30.q.broken.length === 0 && s30.q.wallDmg.size > 0 && [...s30.q.wallDmg.values()].every((v: number) => v === 1) && s30.L <= wallX && Math.abs(tk(s30.q) - (I + W)) < 1e-9, { L: s30.L, n: s30.q.wallDmg.size, toku: tk(s30.q) });
+  ok(`そら（チャージちょうど${SK[SK.length - 2][0]}秒）: まだ1段階`, s270.q.broken.length === 0 && [...s270.q.wallDmg.values()].every((v: number) => v === 1));
+  ok(`そら（チャージ${SK[SK.length - 2][0]}秒超）: 即破壊して進む（徳${W}×${C.WALL_HITS}）`, s280.q.broken.length > 0 && s280.q.wallDmg.size === 0 && s280.L > wallX + 32 && Math.abs(tk(s280.q) - (I + W * C.WALL_HITS)) < 1e-9, { L: s280.L, toku: tk(s280.q) });
+  // Bot の花丸: 拳1発で壊れる（中破）壁だけを壊して近道する
+  const bot = (wear: boolean) => {
+    const q = mk('hanamaru'); if (wear) worn(q.r); q.A.bot = true; Object.assign(q.A, { x: 200, y: 512 }); q.A.skillReadyAt = 0;
+    return SKILLS.hanamaru.botMove!(q.r, q.A, { x: 120, y: 600 }, q.r.walls) as boolean; // 道場の南壁の向こう（回り道より 320px 以上近い）
+  };
+  ok('Bot の花丸: 無傷の壁では拳で近道しない（1発では抜けない）。中破なら撃つ', !bot(false) && bot(true));
+  // 通信: 段階は変わった分だけ送る。途中参加・再接続は最初から
+  const g: any = new (GameRoom as any)(); g.setSimulationInterval = () => {}; g.lock = () => {}; g.unlock = () => {};
+  const got: Record<string, any[]> = { x: [], y: [] }, cl = (id: string) => ({ sessionId: id, send: (t: string, m: any) => { if (t === 's') got[id].push(m); } }), cls: any[] = [cl('x')];
+  Object.defineProperty(g, 'clients', { value: cls }); g.onCreate(); g.onJoin(cls[0]); g.startMatch(); g.beginPlay();
+  g.hitWalls([[12, 33], [13, 33]], new Set()); g.sendSnapshots(); g.sendSnapshots(); g.hitWalls([[12, 33]], new Set()); g.sendSnapshots();
+  cls.push(cl('y')); g.onJoin(cls[1]); g.sendSnapshots();
+  const x = got.x.map((m) => m.cracks ?? null), y1 = got.y[0]?.cracks;
+  g.onReconnect(cls[0]); g.sendSnapshots(); const re = got.x.at(-1).cracks;
+  ok('通信: 壁の段階（小破・中破）は変わったマスだけ送る（変わらなければ送らない）。途中参加・再接続は今までの分を最初から', JSON.stringify(x) === JSON.stringify([[[12, 33, 1], [13, 33, 1]], null, [[12, 33, 2]], null]) && JSON.stringify(y1) === '[[12,33,1],[13,33,1],[12,33,2]]' && JSON.stringify(re) === JSON.stringify(y1), { x, y1, re });
+  g.endMatch(0); g.setup(); g.sendSnapshots();
+  ok('連戦（待機画面に戻る）: 壁の段階も最初に戻る', g.wallDmg.size === 0 && g.crackLog.length === 0 && !got.x.at(-1).cracks);
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

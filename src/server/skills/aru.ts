@@ -1,4 +1,4 @@
-// 猫使アル: 突撃（タメ → 決めた方向へ突進。範囲の壁を壊し、触れた敵に1回ずつ当たる。タメ中・突撃中は動けず攻撃しない、突撃中は無敵）
+// 猫使アル: 突撃（タメ → 決めた方向へ突進。範囲の壁は1回の突撃で1段階進め、触れた敵に1回ずつ当たる。タメ中・突撃中は動けず攻撃しない、突撃中は無敵）
 import type { GameRoom, Player } from '../GameRoom';
 import { unbreakable, thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -15,7 +15,7 @@ function step(room: GameRoom, p: Player, dt: number) {
   if (c && room.now - c.at! >= S.windup) {
     delete p.st.charge;
     p.st.rush = { until: room.now + S.dur, lock: true, noAttack: true, invincible: true, noPush: true, cancel: true, view: () => ({ a: p.sk.a }) };
-    Object.assign(p.sk, { hit: new Set(), broke: false });
+    Object.assign(p.sk, { hit: new Set(), broke: false, wallHit: new Set() });
   }
   if (room.stat(p, 'rush')) dashStep(room, p, dt);
 }
@@ -34,7 +34,7 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
     if (room.tiles[ty]?.[tx] !== '#' || !inDashShape(S, tx * T + T / 2, ty * T + T / 2, nx, ny, a, T / 2)) continue;
     if (!unbreakable(tx, ty)) tiles.push([tx, ty]);
   }
-  if (tiles.length) { room.breakWalls(tiles); if (!p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); } }
+  if (tiles.length && room.hitWalls(tiles, p.sk.wallHit).length && !p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); }
   // 体が壁に止められたら壁に沿って滑る（正面なら前に進まず、dur まで突撃を続ける）
   Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), true, (q) => room.noteJump(`p:${p.id}`, p, q)));
   for (const t of room.enemyThings(p.team)) {

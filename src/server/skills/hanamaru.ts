@@ -1,4 +1,4 @@
-// 満別花丸: 花丸パンチ（CT 明けから自動でチャージ。発動で向きを決め、レベル2以上は溜めてから拳を発射。前方へ直進、キャラにダメージ・壁を壊して貫通。チャージのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると壊す。Bot は壁破壊で近道する
+// 満別花丸: 花丸パンチ（CT 明けから自動でチャージ。発動で向きを決め、レベル2以上は溜めてから拳を発射。前方へ直進、キャラにダメージ・壁は1発1段階進め、壊れたら貫通。チャージのレベルで大きさ・威力・弾速が変わる）。パッシブ: 壁へ押し込み続けると一気に壊す。Bot は拳1発で壊れる壁（中破）なら壊して近道する
 import type { GameRoom, Player, Ent } from '../GameRoom';
 import { unbreakable, thingId } from '../GameRoom';
 import type { Skill } from './index';
@@ -32,7 +32,7 @@ function breakTiles(room: GameRoom, p: Pt, a: number, from?: number[]): number[]
   return out;
 }
 
-// 拳: 直進し（f.sp px/秒）、キャラ（1体1回）に f.dmg、壁は壊して貫通（半径 f.r）。射程を飛ぶか、芯（半径 H.core、タメで変わらない）が壊せない壁に触れると消える
+// 拳: 直進し（f.sp px/秒）、キャラ（1体1回）に f.dmg、壁（半径 f.r）は1発で1マス1段階進め、壊れたら貫通。射程を飛ぶか、芯（半径 H.core、タメで変わらない）が壊せない壁・壊れずに残った壁に触れると消える
 // 芯の外側だけが壊せない壁に触れているなら壊さずに飛び続ける（狭い通路でも撃てる）。結果画面では壁を壊さない
 function updateFist(room: GameRoom, f: Ent, dt: number) {
   const owner = room.players.get(f.owner);
@@ -49,9 +49,10 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
     }
     if (gone) break;
     if (tiles.length && room.phase === 'playing') {
-      room.breakWalls(tiles);
-      room.addFx(f, 'wall', { tiles, r: 0 });
-      if (!f.broke) { f.broke = true; room.addToku(f.team, owner!, 'wall'); } // 1回の技につき1回
+      const adv = room.hitWalls(tiles, f.wallHit);
+      if (adv.length) room.addFx(f, 'wall', { tiles: adv, r: 0 });
+      if (adv.length && !f.broke) { f.broke = true; room.addToku(f.team, owner!, 'wall'); } // 1回の技につき1回
+      if (tiles.some(([tx, ty]) => room.tiles[ty][tx] === '#' && circleRect(f.x, f.y, H.core, { x: tx * T, y: ty * T, w: T, h: T }))) { gone = true; break; } // 壊れずに残った壁に芯が触れた: 消える
     }
     for (const t of room.enemyThings(f.team)) {
       if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || Math.hypot(t.x - f.x, t.y - f.y) > f.r + t.r) continue;
@@ -85,8 +86,8 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   const tiles = breakTiles(room, p, Math.atan2(dy, dx), hit);
   p.sk.pushTile = null;
   if (!tiles.length) return;
-  room.breakWalls(tiles);
-  room.addToku(p.team, p, 'wall');
+  room.hitWalls(tiles, new Set(), C.WALL_HITS); // 一気に破壊
+  room.addToku(p.team, p, 'wall', undefined, C.WALL_HITS);
   room.addFx(p, 'wall', { tiles, r: 0 });
 }
 
@@ -103,7 +104,7 @@ function charge(room: GameRoom, p: Player) {
 // 拳を出す（命中・破壊は updateFist）。lv: チャージのレベル（lv の添字）、a: 向き
 function fire(room: GameRoom, p: Player, lv: number, a: number) {
   const L = H.lv[lv];
-  room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false });
+  room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false, wallHit: new Set() });
 }
 
 // 毎tick: 溜めが終わったら発射。CT 明けはチャージの見た目（fistCharge）を付ける
@@ -144,7 +145,8 @@ const skill: Skill = {
     const base = findPath(p, to, obs, room.walls).length;
     if (!base) return false;
     for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-      if (!breakTiles(room, p, a).length) continue;
+      const ts = breakTiles(room, p, a);
+      if (!ts.length || ts.some(([x, y]) => room.wallStage(x, y) < C.WALL_HITS - 1)) continue; // 拳1発（1段階）で壊れきる壁（中破）だけ
       // 壊した後の経路長 ≒ 壁の向こうの床からの経路長 + 壁までと壁の厚み
       const dx = Math.round(Math.cos(a)), dy = Math.round(Math.sin(a)), tx = Math.floor(p.x / T), ty = Math.floor(p.y / T);
       let k = 1;

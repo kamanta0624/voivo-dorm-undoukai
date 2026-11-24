@@ -144,6 +144,9 @@ export class GameRoom extends Room {
   walls = C.WALLS;
   seeWalls = C.SEE_WALLS; // 視界の壁（visibleTo 用。透過壁を除く）
   broken: number[][] = []; // 壊れた壁のタイル [x, y]
+  wallDmg = new Map<number, number>(); // 小破・中破の壁（y * MAP.width + x → 進んだ段階 1〜WALL_HITS-1）
+  crackLog: number[][] = []; // 小破・中破になった順 [x, y, 段階]（クライアントへは送っていない分だけ送る）
+  crackSent = new Map<string, number>(); // クライアント（sessionId）ごとの送った crackLog の数（途中参加・再接続は0から）
   nextId = 1;
   materialTimer = 0;
   healAt: (number | null)[] = []; // 回復アイテムの置き場所（HEAL_SPOTS）ごとの再出現の時刻（置いてあれば null）
@@ -384,9 +387,10 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
+    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], wallDmg: new Map(), crackLog: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
+    this.crackSent.clear();
     this.modern = C.SLOT_MODE === 'modern';
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];
@@ -466,6 +470,7 @@ export class GameRoom extends Room {
   }
 
   onJoin(client: Client, options?: { name?: string }) {
+    this.crackSent.delete(client.sessionId); // 壁の段階は最初から送る
     if (this.phase === 'playing') this.measure?.client(client.sessionId);
     if (this.phase === 'waiting') {
       if (this.players.size >= C.TEAM_SIZE * 2) return; // 観戦
@@ -503,6 +508,7 @@ export class GameRoom extends Room {
 
   // 再接続できた: 操作を本人に戻す（照準モードはクライアントが送り直す）
   onReconnect(client: Client) {
+    this.crackSent.delete(client.sessionId); // 壁の段階は最初から送り直す（ページを読み直した時もそろう）
     const p = this.players.get(this.owners.get(client.sessionId) ?? '');
     if (p && this.kicked.has(p.id)) { this.dropped.delete(p.id); return client.leave(CloseCode.CONSENTED, OG.banned(p.ip ?? '', p.bid ?? '') ? 'ban' : 'kick'); }
     if (p) { Object.assign(p, { bot: false, dx: 0, dy: 0 }); this.dropped.delete(p.id); }
@@ -970,9 +976,10 @@ export class GameRoom extends Room {
   clampToku(v: number) { return Math.max(C.TOKU_MIN, Math.min(C.TOKU_MAX, v)); }
 
   // 徳の増減（陣営の共有値）。p がいれば頭上に内容と増減を出し（text が空なら増減だけ）、下げた分は悪行ポイントに足す。アシストの行動は徳に影響しない
-  addToku(team: number, p: Player | null, key: string, text = C.TOKU_TEXT[key]) {
+  // n: 何回分か（壁の即破壊は WALL_HITS 回分）
+  addToku(team: number, p: Player | null, key: string, text = C.TOKU_TEXT[key], n = 1) {
     if (p?.assist) return;
-    const d = key === 'slot' ? C.SLOT.winToku : key === 'courier' && this.modern ? C.SLOT_MODERN.game.courierToku : C.TOKU[key];
+    const d = n * (key === 'slot' ? C.SLOT.winToku : key === 'courier' && this.modern ? C.SLOT_MODERN.game.courierToku : C.TOKU[key]);
     this.teams[team].toku = this.clampToku(this.teams[team].toku + d);
     if (!p) return;
     const bad = d < 0 ? -d * (C.BAD_MULT[key] ?? 1) : 0;
@@ -1737,6 +1744,24 @@ export class GameRoom extends Room {
     Object.assign(t.o, moveBody(t.o.x, t.o.y, ux * dist, uy * dist, t.k === 'p' ? C.PLAYER_RADIUS : t.o.r, this.obstacles(), false, (q) => this.noteJump(thingId(t), t.o, q)));
   }
 
+  // 壁の段階（0=無傷、WALL_HITS-1 まで。壊れた壁は扱わない）
+  wallStage(x: number, y: number) { return this.wallDmg.get(y * MAP.width + x) ?? 0; }
+
+  // 壊せる壁を n 段階進める（WALL_HITS 段階で破壊）。hit: この発動で段階を進めたマス（1回の発動で同じマスは1回まで）。段階を進めたマスを返す
+  hitWalls(tiles: number[][], hit: Set<number>, n = 1) {
+    const adv: number[][] = [], gone: number[][] = [];
+    for (const [x, y] of tiles) {
+      const k = y * MAP.width + x;
+      if (hit.has(k) || this.tiles[y]?.[x] !== '#') continue;
+      hit.add(k); adv.push([x, y]);
+      const s = (this.wallDmg.get(k) ?? 0) + n;
+      if (s >= C.WALL_HITS) { this.wallDmg.delete(k); gone.push([x, y]); }
+      else { this.wallDmg.set(k, s); this.crackLog.push([x, y, s]); }
+    }
+    if (gone.length) this.breakWalls(gone);
+    return adv;
+  }
+
   breakWalls(tiles: number[][]) {
     for (const [x, y] of tiles) this.tiles[y] = this.tiles[y].slice(0, x) + '.' + this.tiles[y].slice(x + 1);
     this.broken.push(...tiles);
@@ -2015,6 +2040,8 @@ export class GameRoom extends Room {
     const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name, ult: p.ult && !p.ult.pending ? p.ult.tier : null })); // ult: パワーアップ中の強さ（一覧の札。両陣営に送る）
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
+      const cn = this.crackSent.get(client.sessionId) ?? 0, cracks = cn < this.crackLog.length ? this.crackLog.slice(cn) : null; // 壁の段階（小破・中破）は変わった分だけ
+      this.crackSent.set(client.sessionId, this.crackLog.length);
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
       const pr = this.practice ? { mode: this.foeMode, lv: [me?.ult?.tier ?? -1, this.players.get('foe')?.ult?.tier ?? -1], foe: this.players.get('foe')?.char ?? null } : null; // 練習パネルの表示（相手は視界外でも）
@@ -2039,7 +2066,7 @@ export class GameRoom extends Room {
         couriers: this.couriers.map((c) => ({ id: c.id, team: c.team, x: c.x, y: c.y, box: c.box })), // コバコは両陣営に見せる（ミニマップ）
         warns: v.warns.map((w) => ({ id: w.id, team: w.team, x: w.x, y: w.y, r: w.r, left: w.at - this.now, boss: !!w.boss })),
         shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),
-        fx: v.fx, broken: this.broken, bossRooms: this.bossRooms, ...(this.reveal.has(client.sessionId) ? { reveal: true } : {}),
+        fx: v.fx, broken: this.broken, ...(cracks ? { cracks } : {}), bossRooms: this.bossRooms, ...(this.reveal.has(client.sessionId) ? { reveal: true } : {}),
       });
     }
   }
