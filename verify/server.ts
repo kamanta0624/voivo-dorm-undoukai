@@ -3,6 +3,7 @@ import { GameRoom, ROOM_COMBOS, ROOM_DIST, lottery, PERIMETER } from '../src/ser
 import * as OG from '../src/server/outgame';
 import MAP from '../src/shared/map.json';
 import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate, sevenRate, wallRects, bossIntensity, bodyUp } from '../src/shared/config';
+import { slotSpecHtml } from '../tools/render_rules_slot';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, aaRange, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
 import { solarPct } from '../src/shared/solar';
@@ -2535,6 +2536,12 @@ console.log('--- WhiteCUL のクナイ（fb1124）');
   w.r.updatePlayers(0.05); const sh = w.r.shots.find((q: any) => q.owner === 'a'), cd0 = w.A.cooldownUntil - w.r.now;
   let t = 0; while (w.B.hp === 9999 && t < 2) { w.r.now += 0.05; t += 0.05; w.r.updateShots(0.05); }
   ok('クナイが飛んで当たる（射程200・間隔1.1秒）', !!sh && sh.kind === 'kunai' && sh.left <= 200 + 1e-9 && w.B.hp < 9999 && Math.abs(cd0 - 1.1) < 1e-9, { kind: sh?.kind, left: sh?.left, cd0, hp: w.B.hp });
+}
+
+console.log('--- ルール説明のスロットのスペック表（fb1124）');
+{
+  const html = (await import('node:fs')).readFileSync('public/rules.html', 'utf8');
+  ok('rules.html のスロットの表が今の設定（CONFIG.SLOT）と同じ（違えば npx tsx tools/render_rules_slot.ts で作り直す）', html.includes(slotSpecHtml()));
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
