@@ -30,8 +30,9 @@ try { bid = localStorage.getItem('bid') ?? ''; if (!bid) { bid = Math.random().t
 const client = new Client(import.meta.env.PROD ? location.origin : location.protocol === 'https:' ? `${location.origin}/colyseus` : `ws://${location.hostname}:${__GAME_PORT__}`);
 const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
 
-// 入室できた部屋をゲーム本体に渡す
+// 入室できた部屋をゲーム本体に渡す。再接続用の合言葉は入室直後に保存する（ゲーム本体の読み込み中に再読み込みされても同じ席に戻れる。e2e・再接続も同じ）
 async function enter(room: Room, rejoin: boolean) {
+  ss.set(tokenKey, room.reconnectionToken);
   Object.assign(window as any, { __room: room, __rejoin: rejoin, __client: client });
   document.getElementById('title')?.remove();
   await import('./main');
@@ -142,7 +143,6 @@ function showTitle() {
     try {
       const room = await open();
       clearInterval(timer);
-      ss.set(tokenKey, room.reconnectionToken);
       await enter(room, false);
     } catch (e: any) { msg(e?.message || '入室できませんでした'); busy = false; poll(); }
   };
