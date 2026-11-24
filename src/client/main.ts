@@ -54,6 +54,7 @@ const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
+const CULL_MARGIN = 64; // 画面外を描かない判定の余白(px)。カメラの追従の遅れ（描画の直前に動く分）・揺れを含めて余裕を持たせる
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
 let wallGrid: Uint8Array | null = null, wallGridVer = -1;
@@ -1256,6 +1257,12 @@ class GameScene extends Phaser.Scene {
   }
 
   // 資材: 黄色の箱。高ポイント（裏側）はピンクの大きい箱、高性能の徳（コバコが置く）は水色のさらに大きい箱で、明滅する光をまとう
+  // (x, y) が今のカメラの表示範囲（余白 m px を足す）に入るか。worldView は描画の直前に更新されるので、スクロール位置・ズームから求める。余白は追従の遅れ・揺れの分も含める（画面外は描かない: render_policy 4）
+  inView(x: number, y: number, m: number) {
+    const c = this.cameras.main, w = c.width / c.zoom, h = c.height / c.zoom, x0 = c.scrollX + (c.width - w) / 2, y0 = c.scrollY + (c.height - h) / 2, M = m + CULL_MARGIN;
+    return x >= x0 - M && x <= x0 + w + M && y >= y0 - M && y <= y0 + h + M;
+  }
+
   drawMaterial(g: Phaser.GameObjects.Graphics, x: number, y: number, s = 10, hi = false, big = false) {
     if (hi || big) { const k = 0.5 + 0.5 * Math.sin(performance.now() / 150); g.fillStyle(0xffffff, 0.2 + 0.3 * k).fillCircle(x, y, (big ? 15 : 12) + 4 * k); s = big ? 16 : 14; }
     const [fill, line] = big ? [0x7fe8ff, 0x1d5f8a] : hi ? [0xff7ad9, 0x8a1d6d] : [0xffd700, 0x8a6d00];
@@ -1582,9 +1589,9 @@ class GameScene extends Phaser.Scene {
     const g = this.g.clear();
     // 自陣の大将の候補部屋の縁取り
     if (mine) for (const h of this.homes[myTeam]) g.lineStyle(3, TEAM_COLOR[myTeam], 0.9).strokeRect(h.x + 2, h.y + 2, h.w - 4, h.h - 4);
-    for (const m of s.materials) this.drawMaterial(g, m.x, m.y, 10, m.hi, m.big);
+    for (const m of s.materials) if (this.inView(m.x, m.y, 20)) this.drawMaterial(g, m.x, m.y, 10, m.hi, m.big); // 20: 光る資材の光の半径（最大19px）
     for (const it of s.items) {
-      this.drawItem(g, it);
+      if (this.inView(it.x, it.y, 11)) this.drawItem(g, it); // 11: 台座の半径＋縁
       this.label(`item${it.id}`, ITEM_LABEL[it.kind], it.x, it.y - 15, '', labelSeen);
     }
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team), thingPos);
