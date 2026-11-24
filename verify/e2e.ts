@@ -545,10 +545,11 @@ async function assistCheck(A: Tab, B: Tab) {
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 }); // 2回目は強化
   const [n, u] = await Promise.all([note, up]); await sleep(200);
   const lbl = await A.page.evaluate(() => [...document.querySelectorAll('#fx .lbl')].map((e) => e.textContent).filter((t) => t?.startsWith('ASSIST')));
+  const tags = await scene(A, `s.players.filter((p) => p.assist && p.team === 0).map((p) => sc.tags.get(p.id)?.visible ? sc.tags.get(p.id).frame.name : null)`); // 頭上の★の札（HP バーの右）
   await A.shot('a0_assist_up');
   const s0 = await A.snap(), mine = s0.players.filter((p: any) => p.assist && p.team === 0);
   const v = await scene(A, `(() => s.players.filter((p) => p.assist).map((p) => ({ char: p.char, scale: sc.units.get(p.id)?.s.scale })))()`);
-  check(`アシスト: 大将と同じ大きさ（×${C.ASSIST.scale}）、召喚の通知（${n}）、同時1体で2回目は強化（${u}、頭上 ${lbl}）`, mine.length === 1 && mine[0].tier >= Math.min(3, tier1 + 1) && v.every((x: any) => x.scale === C.DOT_SCALE * C.ASSIST.scale) && !!n && !!u && lbl.includes(`ASSIST ${C.POWER_TIERS[mine[0].tier]}`), { mine: mine.map((p: any) => p.tier), v, lbl });
+  check(`アシスト: 大将と同じ大きさ（×${C.ASSIST.scale}）、召喚の通知（${n}）、同時1体で2回目は強化（${u}、頭上 ${lbl}・札 ${tags}）`, mine.length === 1 && mine[0].tier >= Math.min(3, tier1 + 1) && v.every((x: any) => x.scale === C.DOT_SCALE * C.ASSIST.scale) && !!n && !!u && lbl.includes('ASSIST') && tags.includes(C.ASSIST_TAGS[mine[0].tier]), { mine: mine.map((p: any) => p.tier), v, lbl });
   // 相手陣営（B）のアシストを近くに出す → 互いに向かって交戦。技はすぐ使える
   await send(B, 'e2eAssist', { char: 'aoyama', tier: 2, dx: -260, dy: -200, ready: true });
   await A.until((x) => x.players.filter((p: any) => p.assist).length >= 2, 2000);

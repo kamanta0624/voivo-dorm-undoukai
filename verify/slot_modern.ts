@@ -1,5 +1,5 @@
 // モダンのスロット（src/shared/slot_modern.ts）の単体テスト（handoff_slot2 成功基準1）。実行: npm run test:server
-import { ModernSlot, winRate, fallRate, reliability, lvText, Hold, Mode } from '../src/shared/slot_modern';
+import { ModernSlot, winRate, fallRate, reliability, powerText, assistText, Hold, Mode } from '../src/shared/slot_modern';
 import { CONFIG as C } from '../src/shared/config';
 
 let fails = 0;
@@ -65,7 +65,7 @@ console.log('--- モードの移り変わり・レベル');
   // Lv4 に +1・+2
   const lv = (sym: number) => { const s = new ModernSlot(S, 5, seeded(7)); s.mode = 'ct'; s.lv = { power: 4, assist: 4 }; s.resolve({ ...miss, outcome: 'win', mode: 'ct', reels: [sym, sym, sym], pay: s.drawPay('ct', S.reel.group[sym - 1]) }); return s.lv; };
   const e = lv(2), o = lv(1), s7 = lv(7);
-  ok('Lv4 で偶数・奇数・7 を受けると、両方が Lv.4・Lv.4+1・Lv.4+2（頭打ちにしない）', [e, o, s7].map((x) => `${lvText(S, x.power)}/${lvText(S, x.assist)}`).join() === 'Lv.4/Lv.4,Lv.4+1/Lv.4+1,Lv.4+2/Lv.4+2' && lvText(S, 4) === 'Lv.4', [e, o, s7].map((x) => [lvText(S, x.power), lvText(S, x.assist)]));
+  ok('強さ4（MAX・★★★★）で偶数・奇数・7 を受けると、両方が MAX・MAX+1・MAX+2／★★★★・★★★★+1・★★★★+2（頭打ちにしない）', [e, o, s7].map((x) => `${powerText(S, x.power)}/${assistText(S, x.assist)}`).join() === 'MAX/★★★★,MAX+1/★★★★+1,MAX+2/★★★★+2' && powerText(S, 4) === 'MAX' && powerText(S, 1) === '1' && assistText(S, 2) === '★★', [e, o, s7].map((x) => [powerText(S, x.power), assistText(S, x.assist)]));
 }
 
 console.log('--- 先バレ・リーチ・全回転・高確率保留');

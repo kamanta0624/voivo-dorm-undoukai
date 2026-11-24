@@ -1,7 +1,7 @@
 // モダンのスロットの単体画面（handoff_slot2 E章）。抽選は src/shared/slot_modern.ts、演出は src/client/slot_modern_fx.ts を呼ぶだけ
 import { CONFIG as C } from '../shared/config';
 import { BOSS_CHAR } from '../shared/chars';
-import { ModernSlot, reliability, lvText, Hold, Ev, Mode } from '../shared/slot_modern';
+import { ModernSlot, reliability, powerText, assistText, Hold, Ev, Mode } from '../shared/slot_modern';
 import { ModernFx, HOLD_COLORS } from './slot_modern_fx';
 
 const spec = structuredClone(C.SLOT_MODERN) as typeof C.SLOT_MODERN; // 画面から書き換える（定数ファイルは変えない）
@@ -109,12 +109,12 @@ function onEv(e: Ev, show: boolean, now: number) {
   } else if (e.type === 'win') {
     if (e.first) st.first.push(e.t - st.normalAt);
     st.maxLv.power = Math.max(st.maxLv.power, slot.lv.power); st.maxLv.assist = Math.max(st.maxLv.assist, slot.lv.assist);
-    const txt = e.first ? `初当たり パワーアップ・アシスト ${lvText(spec, e.pay.add)}` : `パワーアップ・アシスト ${e.pay.add ? `+${e.pay.add} → ` : ''}${lvText(spec, slot.lv.power)}（${e.chain}連）`;
+    const txt = e.first ? `初当たり パワーアップ${powerText(spec, e.pay.add)}・アシスト${assistText(spec, e.pay.add)}` : `パワーアップ・アシスト ${e.pay.add ? `+${e.pay.add} → ` : ''}パワーアップ${powerText(spec, slot.lv.power)}・アシスト${assistText(spec, slot.lv.assist)}（${e.chain}連）`;
     log(`${tt}s ★${txt} 徳→${e.toku.toFixed(1)}`); if (show) fx.toast(txt);
   } else if (e.type === 'fall') { st.falls++; log(`${tt}s ▼転落`); }
   else if (e.type === 'penalty') { st.pen[e.n - 1]++; log(`${tt}s ▼ペナルティ発生（${e.n}回目）`); if (show) fx.toast(`ペナルティ発生（${e.n}回目）`, true); }
   else if (e.type === 'mode') { log(`${tt}s → ${MODE_NAME[e.mode]}`); if (e.mode === 'normal') st.normalAt = e.t; }
-  else if (e.type === 'end') { st.chains.push(e.chain); log(`${tt}s 連チャン終了 ${e.chain}連 最高 パワー${lvText(spec, e.maxLv.power)}・アシスト${lvText(spec, e.maxLv.assist)}`); }
+  else if (e.type === 'end') { st.chains.push(e.chain); log(`${tt}s 連チャン終了 ${e.chain}連 最高 パワーアップ${powerText(spec, e.maxLv.power)}・アシスト${assistText(spec, e.maxLv.assist)}`); }
 }
 
 function loop(now: number) {
@@ -128,7 +128,7 @@ function loop(now: number) {
   }
   fx.frame(now);
   fx.holds(slot.holds, slot.cur?.hold ?? null);
-  fx.mode(slot.mode, slot.backLeft, `パワーアップ ${lvText(spec, slot.lv.power)}・アシスト ${lvText(spec, slot.lv.assist)}`);
+  fx.mode(slot.mode, slot.backLeft, `パワーアップ${powerText(spec, slot.lv.power)}・アシスト${assistText(spec, slot.lv.assist)}`);
   $('#tokuV').textContent = slot.toku.toFixed(1);
   $('#now').textContent = `経過 ${st.sec.toFixed(0)}秒（シミュレーション）`;
   requestAnimationFrame(loop);
@@ -150,7 +150,7 @@ ${Object.keys(spec.reach).concat('allSpin').map((a) => `<tr><th>　${actName(a)}
 <tr><th>先バレ</th>${rel(s.saki)}</tr><tr><th>高確率保留</th>${rel(s.high)}</tr>
 ${spec.colors.map((c, i) => `<tr><th>保留 <span class="sw" style="background:${HOLD_COLORS[i]}"></span> ${c}</th>${rel(s.color[i])}</tr>`).join('')}
 <tr><th>転落・ペナルティ（1回目／2回目）</th><td colspan="3">${s.falls}・${s.pen[0]}／${s.pen[1]}</td></tr>
-<tr><th>最高到達レベル</th><td colspan="3">パワーアップ ${lvText(spec, s.maxLv.power)}・アシスト ${lvText(spec, s.maxLv.assist)}</td></tr>
+<tr><th>最高到達</th><td colspan="3">パワーアップ${powerText(spec, s.maxLv.power)}・アシスト${assistText(spec, s.maxLv.assist)}</td></tr>
 </table>
 <div style="margin-top:4px">連チャン数の分布（${ch.length}回、平均 ${ch.length ? (ch.reduce((a, b) => a + b, 0) / ch.length).toFixed(2) : '-'}）<table><tr><th>連</th>${dist}</tr><tr><th>回</th>${distN}</tr></table></div>`;
 }

@@ -254,7 +254,7 @@ export class GameRoom extends Room {
       if (m?.op === 'foe' && foe && PICKABLE.includes(m.char)) this.practiceFoe(foe, m.char);
       if (m?.op === 'mode' && ['stand', 'passive', 'bot'].includes(m.mode)) this.practiceMode(m.mode);
       if (m?.op === 'power' && (m.d === 1 || m.d === -1)) { const q = m.who === 'foe' ? foe : me; if (q) this.practicePower(q, m.d); }
-      if (m?.op === 'assist' && C.ASSIST.units[m.char] && Number.isInteger(m.tier) && m.tier >= 0 && m.tier < C.POWER_TIERS.length && (m.side === 'mine' || m.side === 'foe')) {
+      if (m?.op === 'assist' && C.ASSIST.units[m.char] && Number.isInteger(m.tier) && m.tier >= 0 && m.tier < C.ASSIST_TAGS.length && (m.side === 'mine' || m.side === 'foe')) {
         const team = m.side === 'mine' ? me.team : 1 - me.team;
         for (const a of [...this.players.values()]) if (a.assist && a.team === team) this.players.delete(a.id); // 同時1体なので、今のアシストと入れ替える
         this.summonAssist(team, m.tier, m.char);
@@ -557,9 +557,9 @@ export class GameRoom extends Room {
     if (foe && mode === 'stand') Object.assign(foe, { dx: 0, dy: 0, path: [] });
   }
 
-  // 練習: パワーアップのレベルを1つ上げ下げ（なし〜POWER_TIERS の上限）。変えたら効果時間とHPは最初から
+  // 練習: パワーアップのレベルを1つ上げ下げ（なし〜POWER_TAGS の上限）。変えたら効果時間とHPは最初から
   practicePower(q: Player, d: 1 | -1) {
-    const cur = q.ult ? q.ult.tier : -1, to = Math.max(-1, Math.min(C.POWER_TIERS.length - 1, cur + d));
+    const cur = q.ult ? q.ult.tier : -1, to = Math.max(-1, Math.min(C.POWER_TAGS.length - 1, cur + d));
     if (to === cur) return;
     if (to < 0) return this.endUlt(q);
     if (!q.ult) return this.giveUlt(q, to);
@@ -1012,7 +1012,7 @@ export class GameRoom extends Room {
     const cur = [...this.players.values()].filter((q) => q.assist && q.team === team && q.alive);
     if (cur.length >= C.ASSIST.max) {
       const a = cur[0];
-      a.tier = Math.min(C.POWER_TIERS.length - 1, a.tier + 1);
+      a.tier = Math.min(C.ASSIST_TAGS.length - 1, a.tier + 1);
       a.hp = this.maxHp(a);
       for (const c of this.clients) c.send('assistUp', { char: a.char, tier: a.tier, team }); // 両陣営に通知
       this.addFx(a, 'aura', { r: 40, color: 'assist' });
@@ -1526,7 +1526,7 @@ export class GameRoom extends Room {
         const rate = this.slotChance ?? chanceRate(t.toku);
         let top = 0; while (top < C.SLOT.chance.n && Math.random() < rate) top++;
         this.addToku(team, null, 'slot');
-        Object.assign(sl, { chain: 1, tier: 0, top: Math.min(top, C.POWER_TIERS.length - 1), payoutAt: this.now });
+        Object.assign(sl, { chain: 1, tier: 0, top: Math.min(top, C.POWER_TAGS.length - 1), payoutAt: this.now });
       }
       if (this.now < sl.payoutAt!) return;
       const tg = sl.cur!.target!, kind = tg.kind, who = tg.kind === 'ult' ? this.players.get(tg.id)?.char ?? '' : tg.kind === 'assist' ? tg.char : BOSS_CHAR[team];
@@ -1544,7 +1544,7 @@ export class GameRoom extends Room {
     if (t.kind === 'seven') {
       for (const q of this.slotPlayers(team)) {
         if (!q.ult) { this.giveUlt(q, tier); continue; }
-        q.ult.tier = Math.min(C.POWER_TIERS.length - 1, q.ult.tier + 1 + tier);
+        q.ult.tier = Math.min(C.POWER_TAGS.length - 1, q.ult.tier + 1 + tier);
         if (!q.ult.pending) q.ult.until = this.now + C.ULT_DURATION;
       }
       return;
@@ -1598,7 +1598,7 @@ export class GameRoom extends Room {
   levelUp(p: Player, add: number) {
     const get = () => (p.assist ? p.tier : p.ult!.tier), set = (v: number) => { if (p.assist) p.tier = v; else p.ult!.tier = v; };
     const from = get(), mx = (v: number) => { set(v); const r = this.maxHp(p); set(from); return r; };
-    const step = (k: number) => (k < C.POWER_TIERS.length - 1 ? mx(k + 1) - mx(k) : mx(C.POWER_TIERS.length - 1) - mx(C.POWER_TIERS.length - 2));
+    const step = (k: number) => (k < C.POWER_TAGS.length - 1 ? mx(k + 1) - mx(k) : mx(C.POWER_TAGS.length - 1) - mx(C.POWER_TAGS.length - 2));
     let inc = 0;
     for (let k = from; k < from + Math.max(1, add); k++) inc += step(k);
     set(from + add);
@@ -2012,7 +2012,7 @@ export class GameRoom extends Room {
     }));
     const wanted = this.teams.map((t) => this.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
     const all = { players: [...this.players.values()], bosses: this.bosses, ents: this.ents, shots: this.shots, fx: this.fx, warns: this.warns };
-    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name }));
+    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name, ult: p.ult && !p.ult.pending ? p.ult.tier : null })); // ult: パワーアップ中の強さ（一覧の札。両陣営に送る）
     for (const client of this.clients) {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
       const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）

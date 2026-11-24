@@ -15,7 +15,7 @@ import { Commentary } from './commentary';
 import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
 import { GUMI, TEAM_GUMI } from '../shared/commentary';
 import { ModernFx } from './slot_modern_fx';
-import { lvText } from '../shared/slot_modern';
+import { powerText, assistText } from '../shared/slot_modern';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
@@ -55,6 +55,7 @@ const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
+const TAG_RES = 4; // 頭上の強さの札の絵の解像度の倍率
 const CULL_MARGIN = 64; // 画面外を描かない判定の余白(px)。カメラの追従の遅れ（描画の直前に動く分）・揺れを含めて余裕を持たせる
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
@@ -228,6 +229,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .buffs .bad{background:#8a2020cc;border:1px solid #ff8080}
 #fx .roster .rw{display:flex;gap:calc(var(--z) * 2px)}
 #fx .mem{position:relative;display:flex}
+#fx .mem .pt{position:absolute;right:-2px;top:-3px;font:900 calc(var(--z) * 5.5px)/1 sans-serif;font-style:normal;color:#ffe066;background:#000c;padding:0 calc(var(--z) * 1px);border-radius:2px;white-space:nowrap} /* 強さの札（パワーアップ 1〜MAX・アシスト★） */
 #fx .mem .hp{position:absolute;left:2px;right:2px;bottom:2px;height:calc(var(--z) * 2.5px);background:#000b}
 #fx .mem .hp i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
 #fx .mem .rs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:900 calc(var(--z) * 9px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
@@ -305,7 +307,7 @@ hudEl.insertAdjacentHTML('beforeend', `<button class="prbtn">練習 ▼</button>
 <div class="r"><b>相手の動き</b><button data-mode="stand">棒立ち</button><button data-mode="passive">攻撃なし</button><button data-mode="bot">通常Bot</button></div>
 <div class="r"><b>パワーアップ 自分</b><button data-pw="me" data-d="-1">−</button><span class="lv lv0"></span><button data-pw="me" data-d="1">＋</button></div>
 <div class="r"><b>パワーアップ 相手</b><button data-pw="foe" data-d="-1">−</button><span class="lv lv1"></span><button data-pw="foe" data-d="1">＋</button></div>
-<div class="r"><b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.POWER_TIERS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
+<div class="r"><b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.ASSIST_TAGS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
 <div class="r"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div>`);
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
@@ -346,6 +348,7 @@ class GameScene extends Phaser.Scene {
   pingAt = -Infinity;
   pingPending: number | null = null;
   sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
+  tags = new Map<string, Phaser.GameObjects.Image>(); tagSeen = new Set<string>(); // 頭上の強さの札（キャラの id ごと）と、このフレームに置いた札
   kunais = new Map<number, Phaser.GameObjects.Image>(); kunaiSeen = new Set<number>(); // クナイの弾の絵（弾の id ごと）と、このフレームに見えた弾
   finishMeasure() {
     if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
@@ -606,9 +609,9 @@ class GameScene extends Phaser.Scene {
       room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
       room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
       room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
-      room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 召喚の通知（両陣営）
+      room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 召喚の通知（両陣営）
       room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier, m.char));
-      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト レベルアップ: ${charName(m.char)}（${C.POWER_TIERS[m.tier]}）`)); // 両陣営
+      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 両陣営
       room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
       room.onMessage('mslot', (m: any) => this.mslotEv(m));
       room.onMessage('mslotWin', (m: any) => this.mslotWin(m));
@@ -759,6 +762,29 @@ class GameScene extends Phaser.Scene {
     q.fillStyle = '#2a3a6a'; q.fillRect(3, 3, 4.5, 2); // 柄
     q.strokeStyle = '#d8dee8'; q.beginPath(); q.arc(2, 4, 1.6, 0, Math.PI * 2); q.stroke(); // 輪
     k.refresh();
+    // 強さの札（頭上）: 「1」「2」「3」「MAX」と「★」〜「★★★★」を1枚の絵にコマ分けして起動時に作る（頭上は Image のコマを切り替える: render_policy 3）
+    // TAG_RES 倍で描いて 1/TAG_RES で表示する（この絵だけ線形補間）
+    const R = TAG_RES, font = `900 ${7 * R}px sans-serif`, labels = [...C.POWER_TAGS, ...C.ASSIST_TAGS], m0 = document.createElement('canvas').getContext('2d')!;
+    m0.font = font;
+    const ws = labels.map((l) => Math.ceil(m0.measureText(l).width) + 4 * R), H = 9 * R;
+    const tt = this.textures.createCanvas('tags', ws.reduce((a, b) => a + b + 2, 0), H)!, tc = tt.context;
+    let x = 0;
+    labels.forEach((l, i) => {
+      tc.fillStyle = 'rgba(0,0,0,0.8)'; tc.beginPath(); tc.roundRect(x, 0, ws[i], H, 2 * R); tc.fill();
+      tc.font = font; tc.textAlign = 'center'; tc.textBaseline = 'middle'; tc.fillStyle = '#ffe066'; tc.fillText(l, x + ws[i] / 2, H / 2 + 0.5 * R);
+      tt.add(l, 0, x, 0, ws[i], H); x += ws[i] + 2;
+    });
+    tt.refresh(); tt.setFilter(Phaser.Textures.FilterMode.LINEAR);
+  }
+
+  // 頭上の強さの札を置く（id ごとに Image を1つ。label が null・画面外なら隠す）
+  placeTag(id: string, label: string | null, x: number, y: number) {
+    this.tagSeen.add(id);
+    let im = this.tags.get(id);
+    if (!label) { im?.setVisible(false); return; }
+    if (!im) { im = this.add.image(x, y, 'tags', label).setOrigin(0, 0.5).setScale(1 / TAG_RES).setDepth(19); this.tags.set(id, im); }
+    if (im.frame.name !== label) im.setFrame(label);
+    im.setPosition(Math.round(x), Math.round(y)).setVisible(true);
   }
 
   // 斬撃の絵（arc の角度ごとに1回だけ作る）: 中心から右向き、外周に三日月の刃
@@ -909,8 +935,8 @@ class GameScene extends Phaser.Scene {
       this.mfxView[k] = v;
       const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
       f.holds(m.holds.map(h), m.cur && h(m.cur));
-      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり ${C.POWER_TIERS[m.chain - 1]}` : '';
-      else f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
+      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり${m.chain > 1 ? ` ${m.chain}連` : ''}` : ''; // 連チャンの回数（強さの段と同じ数）
+      else f.mode(m.mode, m.backLeft, `パワーアップ${powerText(C.SLOT_MODERN, m.lv.power)}・アシスト${assistText(C.SLOT_MODERN, m.lv.assist)}`);
     }
     if (t === this.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
       const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`, disp = on ? 'block' : 'none';
@@ -937,9 +963,9 @@ class GameScene extends Phaser.Scene {
 
   // 当選のお知らせ（画面中央）と音。敵陣の当選は陣営名つき、音なし
   mslotWin(m: any) {
-    const L = (tier: number) => lvText(C.SLOT_MODERN, tier + 1), P = m.power, A = m.assist;
-    const pw = P.new ? `パワーアップ ${L(P.tier)}` : `パワーアップ ${P.add ? `+${P.add} → ` : ''}${L(P.tier)}（+${C.SLOT_MODERN.game.ultAdd}秒）`;
-    const as = A.new ? `アシスト ${L(A.tier)} 登場` : `アシスト ${A.add ? `+${A.add} → ` : ''}${L(A.tier)}${A.add ? '' : ' 耐久アップ'}`;
+    const LP = (tier: number) => powerText(C.SLOT_MODERN, tier + 1), LA = (tier: number) => assistText(C.SLOT_MODERN, tier + 1), P = m.power, A = m.assist;
+    const pw = P.new ? `パワーアップ${LP(P.tier)}` : `パワーアップ${P.add ? `+${P.add} → ` : ''}${LP(P.tier)}（+${C.SLOT_MODERN.game.ultAdd}秒）`;
+    const as = A.new ? `アシスト${LA(A.tier)} 登場` : `アシスト${A.add ? `+${A.add} → ` : ''}${LA(A.tier)}${A.add ? '' : ' 耐久アップ'}`;
     this.mslotToast(m.team, `${m.first ? '大当たり！' : `${m.chain}連チャン！`}\n${pw}\n${as}`);
     if (m.team === this.mfxMine) this.mfx[m.team]?.se('win');
   }
@@ -955,7 +981,7 @@ class GameScene extends Phaser.Scene {
     el.className = 'scut';
     el.style.setProperty('--d', `${C.SLOT_CUTIN_MS}ms`);
     el.style.setProperty('--c', css16(TEAM_COLOR[team]) + 'cc');
-    const pay = kind === 'seven' ? `7 全員レベルアップ（+${tier + 1}）` : `${charName(char)} ${PAYOUT_LABEL[kind]}（${C.POWER_TIERS[tier]}）`; // 7 は人ごとにレベルが違うので上がる段数
+    const pay = kind === 'seven' ? `7 全員パワーアップ（+${tier + 1}）` : `${charName(char)} ${PAYOUT_LABEL[kind]}${kind === 'assist' ? C.ASSIST_TAGS[tier] : C.POWER_TAGS[tier]}`; // 7 は人ごとに強さが違うので上がる段数
     el.innerHTML = `<b>${chain === 1 ? '大当たり！' : 'チャンスアップ！'}</b><span>${TEAM_NAME[team]}　${pay}</span>`;
     fx.appendChild(el);
     setTimeout(() => el.remove(), C.SLOT_CUTIN_MS);
@@ -1076,11 +1102,12 @@ class GameScene extends Phaser.Scene {
   buffTopOf: string | null = null; // バフ欄の位置を測った時の .r0 の中身
   rosterHud(s: any, myTeam: number, sinceSnap: number) {
     const c = css16(TEAM_COLOR[myTeam]), bar = (p: any) => `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>`;
+    const tag = (t: string) => `<em class="pt">${t}</em>`, ut = (r: any) => (r.ult !== null && r.ult !== undefined && r.alive ? tag(C.POWER_TAGS[Math.min(r.ult, C.POWER_TAGS.length - 1)]) : ''); // 強さの札: パワーアップ中は 1〜MAX、アシストは★
     const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
       const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
-      return `<div class="mem" style="--c:${c}">${this.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}</div>`;
-    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.alive && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}</div>`).join(''); // アシスト（撃破されたら消える）
-    const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => this.icon(r.char, 1 - myTeam, !r.alive)).join('') + '</div>';
+      return `<div class="mem" style="--c:${c}">${this.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}${ut(r)}</div>`;
+    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.alive && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}${tag(C.ASSIST_TAGS[Math.min(p.tier, C.ASSIST_TAGS.length - 1)])}</div>`).join(''); // アシスト（撃破されたら消える）
+    const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => `<div class="mem">${this.icon(r.char, 1 - myTeam, !r.alive)}${ut(r)}</div>`).join('') + '</div>';
     const html = myTeam === 0 ? [allies, foes] : [foes, allies];
     html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
   }
@@ -1093,7 +1120,7 @@ class GameScene extends Phaser.Scene {
         const b = BUFF[k], left = v - sinceSnap;
         if (b && left > 0) items.push([b[0], `${Math.ceil(left)}`, b[1]]);
       }
-      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ ${lvText(C.SLOT_MODERN, mine.ult.tier + 1).replace('.', '')}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
+      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ${powerText(C.SLOT_MODERN, mine.ult.tier + 1)}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
       if (s.teams?.[myTeam]?.wanted === s.me) items.push(['指名手配', `悪行${(mine.bad ?? 0).toFixed(1)}`, false]);
     }
     const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
@@ -1224,7 +1251,7 @@ class GameScene extends Phaser.Scene {
     setCss(btn, 'display', on ? 'block' : 'none');
     setCss($('.timer'), 'visibility', s.practice ? 'hidden' : '');
     if (!on) { prp.classList.remove('open'); return; }
-    const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TIERS[t]);
+    const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TAGS[t]);
     setText($('.lv0'), lv(P.lv[0])); setText($('.lv1'), lv(P.lv[1]));
     prp.querySelectorAll<HTMLElement>('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === P.mode));
     const sel = $('.pfoe') as HTMLSelectElement;
@@ -1433,6 +1460,8 @@ class GameScene extends Phaser.Scene {
       if (p && !p.alive) return;
       const onScr = this.inView(cx, cy, h + 30); // 足元・HP バーなどの図形は画面外なら描かない（30: HP バー・輪の分）
       if (!bare && onScr) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
+      const tagL = p?.ult && p.ult.left !== null ? C.POWER_TAGS[Math.min(p.ult.tier, C.POWER_TAGS.length - 1)] : p?.assist ? C.ASSIST_TAGS[Math.min(p.tier, C.ASSIST_TAGS.length - 1)] : null; // 強さの札（パワーアップ中 1〜MAX、アシスト★）
+      this.placeTag(id, alpha === 1 && !bare && s.phase !== 'finale' && onScr ? tagL : null, cx + 12, cy - h - 3.5); // HP バーの右
       if (alpha === 1 && !bare && s.phase !== 'finale' && onScr) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
       // 被弾: 点滅（全段階）とダメージ数値。被弾側の最大HP比で 小=点滅だけ、中=ダメージ量に比例した着弾エフェクト、大=派手な着弾エフェクト＋揺れ（HIT_FX）
       if (e.hp !== undefined && hp < e.hp) {
@@ -1459,13 +1488,12 @@ class GameScene extends Phaser.Scene {
       if (p.ult && p.ult.left !== null) {
         const pulse = 0.5 + 0.3 * Math.sin(time / 120);
         if (onScr) feet.lineStyle(3, ULT_COLOR[p.ult.form], pulse).strokeCircle(cx, cy - h / 2, 20).lineStyle(1, 0xffffff, pulse).strokeCircle(cx, cy - h / 2, 23);
-        this.label(`ult${id}`, lvText(C.SLOT_MODERN, p.ult.tier + 1), cx, cy - h - 22, '', labelSeen);
       }
       // アシスト: 半透明の縁取りと頭上の「ASSIST」
       if (p.assist) {
         sp.setAlpha(0.8);
         if (onScr) feet.lineStyle(2, ITEM_COLOR.assist, 0.6).strokeRoundedRect(cx - 14, cy - h - 2, 28, h + 6, 5);
-        this.label(`assist${id}`, `ASSIST ${C.POWER_TIERS[p.tier] ?? lvText(C.SLOT_MODERN, p.tier + 1)}`, cx, cy - h - 14, '', labelSeen);
+        this.label(`assist${id}`, 'ASSIST', cx, cy - h - 14, '', labelSeen); // 強さは HP バーの右の★の札
       }
     };
     const K = C.KO_FX, dying: { p: any; x: number; y: number; ko: number }[] = []; // 撃破の演出中（揺れ・大爆発）
@@ -1500,6 +1528,8 @@ class GameScene extends Phaser.Scene {
     for (const [id, e] of this.units) {
       if (!seen.has(id)) { e.s.destroy(); e.aura?.destroy(); this.units.delete(id); }
     }
+    for (const [id, im] of this.tags) if (!this.tagSeen.has(id)) { im.destroy(); this.tags.delete(id); } // 描かなかったキャラの札を片付ける
+    this.tagSeen.clear();
     // カメラ: 開始演出は味方の横並びに寄せる。ミニマップを押している間はその位置（離したら即座に自キャラへ）。撤退中は WASD で視点だけ動かす（壁に関係なく）。それ以外は自キャラに追従
     const camera = this.cameras.main, meUnit = this.units.get(s.me);
     const freeCam = !!mine && !mine.alive && s.phase === 'playing' && (mine.ko === null || mine.ko + sinceSnap >= C.RESPAWN_BASE); // 撃破の演出（絞り切るまで）はカメラを自キャラの位置のまま
@@ -1759,7 +1789,7 @@ class GameScene extends Phaser.Scene {
       `あなた: ${mine ? TEAM_NAME[myTeam] : '観戦中'}  状態: ${s.phase}  残り ${Math.ceil(s.timeLeft)}秒 ${result}`,
       `自キャラ座標: ${mine ? `${Math.round(mine.x)}, ${Math.round(mine.y)}` : '-'}`,
       ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
-      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ: ${C.ULT_FORMS[mine.ult.form].name}（${C.POWER_TIERS[mine.ult.tier] ?? lvText(C.SLOT_MODERN, mine.ult.tier + 1)}）${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
+      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ${powerText(C.SLOT_MODERN, mine.ult.tier + 1)}: ${C.ULT_FORMS[mine.ult.form].name}${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
       ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
       `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
       ...(TOUCH ? [] : ['WASD移動 / 通常攻撃は自動 / Q長押しで帰還 / R技 / Tab照準 / ミニマップ右クリック長押しで視点']), // タッチ端末にはPCのキー操作を出さない

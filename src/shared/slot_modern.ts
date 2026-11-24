@@ -30,8 +30,9 @@ export function winRate(spec: Spec, mode: Mode, t: number) {
 export function fallRate(spec: Spec, t: number) {
   return Math.min(1, spec.base.fall * 2 ** ((5 - t) / spec.tokuDiv.fall) * (t < spec.lowBelow ? spec.lowFall : 1));
 }
-// レベルの表示: lvCap を超えたら「Lv.4+N」
-export const lvText = (spec: Spec, n: number) => (n > spec.lvCap ? `Lv.${spec.lvCap}+${n - spec.lvCap}` : `Lv.${n}`);
+// 強さの表示（n は1始まり）: パワーアップは 1・2・3・MAX、アシストは ★〜★★★★（CONFIG の POWER_TAGS・ASSIST_TAGS）。lvCap を超えたら「MAX+N」「★★★★+N」
+export const powerText = (spec: Spec, n: number) => (n > spec.lvCap ? `${CONFIG.POWER_TAGS[CONFIG.POWER_TAGS.length - 1]}+${n - spec.lvCap}` : CONFIG.POWER_TAGS[n - 1]);
+export const assistText = (spec: Spec, n: number) => (n > spec.lvCap ? `${CONFIG.ASSIST_TAGS[CONFIG.ASSIST_TAGS.length - 1]}+${n - spec.lvCap}` : CONFIG.ASSIST_TAGS[n - 1]);
 
 // 信頼度（その演出・色・先バレが出たときの当選率）の理論値。徳 t・通常モード・高確率保留なし
 export function reliability(spec: Spec, t: number, mode: Mode = 'normal') {

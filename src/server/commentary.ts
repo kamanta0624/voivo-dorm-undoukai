@@ -598,10 +598,12 @@ export class Director {
   }
   bossWarn(boss: { team: number }) { this.emit([this.say('boss_warn', { 大将: boss.team })]); }
   bossMoved(boss: { team: number }, first: boolean) { this.emit([this.say(first ? 'boss_form2' : 'boss_move', { 大将: boss.team })]); }
-  // クラシックの当選（handoff_slot4）: 大当たりは対象の名前つき（who: パワーアップするキャラかアシスト。7 は全員レベルアップ）、チャンスアップ（chain 2〜）は「まだ止まらない、[組]！」
+  // クラシックの当選（handoff_slot4）: 大当たりは対象の名前つき（who: パワーアップするキャラかアシスト。7 は全員パワーアップ）
+  // チャンスアップ（chain 2〜）は何回目かで言い方を変える（fb1124: 1回目＝さらにパワーアップ、2回目＝止まらない、3回目＝MAX「ここからは[A]の時間か」）。アシストは _as、7 の連チャンは「まだ止まらない、[組]！」
   slot(team: number, chain: number, kind: string, who: string) {
     this.wins[team].push(this.now);
-    this.emit([chain >= 2 ? this.say('slot_chain', { 組: [team] }, [1]) : kind === 'seven' ? this.say('slot_seven', { 組: [team] }) : kind === 'ult' ? this.say('slot_ult', { 組: [team], A: who }) : this.say('slot_assist', { 組: [team], 助っ人: who })]);
+    const stage = Math.min(chain - 1, 3); // チャンスアップの何回目か（1〜3）
+    this.emit([chain >= 2 ? (kind === 'ult' ? this.say(`slot_chain${stage}`, { 組: [team], A: who }) : kind === 'assist' ? this.say(`slot_chain${stage}_as`, { 組: [team], 助っ人: who }) : this.say('slot_chain', { 組: [team] }, [1])) : kind === 'seven' ? this.say('slot_seven', { 組: [team] }) : kind === 'ult' ? this.say('slot_ult', { 組: [team], A: who }) : this.say('slot_assist', { 組: [team], 助っ人: who })]);
   }
   penalty(team: number, kind: string) { this.emit([this.say(`pen_${kind}`, { 組: [team] })]); }
   // モダンのスロット（handoff_slot3）: リーチ（until: 結果の出る時刻。言う前に過ぎたら捨てる）・当選（初当たり／連チャン）・ペナルティ（1＝転落、2＝引き戻し失敗）

@@ -771,7 +771,7 @@ console.log('--- スロット（当たる確率・チャンスアップ・払い
   const pay0 = q.payout.bind(q); q.payout = (...a: any[]) => { paid.push([a[2], q.now]); pay0(...a); };
   const t0 = q.now; let t = 0; while (!paid.length && t < 30) { q.now += 0.05; t += 0.05; q.updateSlots(); }
   const tokuAfter = q.teams[0].toku;
-  ok(`チャンスアップ: 段ごとにカットイン（${sent.map(([m]) => `${m.chain}:${C.POWER_TIERS[m.tier]}`).join(' ')}）、最大${C.SLOT.chance.n}回で${C.POWER_TIERS.at(-1)}、徳${C.SLOT.winToku}は当選時だけ`,
+  ok(`チャンスアップ: 段ごとにカットイン（${sent.map(([m]) => `${m.chain}:${C.POWER_TAGS[m.tier]}`).join(' ')}）、最大${C.SLOT.chance.n}回で${C.POWER_TAGS.at(-1)}、徳${C.SLOT.winToku}は当選時だけ`,
     JSON.stringify(sent.map(([m]) => [m.team, m.chain, m.tier])) === JSON.stringify([[0, 1, 0], [0, 2, 1], [0, 3, 2], [0, 4, 3]]) && tokuAfter === 6 + C.SLOT.winToku && paid.length === 1 && paid[0][0] === 3);
   ok(`段の間隔は${C.SLOT.gap}秒、払い出しは最後の段で1回、そのあと次の回転`, sent.every(([, at]: any, i: number) => Math.abs(at - (t0 + C.SLOT.spin + i * C.SLOT.gap)) < 0.06 * (i + 1)) && Math.abs(paid[0][1] - sent[3][1]) < 1e-9 && q.teams[0].slot.payoutAt === null && q.teams[0].slot.start === paid[0][1], sent.map(([, at]: any) => +(at - t0).toFixed(2)));
   {
@@ -995,7 +995,7 @@ console.log('--- アシストの同時1体と強化・アシスト同士の優�
   const up = sent.filter(([, t]) => t === 'assistUp');
   ok(`各陣営、同時に出ているアシストは${C.ASSIST.max}体まで。超える召喚は今のアシストの強化（強さ+1、HPは新しい最大値まで回復、両陣営に通知）`, b === a && [...r.players.values()].filter((p: any) => p.assist && p.team === 0).length === 1 && a.tier === 2 && a.hp === r.maxHp(a) && up.length === 2 && up.every(([, , m]) => m.tier === 2 && m.char === a.char && m.team === 0));
   r.summonAssist(0, 1); r.summonAssist(0, 1);
-  ok('強化の上限はバランスブレーカー', a.tier === C.POWER_TIERS.length - 1);
+  ok('強化の上限はバランスブレーカー', a.tier === C.ASSIST_TAGS.length - 1);
   r.items.push({ id: 900, kind: 'box_assist', team: -1, x: 0, y: 0 }); const hp0 = (a.hp = 5); r.takeItem(r.players.get('a'), r.items[r.items.length - 1]);
   ok('アシスト箱でも強化（上限のままHP回復）', a.tier === 3 && a.hp > hp0 && [...r.players.values()].filter((p: any) => p.assist).length === 1);
   r.damagePlayer(a, 1e9, null); const c = r.summonAssist(0, 1);
