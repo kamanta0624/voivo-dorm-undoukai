@@ -9,3 +9,4 @@
 - セッションと worktree の削除は `claude stop <id>` → worktree のロックを持つ pid の終了を確認（最大30秒待つ）→ `claude rm <id>`。kill・強制削除はしない
 - `npm run assets` は `PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python` が必要（psd_tools 入りの Python）
 - マップチップは `mkdir -p public/assets/mapchip && cp ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_/BaseChip_nimono.png ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_/オートタイル/Auto_{A02,B03,B04,C08}.png public/assets/mapchip/`（加工しない・コミットしない）
+- 描画・演出・UI を作る・直す時は docs/render_policy.md に従う
