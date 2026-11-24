@@ -1596,7 +1596,8 @@ class GameScene extends Phaser.Scene {
       const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
       const wv = this.cameras.main.worldView, polys: { x: number; y: number }[][] = [];
-      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); vg.fillPoints(pts, true); polys.push(pts); }
+      // 視界ポリゴンは目から放射状に並んだ点なので、目を中心にした扇形の三角形で塗る（fillPoints だと Phaser が毎フレーム三角形分割をやり直して重い。塗る範囲は同じ）
+      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); for (let i = 0, n = pts.length; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; vg.fillTriangle(e.x, e.y, a.x, a.y, b.x, b.y); } polys.push(pts); }
       if (this.mfxMine >= 0) this.mfxArea(polys, wv.x, wv.y);
       for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
       [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
