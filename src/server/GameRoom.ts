@@ -229,11 +229,11 @@ export class GameRoom extends Room {
       if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) p.char = m.char;
     },
     // 出撃: そのキャラで出撃済みにする。開始の判定（全員出撃で開始、最初の出撃で選択猶予のカウント開始）
-    go: (client: Client, m: { char: string; foe?: string }) => {
+    go: (client: Client, m: { char: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (!p || this.phase !== 'waiting' || !PICKABLE.includes(m.char)) return;
       Object.assign(p, { char: m.char, ok: true });
-      if (this.practice) { if (PICKABLE.includes(m.foe ?? '')) this.startPractice(m.foe!); else p.ok = false; return; } // 練習: 相手キャラも選んで即開始
+      if (this.practice) { this.startPractice(PICKABLE[Math.floor(Math.random() * PICKABLE.length)]); return; } // 練習: 相手は選べるキャラからランダムで即開始
       if (this.lobbyLeft === null) this.lobbyLeft = C.LOBBY_GRACE;
       this.updateLobby(0);
     },
@@ -540,9 +540,10 @@ export class GameRoom extends Room {
     if (client) client.leave(CloseCode.CONSENTED, ban ? 'ban' : 'kick'); // onLeave（Bot が引き継ぐ）
   }
 
-  // 練習の開始: 相手1体（Bot、id 'foe'）を足し、開始演出・カウントなしで始める
+  // 練習の開始: 相手1体（Bot、id 'foe'）を足し、開始演出・カウントなしで始める。相手の動きは棒立ちから
   startPractice(foe: string) {
     this.addPlayer('foe', 1, true).char = foe;
+    this.practiceMode('stand');
     this.startMatch();
     this.beginPlay();
   }

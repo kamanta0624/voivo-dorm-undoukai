@@ -113,7 +113,6 @@ css.textContent = `
 #fx .prp .end{margin-top:8px}
 #fx .prbtn{position:absolute;left:100%;top:34%;width:max(44px,calc(var(--z) * 22px));height:max(110px,calc(var(--z) * 55px));pointer-events:auto;box-sizing:border-box;border:1px solid #ffe066;border-left:0;border-radius:0 8px 8px 0;background:#000c;color:#ffe066;font:bold max(15px,calc(var(--z) * 8px)) sans-serif;writing-mode:vertical-rl;letter-spacing:.3em;cursor:pointer}
 #lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn{display:none}
-#lobby.practice.foe #backsel{display:block}
 #fx .timer{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);background:#000a;color:#fff;font:bold calc(var(--z) * 13px) sans-serif;padding:0 .5em;border-radius:3px}
 #fx .bar{position:absolute;top:2.6%;width:31%;height:2.4%;background:#000b;outline:1px solid #000}
 #fx .bar.b0{left:1.2%}
@@ -420,8 +419,6 @@ class GameScene extends Phaser.Scene {
   backSent = false; // リザルトで「戻る」を押したか
   toTitle = false; // 「タイトルへ」を押した（部屋を出たらタイトル画面へ）
   practice = false; // 練習の部屋か（スナップショットの practice）
-  pStage = 0; // 練習の待機画面: 0=自キャラを選ぶ、1=相手キャラを選ぶ
-  pMine = ''; pFoe = ''; // 練習: 選んだ自キャラ・相手キャラ
   introCam = false; // 開始演出でカメラを寄せているか
   introCut = ''; // 新開幕: 今映しているカット
   introBanner: [string, string] | null = null; // 新開幕: 画面中央の文字
@@ -529,15 +526,13 @@ class GameScene extends Phaser.Scene {
       el.onpointerenter = (e) => { if (e.pointerType === 'mouse' && !drag?.moved) this.showChar(k); };
       el.onclick = () => { if (dragged) { dragged = false; return; } if (this.selMode !== 'browse') return; if (this.selChar === k) { this.selMode = 'confirm'; this.lobbyRender(); } else this.showChar(k); };
     });
-    document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン → 出撃済み。練習: 自キャラの OK? → 相手キャラの選択バー → OK? → 開始
-      if (this.practice && this.pStage === 0 && this.selMode === 'confirm') { this.pMine = this.selChar; this.pStage = 1; this.selMode = 'browse'; this.selChar = this.pFoe || this.pMine; }
-      else if (this.selMode === 'confirm') this.selMode = 'sortie';
-      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', this.practice ? { char: this.pMine, foe: (this.pFoe = this.selChar) } : { char: this.selChar }); }
+    document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン（練習は「開始」。相手はサーバーがランダムに選ぶ） → 出撃済み
+      if (this.selMode === 'confirm') this.selMode = 'sortie';
+      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', { char: this.selChar }); }
       this.lobbyRender();
     };
-    document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー。練習の相手の選択バー → 自キャラの OK?
-      if (this.practice && this.pStage === 1 && this.selMode === 'browse') { this.pStage = 0; this.selChar = this.pMine; this.selMode = 'confirm'; }
-      else if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
+    document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー
+      if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
       else this.selMode = this.selMode === 'sortie' ? 'confirm' : 'browse';
       this.lobbyRender();
     };
@@ -1289,7 +1284,6 @@ class GameScene extends Phaser.Scene {
     if (this.selChar === k) return;
     this.selChar = k;
     this.lobbyRender();
-    if (this.pStage === 1) return; // 練習の相手選びは自キャラを変えない
     if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
   }
 
@@ -1309,9 +1303,9 @@ class GameScene extends Phaser.Scene {
 
   lobbyRender() {
     const lobby = document.getElementById('lobby')!, k = this.selChar;
-    lobby.className = this.selMode + (this.practice ? ` practice${this.pStage ? ' foe' : ''}` : '');
+    lobby.className = this.selMode + (this.practice ? ' practice' : '');
     document.getElementById('okbtn')!.textContent = this.selMode === 'sortie' ? (this.practice ? '開始' : '出撃') : this.selMode === 'go' ? '出撃済み' : 'OK?';
-    setText(lobby.querySelector<HTMLElement>('.ttl')!, this.practice ? (this.pStage ? '練習: 相手を選ぶ' : '練習: 自分を選ぶ') : TITLE); // 右隣の「タイトルへ」と重ならない長さ
+    setText(lobby.querySelector<HTMLElement>('.ttl')!, this.practice ? '練習: 自分を選ぶ' : TITLE); // 右隣の「タイトルへ」と重ならない長さ
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === k)); // 枠の強調は表示中のキャラ
     if (!k || lobby.dataset.k === k) return;
     lobby.dataset.k = k;
@@ -1428,7 +1422,7 @@ class GameScene extends Phaser.Scene {
       this.room.send('input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
     }
     this.practice = !!s.practice;
-    if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.pStage = 0; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
+    if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 

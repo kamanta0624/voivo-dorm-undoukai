@@ -492,7 +492,7 @@ console.log('--- リコール・回復・技のCT');
   ok('Bot: HPが減っていなければリコールしない', b2.A.recallAt === null);
   // 技のCT
   const old: Record<string, number> = { hanamaru: 25, sayo: 20, whitecul: 18, aru: 15, bii: 25, metan: 12, ierutan: 20, kiritan: 18, mochiko: 30, zunko: 18 };
-  ok('技のCT: mochiko は旧のまま、zunko は旧の2/3、ほかは旧0.4倍', Object.entries(old).every(([k, v]) => Math.abs(CHARS[k].skill.ct - (k === 'mochiko' ? v : k === 'zunko' ? (v * 2) / 3 : v * 0.4)) < 1e-9));
+  ok('技のCT: mochiko は旧の0.7倍（30→21秒、tune6）、zunko は旧の2/3、ほかは旧0.4倍', CHARS.mochiko.skill.ct === 21 && Object.entries(old).every(([k, v]) => Math.abs(CHARS[k].skill.ct - (k === 'mochiko' ? v * 0.7 : k === 'zunko' ? (v * 2) / 3 : v * 0.4)) < 1e-9));
 }
 
 console.log('--- アシスト召喚の通知');
@@ -2383,13 +2383,13 @@ console.log('--- 練習モード（handoff_practice1）');
     const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => { r.didLock = true; }; r.unlock = () => {}; const sent: any[] = [];
     Object.defineProperty(r, 'clients', { value: [{ sessionId: 'h', send: (t: string, m: any) => sent.push([t, m]) }] });
     r.onCreate({ practice: true }); r.onAuth({}, {}, {}); r.onJoin({ sessionId: 'h' }, {}); r.sent = sent;
-    r.messages.go({ sessionId: 'h' }, { char: 'kiritan', foe: 'metan' });
+    r.messages.go({ sessionId: 'h' }, { char: 'kiritan' });
     return { r, me: r.players.get('h'), foe: r.players.get('foe') };
   };
   const run = (r: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) r.tick(0.05, false); };
   const { r, me, foe } = mkP();
   ok('練習: 作った本人だけ（入室で鍵、2人目は入室拒否）。一覧（/status）には常設の部屋だけ', r.didLock && r.pub === false && (() => { try { r.onAuth({}, {}, {}); return false; } catch { return true; } })() && OG.status([]).rooms.length === 0);
-  ok('練習: 自キャラ・相手キャラで即開始（自分1 vs Bot1、開始演出なし）。資材・ご飯・コバコなし', r.phase === 'playing' && r.players.size === 2 && me.char === 'kiritan' && foe.char === 'metan' && foe.bot && foe.team !== me.team && !r.materials.length && !r.items.length && !r.couriers.length);
+  ok('練習: 自キャラを選ぶだけで即開始（自分1 vs Bot1、開始演出なし）。相手は選べるキャラ・棒立ちで始まる。資材・ご飯・コバコなし', r.phase === 'playing' && r.players.size === 2 && me.char === 'kiritan' && PICKABLE.includes(foe.char) && r.foeMode === 'stand' && r.noAuto.has('foe') && foe.bot && foe.team !== me.team && !r.materials.length && !r.items.length && !r.couriers.length);
   run(r, C.MATCH_TIME + 5);
   ok('練習: 時間無制限（試合時間を過ぎても続く）・スロットは回らない・資材も出ない', r.phase === 'playing' && r.timeLeft === C.MATCH_TIME && r.teams.every((t: any) => t.slot.start === 0 && !t.slot.cur) && !r.materials.length && !r.couriers.length);
   r.damageBoss(r.bosses[1], C.BOSS_HP * 2, me);
@@ -2419,8 +2419,10 @@ console.log('--- 練習モード（handoff_practice1）');
   ok('練習: アシスト召喚（キャラとレベルを指定、自陣・敵陣。同じ陣営は入れ替え）', JSON.stringify(as.sort()) === JSON.stringify([['foe', 'aoyama', 3], ['mine', 'kurono', 0]]), as);
   r.messages.pr({ sessionId: 'h' }, { op: 'back' });
   ok('練習: 選択画面へ（本人だけ残して待機に戻る。相手の動きは通常Botに）', r.phase === 'waiting' && r.players.size === 1 && r.players.get('h')?.char === 'kiritan' && !r.players.get('h').ok && r.foeMode === 'bot' && !r.noAuto.has('foe'));
-  r.messages.go({ sessionId: 'h' }, { char: 'zunko', foe: 'hanamaru' });
-  ok('練習: 選び直して再開', r.phase === 'playing' && r.players.get('h').char === 'zunko' && r.players.get('foe').char === 'hanamaru');
+  r.messages.go({ sessionId: 'h' }, { char: 'zunko' });
+  ok('練習: 選び直して再開（相手は改めてランダム・棒立ち）', r.phase === 'playing' && r.players.get('h').char === 'zunko' && PICKABLE.includes(r.players.get('foe').char) && r.foeMode === 'stand');
+  const foes = new Set<string>(); for (let i = 0; i < 40; i++) { r.messages.pr({ sessionId: 'h' }, { op: 'back' }); r.messages.go({ sessionId: 'h' }, { char: 'kiritan' }); foes.add(r.players.get('foe').char); } // 選択画面へ → 再開を繰り返す
+  ok(`練習: 相手は選べるキャラからランダム（40回で${foes.size}種）`, [...foes].every((c) => PICKABLE.includes(c)) && foes.size > 3, [...foes]);
   // 上限
   const live = [...(GameRoom as any).live].filter((x: any) => x.practice).length, made: any[] = [];
   let refused = false;
