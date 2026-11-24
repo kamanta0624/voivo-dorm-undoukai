@@ -97,7 +97,7 @@ const skill: Skill = {
     const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2)), start = room.now + (c > K[K.length - 2][0] ? 0 : S.delay);
     p.sk.beam = { a, start, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, pending: [] };
     p.sk.charge = 0;
-    p.st.solar = { until: start + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]) }) };
+    p.st.solar = { until: start + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]), pre: room.now < start - 1e-9 ? solarAt(c, 2) : 0 }) }; // pre: 発生の遅れの間の射線の予兆の長さ（発射時の射程。出ていなければ0）
   },
   tick(room, p, dt) {
     if (room.phase === 'playing') charge(room, p, dt);

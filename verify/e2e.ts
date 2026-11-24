@@ -78,6 +78,8 @@ async function match1() {
   await aruCheck(A);
   await aimStuckCheck(A);
   mark('アルの突撃');
+  await soraCheck(A, B);
+  mark('そらの予兆');
   await hanamaruCheck(A);
   mark('花丸');
   await bossCheck(A);
@@ -718,21 +720,36 @@ async function aimStuckCheck(A: Tab) {
     }, async () => { const [x, y] = await btn(); await touch('touchStart', x, y); await sleep(80); await touch('touchEnd'); }],
   ];
   const got: any[] = [];
-  for (const [name, act, next] of cases) {
-    await aliveOf(A); await A.until((x) => { const m = x.players.find((p: any) => p.id === x.me); return !m.st.charge && !m.st.rush; }, 4000);
+  for (const [name, act, next] of cases) for (let tries = 0; tries < 2; tries++) { // 撃破・スロットのウルトで技が出なかった回だけやり直す（詰まりは left に残る）
+    await aliveOf(A); await A.until((x) => { const m = x.players.find((p: any) => p.id === x.me); return !m.st.charge && !m.st.rush && !m.ult; }, (C.ULT_DURATION + 1) * 1000);
     await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(300);
     await act(); await sleep(300);
     const left = await scene(A, 'sc.ctl.aim && [...sc.ctl.aim.srcs]');
     await send(A, 'e2eReady'); await sleep(300);
     await next();
     const fired = await A.until((x) => { const m = x.players.find((p: any) => p.id === x.me); return !!(m.st.charge || m.st.rush); }, 1500);
-    got.push({ name, left, fired });
     await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 4000);
+    if ((left === null && fired) || tries === 1) { got.push({ name, left, fired, tries }); break; }
+    const m = await A.me(); log('  技が出なかった（再試行）', name, { left, alive: m.alive, ult: m.ult, skillCd: m.skillCd });
   }
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   check('技の矢印: 離した入力を取りこぼしても矢印が残らず、次の押下で技が出る', got.every((g) => g.left === null && g.fired), got);
   const me = await A.me();
   check(`アルの矢印: 表示の長さは skill.arrow（${DEFS.aru.skill.arrow}px）`, me.skR === DEFS.aru.skill.arrow, { skR: me.skR });
+}
+
+// そら（aimfix2）: 発射から発生までの遅れの間、射線の予兆（細い線）が敵の画面に見え、ビームが出ると消える
+async function soraCheck(A: Tab, B: Tab) {
+  await aliveOf(A); await aliveOf(B);
+  await send(A, 'e2eClearUlt'); await send(A, 'e2eChar', { char: 'sora' }); await send(A, 'e2eTeleport', HALL); await send(B, 'e2eTeleport', { x: HALL.x + 150, y: HALL.y }); await send(A, 'e2eReady'); await sleep(400);
+  const aid = (await A.snap()).me;
+  // B の画面: 毎フレーム、A のソーラーキャノンの状態（予兆の長さ・ビームの長さ）を記録
+  await B.page.evaluate(`(() => { const w = window; w.solarLog = []; const f = () => { const v = w.snap?.players.find((p) => p.id === ${JSON.stringify(aid)})?.st?.solar; if (v) w.solarLog.push({ pre: v.pre, len: v.len }); if (w.solarLog.length < 600) requestAnimationFrame(f); }; requestAnimationFrame(f); })()`); // 文字列: 関数の中の関数は tsx の __name が付いてページで動かない
+  await send(A, 'skillUp', { a: 0 });
+  const seenPre = await B.until((x) => x.players.find((p: any) => p.id === aid)?.st?.solar?.pre > 0, 1500); await B.shot('sora_pre_B');
+  const seenBeam = await B.until((x) => x.players.find((p: any) => p.id === aid)?.st?.solar?.len > 0, 1500); await B.shot('sora_beam_B');
+  const lg: any[] = await B.page.evaluate(() => (window as any).solarLog), firstBeam = lg.findIndex((v) => v.len > 0);
+  check('そら: 遅れの間は射線の予兆が敵の画面に出て、ビームが出ると同時に消える', seenPre && seenBeam && lg[0]?.pre > 0 && firstBeam > 0 && lg.slice(firstBeam).every((v) => !v.pre) && lg.every((v) => !(v.pre && v.len)), { seenPre, seenBeam, n: lg.length, firstBeam, pre: lg[0]?.pre });
 }
 
 // HUD: ずんだもん軍のプレイヤーでも左＝陣営0、右＝陣営1（大将HPバー・一覧）。一覧の自軍側は右

@@ -8,10 +8,11 @@ const BODY = 42 * C.DOT_SCALE * 0.85; // 体の高さ（足元から頭まで）
 const rnd = (i: number, k: number) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
 const skill: ClientSkill = {
   status: {
-    // 照射: 外側の光・芯の白い帯・先端の光。v.k（チャージの割合）で太く
+    // 照射: 外側の光・芯の白い帯・先端の光。v.k（チャージの割合）で太く。発生の遅れの間（v.pre）は射線の予兆だけ
     solar: {
       fx(g, { x, y, time, v }) {
         const ux = Math.cos(v.a), uy = Math.sin(v.a), cy = y - BODY / 2, ex = x + ux * v.len, ey = cy + uy * v.len;
+        if (v.pre) { g.lineStyle(2, 0xffe066, Math.floor(time / 60) % 2 ? 0.9 : 0.35).lineBetween(x, cy, x + ux * v.pre, cy + uy * v.pre); return; } // 発生の遅れの間: 射線の予兆（細い点滅の線）
         const w = v.w * (1 + v.k), f = 0.85 + 0.15 * Math.sin(time / 30);
         g.lineStyle(w * 2.2, 0xffb020, 0.25 * f).lineBetween(x, cy, ex, ey);
         g.lineStyle(w, 0xffe066, 0.7 * f).lineBetween(x, cy, ex, ey);

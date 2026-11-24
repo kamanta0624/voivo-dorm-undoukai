@@ -2476,6 +2476,10 @@ console.log('--- 技の矢印照準・そらの弾速・きりたん弾の射程
   ok(`ソーラーキャノン: チャージ${KK[KK.length - 2][0]}秒を超えた発射は今どおり発射時点で終端まで届く（動いても当たる）`, d3.hit && d3.first === 0.05, d3);
   const sd = mk('sora'); sd.A.sk.charge = 30; sd.A.sk.koAt = sd.A.koAt; sd.r.skill('a', 0); const t0 = sd.r.now; let end = -1; for (let i = 0; i < 40 && end < 0; i++) { sd.r.now += 0.05; sd.r.updatePlayers(0.05); if (!sd.A.st.solar) end = sd.r.now - t0; }
   ok(`ソーラーキャノン: 照射秒（${solarAt(30, 4)}秒）はビームが出てから数える（本人が止まるのは遅れ＋照射秒）`, Math.abs(end - (SS.delay + solarAt(30, 4))) <= 0.051, { end });
+  // 発生の遅れの間は射線の予兆（view の pre＝発射時の射程）。ビームが出たら0。遅れなしの発射は最初から0
+  const pre = (charge: number) => { const z: any = mk('sora'); z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.r.skill('a', 0); const at0 = z.r.statusView(z.A).solar.pre; let n = 0; while (z.r.statusView(z.A).solar.pre && n < 40) { z.r.now += 0.05; z.r.updatePlayers(0.05); n++; } return { at0, gone: +(n * 0.05).toFixed(2), len: z.A.sk.beam.len }; };
+  const p30 = pre(30), pMax = pre(KK[KK.length - 2][0] + 1);
+  ok(`ソーラーキャノン: 発生の遅れの間は射線の予兆（長さ＝発射時の射程 ${solarAt(30, 2)}）を送り、ビームが出ると消える。遅れなしの発射では出さない`, p30.at0 === solarAt(30, 2) && Math.abs(p30.gone - Math.ceil(SS.delay / 0.05 - 1e-9) * 0.05) < 1e-9 && p30.len > 0 && pMax.at0 === 0, { p30, pMax });
 
   // きりたん: ロック射程200。弾はきりたんから homeMax 以上で直進、vanish 以上で消える
   const KS = CHARS.kiritan.skill;
