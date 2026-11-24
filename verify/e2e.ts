@@ -653,6 +653,7 @@ async function bossCheck(A: Tab) {
   const b0 = await foeBoss();
   await send(A, 'e2eChar', { char: (await A.me()).char }); await send(A, 'e2eBossMove'); await sleep(150); // HPを戻し、大将の隣（必ず見える位置）で反撃と広範囲攻撃を受ける
   const warned = await waitLog('warn', 1000); await sleep(BL.warn * 500); await A.shot('b1_boss_warn');
+  await send(A, 'e2eWarp'); // 広範囲攻撃の時点でも大将の隣（視界の内側）にいるように（vision1 で視界が 180 になり、離れていると見えない）
   const blasted = await waitLog('blast', BL.warn * 1000 + 1000); await A.shot('b2_boss_blast');
   await send(A, 'e2eReveal', { on: true }); await sleep(150); const b1 = await foeBoss(); await send(A, 'e2eReveal', { on: false });
   check(`大将の拠点移動: 予告（半径${BL.r}）→ 広範囲攻撃 → 別の拠点へ移動`, warned && blasted && !!b1 && (b1.x !== b0.x || b1.y !== b0.y), { warned, blasted, from: [b0.x, b0.y], to: b1 && [b1.x, b1.y] });
