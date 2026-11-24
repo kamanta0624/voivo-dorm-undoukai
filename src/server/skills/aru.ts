@@ -51,7 +51,7 @@ const skill: Skill = {
     p.st.charge = { until: Infinity, at, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.a, len: room.speedOf(p) * S.speed * S.dur, left: S.windup - (room.now - at) }) };
     p.sk.a = !p.bot ? room.skillAim(p, room.speedOf(p) * S.speed * S.dur) : ix || iy ? Math.atan2(iy, ix) : a;
   },
-  arrow: (room, p) => ({ R: room.speedOf(p) * S.speed * S.dur, a: p.st.charge ? p.sk.a : undefined }),
+  arrow: (room, p) => ({ R: room.speedOf(p) * S.speed * S.dur, a: p.st.charge ? p.sk.a : undefined, L: S.arrow }),
   reAim(_room, p, a) {
     if (!p.st.charge) return false;
     if (a !== undefined) p.sk.a = a;

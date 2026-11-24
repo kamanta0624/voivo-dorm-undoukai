@@ -435,8 +435,13 @@ class GameScene extends Phaser.Scene {
     this.keys.R.on('up', () => this.skillUp('r'));
     // フィールド上の右クリック長押し: 技の矢印（矢印の技だけ。ミニマップの上は DOM が受けるので来ない）
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.rightButtonDown()) this.skillDown('rc'); });
-    for (const t of ['pointerup', 'pointerupoutside']) this.input.on(t, (p: Phaser.Input.Pointer) => { if (p.button === 2) this.skillUp('rc'); });
-    window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') this.mouseAt = { x: e.clientX, y: e.clientY }; }); // mousemove は技ボタンの pointerdown の preventDefault で止まるので pointermove
+    // 離した判定は右ボタンが押されていないこと（Mac の Ctrl+クリックは Phaser が右ボタン扱いで down を出し、up は button 0 で来る）
+    for (const t of ['pointerup', 'pointerupoutside']) this.input.on(t, (p: Phaser.Input.Pointer) => { if (!p.rightButtonDown()) this.skillUp('rc'); });
+    // up を取りこぼしても詰まらないよう、ボタンを離した状態の pointermove でも離した扱い（左右同時押しの片方の解放は pointermove で来る）
+    window.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse') return; this.mouseAt = { x: e.clientX, y: e.clientY }; if (!(e.buttons & 1)) this.skillUp('btn'); if (!e.buttons) this.skillUp('rc'); }); // mousemove は技ボタンの pointerdown の preventDefault で止まるので pointermove
+    // フォーカスを失ったら技の矢印を捨てる（発動しない）。R の keyup が来ず詰まるのを防ぐ（Phaser は blur でキーを戻すが up は出さない）
+    addEventListener('blur', () => (this.ctl.aim = null));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.ctl.aim = null; });
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
     this.buttons();
     if (TOUCH) this.touchControls();
@@ -645,6 +650,7 @@ class GameScene extends Phaser.Scene {
   // 技の矢印（毎フレーム・本人の画面だけ）: 技ボタンの指を動かしたらドラッグの向き、マウスを動かしたら自キャラ→カーソル、どちらもなければ自動照準（サーバーの skA）
   aimArrow(g: Phaser.GameObjects.Graphics, m: any) {
     const f = this.aimFrom;
+    if (this.ctl.aim && (!m?.alive || !['playing', 'ended'].includes(this.snap?.phase))) this.ctl.aim = null; // 撃破・試合の段階の変化で捨てる（発動しない）
     if (!this.ctl.aim || !f || !m?.alive || m.skA === undefined) return;
     const z = this.game.scale.zoom, t = f.touch;
     if (t && Math.hypot(t.nx - t.x, t.ny - t.y) / z >= C.TOUCH.dead) this.ctl.aimTo(Math.atan2(t.ny - t.y, t.nx - t.x));
@@ -668,7 +674,7 @@ class GameScene extends Phaser.Scene {
     const skb = $('.skill'), src = (e: PointerEvent) => (e.pointerType === 'mouse' ? 'btn' : `t${e.pointerId}`);
     skb.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); skb.setPointerCapture(e.pointerId); this.skillDown(src(e), e.pointerType === 'mouse' ? undefined : { id: e.pointerId, x: e.clientX, y: e.clientY, nx: e.clientX, ny: e.clientY }); });
     skb.addEventListener('pointermove', (e) => { const t = this.aimFrom?.touch; if (t && t.id === e.pointerId) Object.assign(t, { nx: e.clientX, ny: e.clientY }); });
-    for (const t of ['pointerup', 'pointercancel']) skb.addEventListener(t, (e) => this.skillUp(src(e as PointerEvent)));
+    for (const t of ['pointerup', 'pointercancel']) addEventListener(t, (e) => this.skillUp(src(e as PointerEvent))); // ボタンの外（捕捉が外れた後など）で離しても届くよう window で受ける
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
     const mm = $('.mm');

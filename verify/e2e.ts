@@ -76,6 +76,7 @@ async function match1() {
   mark('コバコ・アシスト');
   await send(A, 'e2eSlotMiss', { on: true }); // ここからの技の検証中はスロットが当たらない（ウルト変身で技が出ないことによる揺らぎをなくす）
   await aruCheck(A);
+  await aimStuckCheck(A);
   mark('アルの突撃');
   await hanamaruCheck(A);
   mark('花丸');
@@ -692,6 +693,46 @@ async function aruCheck(A: Tab) {
   check('アルの突撃: タメ中に R を押し直してマウスで向きを変えると、変えた向き（下）へ突撃', ra !== undefined && angDiff(ra, Math.PI / 2) < 0.05, { ra });
   await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
   check(`アルの突撃: 壁を壊して抜ける（壊れた壁 ${b0} → ${b1} マス、マップに反映）`, b1 > b0, { b0, b1 });
+}
+
+// 技の矢印が出っぱなしにならない（aimfix1）: 離した入力（up）を取りこぼす操作のあとでも、次の押下で技が出る。アルの矢印は表示だけの長さ（skill.arrow）
+async function aimStuckCheck(A: Tab) {
+  const cdp = await A.page.context().newCDPSession(A.page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', x = 0, y = 0) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+  const btn = async () => { const bb = (await A.page.locator('#fx .skill').boundingBox())!; return [bb.x + bb.width / 2, bb.y + bb.height / 2] as const; };
+  const field = async () => { const p = await meScreen(A); return [p.x + 120, p.y - 80] as const; };
+  const pressR = async () => { await A.page.keyboard.down('r'); await sleep(80); await A.page.keyboard.up('r'); };
+  const rclick = async () => { await A.page.mouse.move(...(await field())); await A.page.mouse.down({ button: 'right' }); await sleep(80); await A.page.mouse.up({ button: 'right' }); };
+  const cases: [string, () => Promise<void>, () => Promise<void>][] = [
+    // R を押したままフォーカスが外れる（keyup が来ない）→ 右クリック
+    ['R押下中にフォーカス喪失→右クリック', async () => { await A.page.keyboard.down('r'); await sleep(100); await A.page.evaluate(() => window.dispatchEvent(new Event('blur'))); }, async () => { await rclick(); }],
+    // Mac の Ctrl+クリック（Phaser は右ボタン扱いで down、up は button 0）→ R
+    ['フィールドでCtrl+クリック→R', async () => { await A.page.keyboard.up('r'); await A.page.mouse.move(...(await field())); await A.page.keyboard.down('Control'); await A.page.mouse.down(); await sleep(80); await A.page.mouse.up(); await A.page.keyboard.up('Control'); }, pressR],
+    // 技ボタンを指で押したまま捕捉が外れ、ボタンの外で離す → 技ボタンをタップ
+    ['技ボタンの指の捕捉が外れてボタン外で離す→タップ', async () => {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      const [x, y] = await btn(), [fx, fy] = await field();
+      await touch('touchStart', x, y); await sleep(100);
+      await scene(A, 'document.querySelector("#fx .skill").releasePointerCapture(+[...sc.ctl.aim.srcs][0].slice(1))');
+      await touch('touchMove', fx, fy); await sleep(50); await touch('touchEnd');
+    }, async () => { const [x, y] = await btn(); await touch('touchStart', x, y); await sleep(80); await touch('touchEnd'); }],
+  ];
+  const got: any[] = [];
+  for (const [name, act, next] of cases) {
+    await aliveOf(A); await A.until((x) => { const m = x.players.find((p: any) => p.id === x.me); return !m.st.charge && !m.st.rush; }, 4000);
+    await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(300);
+    await act(); await sleep(300);
+    const left = await scene(A, 'sc.ctl.aim && [...sc.ctl.aim.srcs]');
+    await send(A, 'e2eReady'); await sleep(300);
+    await next();
+    const fired = await A.until((x) => { const m = x.players.find((p: any) => p.id === x.me); return !!(m.st.charge || m.st.rush); }, 1500);
+    got.push({ name, left, fired });
+    await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 4000);
+  }
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  check('技の矢印: 離した入力を取りこぼしても矢印が残らず、次の押下で技が出る', got.every((g) => g.left === null && g.fired), got);
+  const me = await A.me();
+  check(`アルの矢印: 表示の長さは skill.arrow（${DEFS.aru.skill.arrow}px）`, me.skR === DEFS.aru.skill.arrow, { skR: me.skR });
 }
 
 // HUD: ずんだもん軍のプレイヤーでも左＝陣営0、右＝陣営1（大将HPバー・一覧）。一覧の自軍側は右

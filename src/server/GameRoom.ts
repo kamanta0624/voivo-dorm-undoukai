@@ -1744,8 +1744,8 @@ export class GameRoom extends Room {
     const sk = p && CHARS[p.char]?.skill, h = p && SKILLS[p.char];
     if (!p || !sk || !h || (this.phase !== 'playing' && this.phase !== 'ended') || !p.alive || this.now < p.skillReadyAt || this.effect(p, 'noSkill')) return; // 技不可の状態（ずんだ餅など）
     p.skillA = Number.isFinite(a) ? a : undefined;
-    const used = h.use(this, p, this.aimOf(p));
-    p.skillA = undefined;
+    let used;
+    try { used = h.use(this, p, this.aimOf(p)); } finally { p.skillA = undefined; }
     if (used !== false) p.skillReadyAt = this.now + sk.ct; // false: CT は技処理が始める
     this.cancelRecall(p); // 技でリコール中断
     if (this.phase === 'playing') this.cm.skill(p); // 実況: 回避の判定
@@ -1759,10 +1759,10 @@ export class GameRoom extends Room {
     this.skill(id, a);
   }
 
-  // 技の矢印（本人にだけ送る）: skA=矢印の向き（タメ中は今の向き、ほかは自動照準）、skR=矢印の長さ（技の射程）、skRe=タメ中で向きを変えられる
+  // 技の矢印（本人にだけ送る）: skA=矢印の向き（タメ中は今の向き、ほかは自動照準）、skR=矢印の長さ（技の射程。L があればそれ）、skRe=タメ中で向きを変えられる
   arrowView(p: Player) {
     const ar = SKILLS[p.char]?.arrow?.(this, p);
-    return ar ? { skA: ar.a ?? this.skillAim(p, ar.R), skR: ar.R, skRe: ar.a !== undefined } : {};
+    return ar ? { skA: ar.a ?? this.skillAim(p, ar.R), skR: ar.L ?? ar.R, skRe: ar.a !== undefined } : {};
   }
 
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
