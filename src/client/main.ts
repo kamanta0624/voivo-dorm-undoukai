@@ -354,7 +354,7 @@ class GameScene extends Phaser.Scene {
   hits: { x: number; y: number; ratio: number; big: boolean; t0: number; seed: number }[] = []; // 被ダメージの着弾エフェクト（中・大）
   labels = new Map<string, HTMLElement>();
   slotHtml = ['', ''];
-  mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMine = -1; // モダンのスロット（陣営ごと。演出は自陣だけ画面に出す）
+  mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
   ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
@@ -933,16 +933,21 @@ class GameScene extends Phaser.Scene {
   }
 
   // モダンの演出の範囲を、実際の視界（polys: 画面の論理座標の多角形）とキルログ域に合わせる（演出が出ている間だけ）
-  mfxArea(polys: { x: number; y: number }[][]) {
+  // raw: 視界ポリゴン（ワールド座標。visPoly の配列）、wx・wy: カメラの左上。演出が出ている時だけ、視界かカメラか壁が変わった時だけ画面座標の SVG を組み立て直す
+  // （visPoly の配列は使い回されるが、壁が変わらない間は同じ配列なら中身も同じ）
+  mfxArea(raw: { x: number; y: number }[][], wx: number, wy: number) {
     const f = this.mfx[this.mfxMine];
     if (!f || (!f.normal.childElementCount && !f.special.childElementCount)) return;
-    const vis = polys.map((p) => `<path d="M${p.map((q) => `${Math.round(q.x)} ${Math.round(q.y)}`).join('L')}Z" fill="black"/>`).join('');
+    const c = this.mfxVis;
+    if (!c || c.ver !== wallVer || c.wx !== wx || c.wy !== wy || c.raw.length !== raw.length || c.raw.some((p, i) => p !== raw[i]))
+      this.mfxVis = { raw: [...raw], ver: wallVer, wx, wy, svg: raw.map((p) => `<path d="M${p.map((q) => `${Math.round(q.x - wx)} ${Math.round(q.y - wy)}`).join('L')}Z" fill="black"/>`).join('') };
+    const vis = this.mfxVis!.svg;
     const a = C.SLOT_MODERN.area.killLog, kb = $('.kills').getBoundingClientRect(), fb = fx.getBoundingClientRect(), z = this.game.scale.zoom;
     const kx = kb.width ? Math.min(a.x, (kb.left - fb.left) / z) : a.x, ky = kb.height ? Math.min(a.y, (kb.top - fb.top) / z) : a.y;
     const kill = { x: kx, y: ky, w: Math.max(a.x + a.w, kb.width ? (kb.right - fb.left) / z : 0) - kx, h: Math.max(a.y + a.h, kb.height ? (kb.bottom - fb.top) / z : 0) - ky }; // 設定の外枠と今のキルログの和
-    const key = vis + JSON.stringify(kill);
-    if (key === this.mfxMask) return;
-    this.mfxMask = key; f.setArea(vis, kill);
+    const key = JSON.stringify(kill);
+    if (vis === this.mfxMaskVis && key === this.mfxMask) return;
+    this.mfxMask = key; this.mfxMaskVis = vis; f.setArea(vis, kill);
   }
 
   // キャラの顔アイコン（陣営色の縁）
@@ -1591,8 +1596,8 @@ class GameScene extends Phaser.Scene {
       const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
       const wv = this.cameras.main.worldView, polys: { x: number; y: number }[][] = [];
-      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); vg.fillPoints(pts, true); if (this.mfxMine >= 0) polys.push(pts.map((q) => ({ x: q.x - wv.x, y: q.y - wv.y }))); }
-      if (this.mfxMine >= 0) this.mfxArea(polys);
+      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); vg.fillPoints(pts, true); polys.push(pts); }
+      if (this.mfxMine >= 0) this.mfxArea(polys, wv.x, wv.y);
       for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
       [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
