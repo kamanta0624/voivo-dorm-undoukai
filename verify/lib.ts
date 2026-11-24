@@ -41,6 +41,13 @@ export class Tab {
         server.onMessage((m) => down(() => ws.send(m)));
       });
     }
+    // ページの二重読み込み（クライアントのファイルを変えた直後の vite の再読み込みなど）は、入室や画面の状態が途中で作り直されて確認の前提が崩れるので、失敗として止める
+    let navs = 0;
+    page.on('framenavigated', (f) => {
+      if (f !== page.mainFrame() || ++navs <= 1) return;
+      log('FAIL', `タブ${name}: ページが再読み込みされた（${f.url()}）。確認の前提（1回の読み込み）が崩れるので中止する。クライアントのファイルを変えた直後なら、少し待ってから流し直す`);
+      process.exit(1);
+    });
     page.on('pageerror', (e) => log('pageerror', name, e.message));
     page.on('console', (m) => { if (m.type() === 'error') log('console.error', name, m.text()); });
     page.on('response', (r) => { if (r.status() >= 400) log('http', r.status(), name, r.url()); });
