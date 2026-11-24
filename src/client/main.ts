@@ -372,6 +372,7 @@ class GameScene extends Phaser.Scene {
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
+  visDrawn: { ver: number; polys: { x: number; y: number }[][] } | null = null; // 今マスク（visG）に描いてある視界ポリゴン
   fxFit = FX_FIT_FRAMES; // #fx の位置を測り直す残りフレーム数（起動時・リサイズ・拡大率の変更の後）
   chips: Pics | null = null; // マップチップの素材（なければ単色）
   homeG!: Phaser.GameObjects.Graphics; // 大将の候補部屋の床に重ねる組の色
@@ -1604,19 +1605,25 @@ class GameScene extends Phaser.Scene {
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team), thingPos);
 
     // 視界（観戦者はフォグなし）
-    const vg = this.visG.clear().fillStyle(0xffffff);
+    const vg = this.visG;
     this.fog.setVisible(!!mine && !this.introCam && s.phase !== 'finale');
     if (mine) {
       const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
-      const wv = this.cameras.main.worldView, polys: { x: number; y: number }[][] = [];
-      // 視界ポリゴンは目から放射状に並んだ点なので、目を中心にした扇形の三角形で塗る（fillPoints だと Phaser が毎フレーム三角形分割をやり直して重い。塗る範囲は同じ）
-      for (const e of eyes) { const pts = this.visPoly(e.x, e.y, e.r); for (let i = 0, n = pts.length; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; vg.fillTriangle(e.x, e.y, a.x, a.y, b.x, b.y); } polys.push(pts); }
+      const wv = this.cameras.main.worldView, polys = eyes.map((e) => this.visPoly(e.x, e.y, e.r));
+      // 視界ポリゴン（visPoly の配列）と壁が前のフレームと同じなら、マスクの形は描き直さない（壁が変わらない間は同じ配列なら中身も同じ）
+      const d = this.visDrawn;
+      if (!d || d.ver !== wallVer || d.polys.length !== polys.length || d.polys.some((p, i) => p !== polys[i])) {
+        vg.clear().fillStyle(0xffffff);
+        // 視界ポリゴンは目から放射状に並んだ点なので、目を中心にした扇形の三角形で塗る（fillPoints だと Phaser が毎フレーム三角形分割をやり直して重い。塗る範囲は同じ）
+        eyes.forEach((e, k) => { const pts = polys[k]; for (let i = 0, n = pts.length; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; vg.fillTriangle(e.x, e.y, a.x, a.y, b.x, b.y); } });
+        this.visDrawn = { ver: wallVer, polys };
+      }
       if (this.mfxMine >= 0) this.mfxArea(polys, wv.x, wv.y);
       for (const [k, v] of this.visCache) if (!this.visUsed.has(k)) this.visPool.push(v);
       [this.visCache, this.visUsed] = [this.visUsed, this.visCache]; this.visUsed.clear(); // 使い回しはこのフレームで使った分だけ残す
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
-    }
+    } else if (this.visDrawn) { vg.clear(); this.visDrawn = null; }
 
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
