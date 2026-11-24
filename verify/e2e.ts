@@ -295,7 +295,9 @@ async function aimSkill(T: Tab, how: 'r' | 'rc' | 'btn', a: number, shot?: strin
   else if (how === 'rc') { await T.page.mouse.move(...at(40)); await T.page.mouse.down({ button: 'right' }); }
   else { await T.page.mouse.move(...at(40)); await T.page.keyboard.down('r'); }
   await sleep(80); await T.page.mouse.move(...at(160), { steps: 5 }); await sleep(150);
-  const got = await scene(T, 'sc.ctl.aim && sc.ctl.aim.a');
+  let got = await scene(T, 'sc.ctl.aim && sc.ctl.aim.a');
+  // カメラの追従の残りなどで自キャラの画面位置がずれて矢印の向きが狙いと違えば、今の位置からマウスを追い直す（最大3回）
+  for (let i = 0; i < 3 && got !== null && angDiff(got, a) > 0.02; i++) { p = await meScreen(T); await T.page.mouse.move(...at(160), { steps: 2 }); await sleep(100); got = await scene(T, 'sc.ctl.aim && sc.ctl.aim.a'); }
   if (shot) await T.shot(shot);
   if (how === 'btn') await T.page.mouse.up(); else if (how === 'rc') await T.page.mouse.up({ button: 'right' }); else await T.page.keyboard.up('r');
   return got as number | null;
@@ -689,9 +691,18 @@ async function aruCheck(A: Tab) {
   const b1 = (await A.snap()).broken.length;
   check('アルの突撃: 四方向とも R を押したままマウスで向けた矢印の方向にタメ（警告）→ 突撃（渦と煙）', got.every((g) => g.arrow !== null && g.charge !== null && g.dash !== null && angDiff(g.dash, want[g.key]) < 0.05 && g.dash === g.charge), got);
   // タメ中に押し直して向きを変えると、変えた向きへ突撃
-  await aliveOf(A); await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
-  await aimSkill(A, 'r', 0); await sleep(150); await aimSkill(A, 'r', Math.PI / 2, 'r4_reaim');
-  await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); const ra = (await A.me()).st.rush?.a;
+  // 1回目のタメが始まったのを確かめてから押し直す。撃破・スロットのウルトなどでタメが出なかった回だけやり直す
+  let ra: number | undefined;
+  for (let tries = 0; tries < 2; tries++) {
+    await aliveOf(A); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.ult, (C.ULT_DURATION + 1) * 1000);
+    await send(A, 'e2eTeleport', HALL); await send(A, 'e2eReady'); await sleep(150);
+    await aimSkill(A, 'r', 0);
+    const charged = await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.charge, 1000);
+    if (!charged) { const m = await A.me(); log('  タメが出なかった（再試行）', { alive: m.alive, ult: m.ult, skillCd: m.skillCd }); await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500); continue; }
+    await aimSkill(A, 'r', Math.PI / 2, 'r4_reaim');
+    await A.until((x) => !!x.players.find((p: any) => p.id === x.me)?.st.rush, 1500); ra = (await A.me()).st.rush?.a;
+    break;
+  }
   check('アルの突撃: タメ中に R を押し直してマウスで向きを変えると、変えた向き（下）へ突撃', ra !== undefined && angDiff(ra, Math.PI / 2) < 0.05, { ra });
   await A.until((x) => !x.players.find((p: any) => p.id === x.me)?.st.rush, 2500);
   check(`アルの突撃: 壁を壊して抜ける（壊れた壁 ${b0} → ${b1} マス、マップに反映）`, b1 > b0, { b0, b1 });
