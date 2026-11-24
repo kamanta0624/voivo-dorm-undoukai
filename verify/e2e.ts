@@ -726,7 +726,7 @@ async function aimStuckCheck(A: Tab) {
       await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
       const [x, y] = await btn(), [fx, fy] = await field();
       await touch('touchStart', x, y); await sleep(100);
-      await scene(A, 'document.querySelector("#fx .skill").releasePointerCapture(+[...sc.ctl.aim.srcs][0].slice(1))');
+      await scene(A, 'sc.ctl.aim && document.querySelector("#fx .skill").releasePointerCapture(+[...sc.ctl.aim.srcs][0].slice(1))'); // 撃破などで矢印が出ていなければ解除しない（その回は技が出ず、やり直しになる）
       await touch('touchMove', fx, fy); await sleep(50); await touch('touchEnd');
     }, async () => { const [x, y] = await btn(); await touch('touchStart', x, y); await sleep(80); await touch('touchEnd'); }],
   ];
