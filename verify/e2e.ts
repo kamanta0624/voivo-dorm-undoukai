@@ -541,7 +541,7 @@ async function assistCheck(A: Tab, B: Tab) {
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 });
   const tier1 = had ? Math.min(3, had.tier + 1) : 1;
   await A.until((x) => x.players.some((p: any) => p.assist && p.team === 0), 2000); await sleep(150);
-  const up = waitText(A, '#fx .notes div', 'レベルアップ', 3000);
+  const up = waitText(A, '#fx .notes div', 'アシスト強化', 3000);
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 }); // 2回目は強化
   const [n, u] = await Promise.all([note, up]); await sleep(200);
   const lbl = await A.page.evaluate(() => [...document.querySelectorAll('#fx .lbl')].map((e) => e.textContent).filter((t) => t?.startsWith('ASSIST')));
