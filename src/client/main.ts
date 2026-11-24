@@ -55,8 +55,16 @@ const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
-// 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）
-const wallTile = (tx: number, ty: number) => tiles[ty]?.[tx] === '#' && !seeThrough(tx, ty);
+// 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
+let wallGrid: Uint8Array | null = null, wallGridVer = -1;
+const wallTile = (tx: number, ty: number) => {
+  if (wallGridVer !== wallVer) {
+    wallGridVer = wallVer;
+    wallGrid = new Uint8Array(MAP.width * MAP.height);
+    for (let y = 0; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) if (tiles[y]?.[x] === '#' && !seeThrough(x, y)) wallGrid[y * MAP.width + x] = 1;
+  }
+  return tx >= 0 && tx < MAP.width && ty >= 0 && ty < MAP.height ? wallGrid![ty * MAP.width + tx] === 1 : false;
+};
 const isWall = (x: number, y: number) => wallTile(Math.floor(x / T), Math.floor(y / T));
 let wallVer = 0; // 壁が変わるたびに増やす（視界の使い回しの判定）
 const RAY_COS = Array.from({ length: 360 }, (_, i) => Math.cos((i / 360) * Math.PI * 2)), RAY_SIN = Array.from({ length: 360 }, (_, i) => Math.sin((i / 360) * Math.PI * 2)); // 視界のレイの向き
