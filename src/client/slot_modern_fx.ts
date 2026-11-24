@@ -61,6 +61,7 @@ export class ModernFx {
   sl: HTMLElement; reelEls: HTMLElement[]; holdsEl: HTMLElement; modeEl: HTMLElement; label: HTMLElement;
   normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
   spinning = [false, false, false]; allSpin = false; allSpinFrom = 1; spinAt = 0;
+  shown = [NaN, NaN, NaN]; // 各リールに今出している番号（setReel の k）。同じなら書き直さない
   sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
 
   constructor(public hud: HTMLElement, public layer: HTMLElement, public syms: string[], public chars: string[], color: string) {
@@ -83,6 +84,7 @@ export class ModernFx {
 
   private setReel(i: number, k: number) {
     const e = this.reelEls[i];
+    this.shown[i] = k;
     if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; return; }
     const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1; // 回転中は番号を巡回
     e.className = `mfx-ic${M.reel.group[no - 1] !== 'even' ? ' good' : ''}`; e.textContent = ''; e.dataset.n = String(no); e.style.backgroundImage = `url(${DOT(this.syms[no - 1])})`;
@@ -91,7 +93,7 @@ export class ModernFx {
   // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄
   frame(now: number) {
     const k = Math.floor((now - this.spinAt) / C.SLOT_REEL_MS);
-    this.spinning.forEach((s, i) => { if (s) this.setReel(i, this.allSpin ? this.allSpinFrom + k : 1 + k + i * 3); });
+    this.spinning.forEach((s, i) => { const v = this.allSpin ? this.allSpinFrom + k : 1 + k + i * 3; if (s && v !== this.shown[i]) this.setReel(i, v); }); // 番号が変わった時だけ DOM を書く
   }
 
   // 回転開始: リーチは2つそろえて3つ目だけ回す。全回転は3つ同じ絵柄で回す。結果まで回すだけ（結果は stop）

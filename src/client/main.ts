@@ -356,7 +356,7 @@ class GameScene extends Phaser.Scene {
   hits: { x: number; y: number; ratio: number; big: boolean; t0: number; seed: number }[] = []; // 被ダメージの着弾エフェクト（中・大）
   labels = new Map<string, HTMLElement>();
   slotHtml = ['', ''];
-  mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
+  mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxSnap: any = null; mfxMyTeam = -1; mfxKeyNow = ''; mfxTm: any[] = [null, null]; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
   ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
@@ -857,9 +857,11 @@ class GameScene extends Phaser.Scene {
   // モダンのスロット（handoff_slot3）: 徳のゲージの下にリール・保留・モード（slot_modern_fx）。リールの絵柄は試合の編成（モダン: 奇数＝陣営のプレイヤー、偶数＝アシスト、7＝大将。クラシック: SLOT.syms）
   // 演出（リーチ・全回転）は自陣だけ、演出の層（.mfxl）に出す。編成が変わったら作り直す
   modernHud(s: any, t: number, k: number, tm: any, chars: string[]) {
-    const myTeam = s.players.find((p: any) => p.id === s.me)?.team ?? -1, key = `${myTeam}:${s.roster.map((r: any) => `${r.team}${r.char}`).join()}`;
+    // 編成・HUD の文字は受信したスナップショットが変わった時だけ組み立てる（毎フレーム作り直さない）
+    if (s !== this.mfxSnap) { this.mfxSnap = s; this.mfxMyTeam = s.players.find((p: any) => p.id === s.me)?.team ?? -1; this.mfxKeyNow = `${this.mfxMyTeam}:${s.roster.map((r: any) => `${r.team}${r.char}`).join()}`; }
+    const myTeam = this.mfxMyTeam, key = this.mfxKeyNow;
     if (key !== this.mfxKey) {
-      this.mfxKey = key; this.mfxMine = myTeam; this.slotHtml = ['', '']; this.mfxView = ['', '']; this.mfxMask = '';
+      this.mfxKey = key; this.mfxMine = myTeam; this.slotHtml = ['', '']; this.mfxView = ['', '']; this.mfxMask = ''; this.mfxTm = [null, null];
       $('.mfxl').replaceChildren();
       this.mfx = [0, 1].map((team) => {
         const el = $(`.tk .s${team}`), cs = s.roster.filter((r: any) => r.team === team).map((r: any) => r.char), ass = Object.keys(C.ASSIST.units);
@@ -871,13 +873,16 @@ class GameScene extends Phaser.Scene {
         return f;
       });
     }
-    const f = this.mfx[t]!, m = tm.m, now = performance.now();
-    const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
-    const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i style="width:${(tm.toku / C.TOKU_MAX) * 100}%"></i></div><div class="tv">徳 ${tm.toku.toFixed(1)}${rf}</div>`;
-    if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k} .tkg`).innerHTML = html; }
+    const f = this.mfx[t]!, m = tm.m, now = performance.now(), fresh = tm !== this.mfxTm[k]; // fresh: この陣営の値が新しいスナップショットで届いた
+    this.mfxTm[k] = tm;
+    if (fresh) {
+      const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
+      const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i style="width:${(tm.toku / C.TOKU_MAX) * 100}%"></i></div><div class="tv">徳 ${tm.toku.toFixed(1)}${rf}</div>`;
+      if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k} .tkg`).innerHTML = html; }
+    }
     if (this.mfxIdleAt[t] && now >= this.mfxIdleAt[t]) { this.mfxIdleAt[t] = 0; f.idle(now); }
     if (s.phase === 'playing') f.frame(now);
-    const v = JSON.stringify([m.mode, m.backLeft, m.holds, m.cur, m.lv]);
+    const v = fresh ? JSON.stringify([m.mode, m.backLeft, m.holds, m.cur, m.lv]) : this.mfxView[k];
     if (v !== this.mfxView[k]) {
       this.mfxView[k] = v;
       const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
@@ -886,8 +891,8 @@ class GameScene extends Phaser.Scene {
       else f.mode(m.mode, m.backLeft, `パワーアップ ${lvText(C.SLOT_MODERN, m.lv.power)}・アシスト ${lvText(C.SLOT_MODERN, m.lv.assist)}`);
     }
     if (t === this.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
-      const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`;
-      fe.style.display = on ? 'block' : 'none';
+      const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`, disp = on ? 'block' : 'none';
+      if (fe.style.display !== disp) fe.style.display = disp;
       if (fe.textContent !== txt) fe.textContent = txt;
     }
   }
