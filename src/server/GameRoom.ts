@@ -1747,14 +1747,15 @@ export class GameRoom extends Room {
   // 壁の段階（0=無傷、WALL_HITS-1 まで。壊れた壁は扱わない）
   wallStage(x: number, y: number) { return this.wallDmg.get(y * MAP.width + x) ?? 0; }
 
-  // 壊せる壁を n 段階進める（WALL_HITS 段階で破壊）。hit: この発動で段階を進めたマス（1回の発動で同じマスは1回まで）。段階を進めたマスを返す
+  // 壊せる壁を n 段階進める（WALL_HITS 段階で破壊）。hit: この発動で段階を進めたマス（1回の発動で同じマスは1回まで）。段階を進めたマスを [x, y, 進んだ段階数] で返す
   hitWalls(tiles: number[][], hit: Set<number>, n = 1) {
     const adv: number[][] = [], gone: number[][] = [];
     for (const [x, y] of tiles) {
       const k = y * MAP.width + x;
       if (hit.has(k) || this.tiles[y]?.[x] !== '#') continue;
-      hit.add(k); adv.push([x, y]);
-      const s = (this.wallDmg.get(k) ?? 0) + n;
+      hit.add(k);
+      const s0 = this.wallDmg.get(k) ?? 0, s = s0 + n;
+      adv.push([x, y, Math.min(n, C.WALL_HITS - s0)]);
       if (s >= C.WALL_HITS) { this.wallDmg.delete(k); gone.push([x, y]); }
       else { this.wallDmg.set(k, s); this.crackLog.push([x, y, s]); }
     }

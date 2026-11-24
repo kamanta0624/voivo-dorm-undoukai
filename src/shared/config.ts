@@ -180,7 +180,7 @@ export const CONFIG = {
   TOKU: { material: 0.2, materialBack: 0.4, materialBig: 0.4, wantedKo: 1.5, hit: -0.06, ko: -1.5, wall: -0.9, eat: -0.9, courier: -1.5 } as Record<string, number>,
   TOKU_TEXT: { hit: '攻撃した', ko: 'KOした', wantedKo: '手配犯を倒した', wall: '壁を壊した', eat: '盗み食い', courier: 'コバコを攻撃した' } as Record<string, string>,
   WANTED_MIN: 3, // 悪行ポイント（徳を下げた量 × BAD_MULT の累計）がこれ以上で一番多い人に指名手配が付く（陣営ごとに1人）
-  WALL_HITS: 3, // 壊せる壁は何段階で壊れるか（無傷→小破→中破→破壊）。1回の発動で1マス1段階。即破壊（花丸のパッシブ・そらのチャージ4分30秒超）はこの数だけ一度に進み、徳・悪行もこの回数分
+  WALL_HITS: 3, // 壊せる壁は何段階で壊れるか（無傷→小破→中破→破壊）。1回の発動で1マス1段階。即破壊（花丸のパッシブ・そらのチャージ4分30秒超）はこの数だけ一度に進み（壊れきる）、徳・悪行は残っていた段階の分（無傷3・小破2・中破1回分。複数のマスなら一番多いマスの分）
   BAD_MULT: { courier: 3, wall: 2 } as Record<string, number>, // 悪行ポイントの倍率（TOKU の key ごと。ないものは1）。徳の増減は変えない
   BAD_DECAY_SEC: 10, // 反省中の悪行ポイントの減る速さ: コバコ撃破1回分（-TOKU.courier × BAD_MULT.courier）をこの秒数で減らす
 

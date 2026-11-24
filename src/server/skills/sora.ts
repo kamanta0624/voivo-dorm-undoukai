@@ -11,19 +11,20 @@ const S = CHARS.sora.skill, T = C.TILE, K = S.keys as number[][];
 export { solarAt }; // 補間は shared/solar.ts（技ボタンの％と共通）
 
 // 照射の状態（発射時に決める）。start: ビームが出る時刻（発射から delay 秒後。チャージ keys の最後から2番目の秒数を超えた発射は遅れなし）
-type Beam = { a: number; start: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; broke: boolean; wallHit: Set<number>; hits: number; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置。wallHit: この照射で段階を進めた壁のマス。hits: 壁を一度に進める段階（チャージ keys の最後から2番目の秒数を超えた発射は即破壊）
+type Beam = { a: number; start: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; toku: number; wallHit: Set<number>; hits: number; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置。wallHit: この照射で段階を進めた壁のマス。toku: この照射で入れた壁破壊の徳の回数。hits: 壁を一度に進める段階（チャージ keys の最後から2番目の秒数を超えた発射は即破壊）
 
 // 総ダメージの配分: ビームの1ヒット（照射秒で多段の回数が変わる）・爆発（大将は別の値）
 const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / Math.round(b.dur / S.every);
 const boomDmg = (b: Beam, t: Thing) => solarAt(b.charge, 1, t.k === 'boss') * (1 - S.beamShare);
 
-// 壁の段階を進める（外周は除く。1回の照射で同じマスは1段階まで）。1回の照射につき徳は1回（即破壊は WALL_HITS 回分）。at があればエフェクトを出す。進めたマスを返す
+// 壁の段階を進める（外周は除く。1回の照射で同じマスは1段階まで）。徳は1回の照射で、進めた段階が一番多いマスの段階数分（即破壊は残っていた段階の分）。at があればエフェクトを出す。進めたマスを返す
 function breakTiles(room: GameRoom, p: Player, b: Beam, tiles: number[][], at?: { x: number; y: number }) {
   if (!tiles.length || room.phase !== 'playing') return [];
   const adv = room.hitWalls(tiles, b.wallHit, b.hits);
   if (!adv.length) return adv;
   if (at) room.addFx({ x: at.x, y: at.y, team: p.team }, 'wall', { tiles: adv, r: 0 });
-  if (!b.broke) { b.broke = true; room.addToku(p.team, p, 'wall', undefined, b.hits); }
+  const d = Math.max(...adv.map((t) => t[2]));
+  if (d > b.toku) { room.addToku(p.team, p, 'wall', undefined, d - b.toku); b.toku = d; }
   return adv;
 }
 
@@ -99,7 +100,7 @@ function charge(room: GameRoom, p: Player, dt: number) {
 const skill: Skill = {
   use(room, p) {
     const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2)), start = room.now + (c > K[K.length - 2][0] ? 0 : S.delay);
-    p.sk.beam = { a, start, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, broke: false, wallHit: new Set(), hits: c > K[K.length - 2][0] ? C.WALL_HITS : 1, pending: [] };
+    p.sk.beam = { a, start, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, toku: 0, wallHit: new Set(), hits: c > K[K.length - 2][0] ? C.WALL_HITS : 1, pending: [] };
     p.sk.charge = 0;
     p.st.solar = { until: start + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]), pre: room.now < start - 1e-9 ? solarAt(c, 2) : 0 }) }; // pre: 発生の遅れの間の射線の予兆の長さ（発射時の射程。出ていなければ0）
   },

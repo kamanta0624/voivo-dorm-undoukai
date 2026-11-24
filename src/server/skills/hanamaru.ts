@@ -86,8 +86,8 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   const tiles = breakTiles(room, p, Math.atan2(dy, dx), hit);
   p.sk.pushTile = null;
   if (!tiles.length) return;
-  room.hitWalls(tiles, new Set(), C.WALL_HITS); // 一気に破壊
-  room.addToku(p.team, p, 'wall', undefined, C.WALL_HITS);
+  const adv = room.hitWalls(tiles, new Set(), C.WALL_HITS); // 一気に破壊
+  room.addToku(p.team, p, 'wall', undefined, Math.max(...adv.map((t) => t[2]))); // 残っていた段階の分（一番多いマス）
   room.addFx(p, 'wall', { tiles, r: 0 });
 }
 
