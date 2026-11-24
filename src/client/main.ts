@@ -123,7 +123,9 @@ css.textContent = `
 #fx .pop.plus{color:#ffe066;font-size:calc(var(--z) * 10px)}
 #fx .pop.plus.hi{color:#ff7ad9;font-size:calc(var(--z) * 13px)}
 #fx .pop.warn{color:#fff59a;font-size:calc(var(--z) * 7px)}
-@keyframes popup{0%{opacity:1;margin-top:0}100%{opacity:0;margin-top:calc(var(--z) * -14px)}}
+@keyframes popup{0%{opacity:1;translate:0 0}100%{opacity:0;translate:0 calc(var(--z) * -14px)}}
+/* 毎フレーム・毎秒変わる HUD の部品は独立した層にする（変わっても #fx 全体を描き直さない: render_policy 5）。ダメージ数値の浮き上がりは margin ではなく translate（レイアウトを起こさない） */
+#fx .timer,#fx .skill,#fx .tk,#fx .prbtn,#fx .prp,#fx .buffs,#fx .roster,#fx #info,#fx .banner,#fx .notes,#fx .down div{will-change:transform}
 html.touch,html.touch body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc(env(safe-area-inset-bottom) + 1px)!important}
 #lobby .pwa{position:absolute;left:50%;transform:translateX(-50%);top:6px;z-index:3;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
