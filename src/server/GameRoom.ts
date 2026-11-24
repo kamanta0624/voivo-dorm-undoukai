@@ -1127,7 +1127,7 @@ export class GameRoom extends Room {
   // T: 相手の位置をこのサーバー時刻（elapsed）まで戻して選ぶ（人間の近接AAの巻き戻し判定）
   pickTarget(p: Player, R = this.atkRange(p), T?: number): Thing | null {
     const d = (t: Thing) => Math.hypot(t.x - p.x, t.y - p.y);
-    const all = (T === undefined ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), T)).filter((t) => d(t) <= R + t.r && this.targetable(t) && this.reach(p, t));
+    const all = (T === undefined ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), T)).filter((t) => d(t) <= R + t.r && this.targetable(t) && this.reach(p, t) && this.seenBy(p.team, t)); // 自陣営の画面に映っている敵だけ（見えない敵には自動で撃たない・向かない）
     const c = p.aim === 'courier' && all.find((t) => t.k === 'c');
     if (c) return c;
     const inRange = all.filter((t) => t.k !== 'c'); // コバコはコバコのモードでだけ狙う
@@ -1215,6 +1215,12 @@ export class GameRoom extends Room {
   }
 
   // 敵の対象にできるか（敵の対象にならない状態のプレイヤーは除く）
+  // 陣営 team の画面に映っているか（スナップショットの出し分け sendSnapshots と同じ判定。コバコと霧に隠れない場の物は常に映る、開幕中は敵大将も映る）
+  seenBy(team: number, t: Thing) {
+    if (t.k === 'c' || (t.k === 'e' && !ENTS[t.o.kind].fog) || (t.k === 'boss' && this.phase === 'intro')) return true;
+    return this.visibleTo(team, t.x, t.y, this.seeWalls);
+  }
+
   targetable(t: Thing) {
     return !(t.k === 'p' && this.effect(t.o, 'hidden'));
   }

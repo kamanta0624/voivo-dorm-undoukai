@@ -309,7 +309,7 @@ console.log('--- 技の変更（ierutan のアップグレード）・きりた�
   ok('アップグレード中も味方の移動は変わらない', [mel, rng, ult].every((q: any) => { const s0 = z.r.speedOf(q); const u = q.st.upgrade; delete q.st.upgrade; const s1 = z.r.speedOf(q); q.st.upgrade = u; return s0 === s1; }));
   const k = mk('kiritan', 'metan'); k.A.aim = 'nearest'; delete k.A.st.test;
   ok('きりたん: 足が遅い（136px/秒。旧 mult.speed 0.8 を焼き込み）', k.r.speedOf(k.A) === 136);
-  Object.assign(k.B, { x: 1552 + 200 }); k.r.updatePlayers(0.05);
+  Object.assign(k.B, { x: 1552 + 170 }); k.r.updatePlayers(0.05); // 170: 視界（180）の内側
   ok('きりたん: 遠い敵にはきりたん砲（弾速遅め）', k.r.shots.length === 1 && k.r.shots[0].kind === 'cannon' && k.r.shots[0].sp < C.BULLET_SPEED);
   const k2 = mk('kiritan', 'metan'); k2.A.aim = 'nearest'; delete k2.A.st.test; k2.r.updatePlayers(0.05);
   ok('きりたん: 隣の敵にもきりたん砲（包丁は aarange1 で試験的に削除）', k2.r.shots.length === 1 && k2.r.shots[0].kind === 'cannon' && k2.r.maxHp(k2.B) === k2.B.hp);
@@ -1895,11 +1895,11 @@ console.log('--- プレイテスト2（技の照準・きりたん・ひまり�
   // 吹雪: 横向きでも対象へ
   const wc = mk('whitecul', 'sayo'); wc.A.face = Math.PI; Object.assign(wc.B, { x: 1552, y: 900 + 120, hp: 9999 }); wc.r.skill('a');
   ok('吹雪: 向きと違う方向（下）の対象に当たる', wc.B.hp < 9999);
-  const yu = mk('yurei', 'sayo'); yu.A.face = Math.PI; Object.assign(yu.B, { x: 1552, y: 900 + 200, hp: 9999 }); yu.r.skill('a'); runE(yu.r, 1);
+  const yu = mk('yurei', 'sayo'); yu.A.face = Math.PI; Object.assign(yu.B, { x: 1552, y: 900 + 170, hp: 9999 }); yu.r.skill('a'); runE(yu.r, 1); // 170: 視界（180）の内側
   ok('ジャッジメント: 向きと違う方向（下）の対象に当たる', yu.B.hp < 9999);
-  const zk = mk('zunko', 'sayo'); zk.A.face = Math.PI; Object.assign(zk.B, { x: 1552, y: 900 + 200, hp: 9999 }); zk.r.skill('a'); runE(zk.r, 1);
+  const zk = mk('zunko', 'sayo'); zk.A.face = Math.PI; Object.assign(zk.B, { x: 1552, y: 900 + 170, hp: 9999 }); zk.r.skill('a'); runE(zk.r, 1);
   ok('ずんだアロー: 向きと違う方向（下）の対象に当たる', !!zk.B.st.mochi);
-  const hm = mk('hanamaru', 'sayo'); hm.A.face = Math.PI; Object.assign(hm.B, { x: 1552, y: 900 + 200, hp: 9999 }); hm.r.skill('a'); fly(hm.r);
+  const hm = mk('hanamaru', 'sayo'); hm.A.face = Math.PI; Object.assign(hm.B, { x: 1552, y: 900 + 170, hp: 9999 }); hm.r.skill('a'); fly(hm.r);
   ok('花丸パンチ: 向きと違う方向（下）の対象に当たる', hm.B.hp < 9999);
   // きりたん: 弾数2倍（1体あたり perTarget × volleys）、発射時間は不変
   const kt = mk('kiritan', 'sayo'); Object.assign(kt.B, { x: 1552 + 150, hp: 9999 }); kt.r.skill('a'); kt.r.now += 0.2; kt.r.updatePlayers(0.05); kt.r.skill('a');
@@ -1996,7 +1996,9 @@ console.log('--- 東北ずん子（tune1: パンチ・遠距離・誘導する�
   // ずんだアロー: 上へ歩き続ける対象を、曲がりながら追って当たる。1tickに曲がる角度は turn×dt まで
   const run = (z: any, n: number, each: () => void = () => {}) => { const angs: number[] = []; for (let i = 0; i < n; i++) { each(); const sh = z.r.shots.find((x: any) => x.kind === 'arrow'); if (sh) angs.push(Math.atan2(sh.vy, sh.vx)); z.r.now += 0.05; z.r.updateShots(0.05); } return angs; };
   const turns = (a: number[]) => a.slice(1).map((x, i) => Math.abs(Math.atan2(Math.sin(x - a[i]), Math.cos(x - a[i]))));
-  const h = mk('zunko', 'sayo'); h.B.st.test = NOAUTO(); Object.assign(h.B, { x: 1552 + 260, y: 900, hp: 9999 }); h.r.skill('a');
+  const h = mk('zunko', 'sayo'); h.B.st.test = NOAUTO(); Object.assign(h.B, { x: 1552 + 260, y: 900, hp: 9999 });
+  h.r.addPlayer('eye', 0, false); Object.assign(h.r.players.get('eye'), { x: 1552 + 200, y: 900, alive: true }); h.r.players.get('eye').st.test = NOAUTO(); // 対象を自陣営の視界に入れる味方（ずん子の視界 180 の外の対象を追う確認のため）
+  h.r.skill('a');
   const ah = run(h, 12, () => { h.B.y -= 9; }), th = turns(ah), maxT = Math.max(...th);
   ok(`ずんだアロー: 弾速${S.arrowSpeed}で、動く対象を曲がりながら追って当たる（1tickの旋回は ${(S.turn * 0.05 * 180 / Math.PI).toFixed(1)}° まで、毎秒${(S.turn * 180 / Math.PI).toFixed(0)}°）`, !!h.B.st.mochi && maxT > 0.01 && maxT <= S.turn * 0.05 + 1e-9 && Math.hypot(h.r.shots[0]?.vx ?? S.arrowSpeed, 0) > 0, { mochi: !!h.B.st.mochi, maxTurnDeg: maxT * 180 / Math.PI });
   // 急な切り返し（対象が真後ろへ）は追えない
@@ -2502,6 +2504,27 @@ console.log('--- 技の矢印照準・そらの弾速・きりたん弾の射程
   run(mo, 4);
   const far = shots.filter((q) => q.d >= F.leash), near = shots.filter((q) => q.d < F.leash);
   ok(`ファンネル: 攻撃した時にもち子から${F.leash}px 以上のものは攻撃1回で消え、未満のものは残って次の攻撃もする（遠 ${far.length} 回・近 ${near.length} 回）`, F.leash === 200 && far.length > 0 && near.length > 0 && far.every((q) => !mo.r.ents.includes(q.f)) && new Set(far.map((q) => q.f)).size === far.length && near.every((q) => shots.indexOf(q) < shots.length - 1 && shots.slice(shots.indexOf(q) + 1).some((u) => u.f === q.f)), { far: far.map((q) => Math.round(q.d)), near: near.map((q) => Math.round(q.d)) });
+}
+
+console.log('--- 自動照準は自陣営の画面に映っている敵だけ（vision1）');
+{
+  // ずん子（視界 180、遠距離の通常攻撃 200、ずんだアロー 300）。味方の Bot・大将の視界は遠くに外してある（mk）
+  const VR = visionRadius('zunko'), at = (z: any, dx: number) => Object.assign(z.B, { x: z.A.x + dx, y: z.A.y });
+  const a = mk('zunko', 'sayo'); a.A.face = Math.PI; a.A.tgt = null;
+  at(a, VR + 15); const out = a.r.pickTarget(a.A), outVis = a.r.seenBy(0, { k: 'p', o: a.B, x: a.B.x, y: a.B.y, r: C.PLAYER_RADIUS });
+  at(a, VR - 30); const inT = a.r.pickTarget(a.A);
+  ok(`通常攻撃: 射程内でも視界（${VR}）の外の敵は狙わない（${VR + 15}px）。視界内（${VR - 30}px）なら狙う`, out === null && !outVis && inT?.o === a.B, { out: out && out.k, inT: inT && inT.k });
+  // 技の矢印の最初の向き: 見えない敵の方は向かず、向いている方向（左）のまま
+  at(a, 250); const v0 = a.r.arrowView(a.A); at(a, 150); const v1 = a.r.arrowView(a.A);
+  ok('技の矢印の最初の向き: 射程内でも視界の外の敵には向かず向いている方向のまま。視界内なら敵へ向く', Math.abs(v0.skA - Math.PI) < 1e-9 && Math.abs(v1.skA) < 1e-9, { v0: v0.skA, v1: v1.skA });
+  // 敵大将も同じ（射程内・視界外は狙わない）
+  const bo = mk('zunko'); bo.A.face = Math.PI; Object.assign(bo.r.bosses[1], { x: bo.A.x + 250, y: bo.A.y }); const bv0 = bo.r.arrowView(bo.A).skA;
+  Object.assign(bo.r.bosses[1], { x: bo.A.x + 150, y: bo.A.y }); const bv1 = bo.r.arrowView(bo.A).skA;
+  ok('敵大将も同じ: 射程内・視界外なら向かない、視界内なら向く', Math.abs(bv0 - Math.PI) < 1e-9 && Math.abs(bv1) < 1e-9, { bv0, bv1 });
+  // Bot も同じ（通常攻撃の対象を選ばず、撃たない）
+  const bt = mk('zunko', 'sayo'); bt.A.bot = true; delete bt.A.st.test; bt.A.cooldownUntil = 0; at(bt, VR + 15); bt.B.hp = 1e9;
+  bt.r.updatePlayers(0.05); const tgt = bt.A.tgt, shots = bt.r.shots.filter((q: any) => q.team === 0).length;
+  ok('Bot: 射程内でも視界外の敵は狙わず撃たない', tgt === null && shots === 0, { tgt: tgt && tgt.k, shots });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

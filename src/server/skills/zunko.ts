@@ -5,10 +5,10 @@ import { thingId } from '../GameRoom';
 import { CHARS } from '../../shared/chars';
 
 const S = CHARS.zunko.skill;
-// 矢印で向きを決めたとき: 射程内で矢印の向きとの角度差が aimCone 以内の敵のうち、角度差が一番小さい敵を追う（いなければ直進）
+// 矢印で向きを決めたとき: 射程内で矢印の向きとの角度差が aimCone 以内の敵（自陣営の画面に映っている敵だけ）のうち、角度差が一番小さい敵を追う（いなければ直進）
 function nearArrow(room: GameRoom, p: Player, a: number) {
   const diff = (t: { x: number; y: number }) => Math.abs(Math.atan2(Math.sin(Math.atan2(t.y - p.y, t.x - p.x) - a), Math.cos(Math.atan2(t.y - p.y, t.x - p.x) - a)));
-  return room.enemyThings(p.team).filter((t) => Math.hypot(t.x - p.x, t.y - p.y) <= S.range + t.r && room.targetable(t) && room.reach(p, t) && diff(t) <= S.aimCone)
+  return room.enemyThings(p.team).filter((t) => Math.hypot(t.x - p.x, t.y - p.y) <= S.range + t.r && room.targetable(t) && room.reach(p, t) && room.seenBy(p.team, t) && diff(t) <= S.aimCone)
     .sort((u, v) => diff(u) - diff(v))[0] ?? null;
 }
 const skill: Skill = {
