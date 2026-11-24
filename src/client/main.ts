@@ -54,6 +54,7 @@ const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
+const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
 const CULL_MARGIN = 64; // 画面外を描かない判定の余白(px)。カメラの追従の遅れ（描画の直前に動く分）・揺れを含めて余裕を持たせる
 const tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
 // 視界ポリゴン用の壁（透過壁は視界を通すので壁に数えない）。判定は1フレームに何万回も呼ぶので、壁の版が変わったときだけ真偽の一覧を作り直して引く（結果は都度判定と同一）
@@ -371,6 +372,7 @@ class GameScene extends Phaser.Scene {
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
+  fxFit = FX_FIT_FRAMES; // #fx の位置を測り直す残りフレーム数（起動時・リサイズ・拡大率の変更の後）
   chips: Pics | null = null; // マップチップの素材（なければ単色）
   homeG!: Phaser.GameObjects.Graphics; // 大将の候補部屋の床に重ねる組の色
   miniTex!: Phaser.Textures.CanvasTexture;
@@ -454,6 +456,8 @@ class GameScene extends Phaser.Scene {
     addEventListener('blur', () => (this.ctl.aim = null));
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.ctl.aim = null; });
     this.keys.TAB.on('down', () => this.ctl.cycleAim()); // Tab: 照準モードを順に切り替え
+    const refit = () => (this.fxFit = FX_FIT_FRAMES);
+    addEventListener('resize', refit); addEventListener('orientationchange', refit); this.scale.on('resize', refit);
     this.buttons();
     if (TOUCH) this.touchControls();
     this.makeAaTextures();
@@ -1279,9 +1283,12 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time: number, dtMs: number) {
-    const r = fx.style, b = this.game.canvas.getBoundingClientRect();
-    r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
-    r.setProperty('--z', String(this.game.scale.zoom));
+    if (this.fxFit > 0) { // #fx をキャンバスに重ねる（リサイズ・拡大率の変更の後だけ測る。毎フレーム測ると強制レイアウトになる）
+      this.fxFit--;
+      const r = fx.style, b = this.game.canvas.getBoundingClientRect();
+      r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
+      r.setProperty('--z', String(this.game.scale.zoom));
+    }
     const s = this.snap;
     if (!s) return;
     const dt = dtMs / 1000;
