@@ -1401,8 +1401,9 @@ class GameScene extends Phaser.Scene {
       // 足元の陣営色と頭上のHP（撃破の演出中は出さない）
       const h = sp.displayHeight * 0.85;
       if (p && !p.alive) return;
-      if (!bare) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
-      if (alpha === 1 && !bare && s.phase !== 'finale') feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
+      const onScr = this.inView(cx, cy, h + 30); // 足元・HP バーなどの図形は画面外なら描かない（30: HP バー・輪の分）
+      if (!bare && onScr) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
+      if (alpha === 1 && !bare && s.phase !== 'finale' && onScr) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
       // 被弾: 点滅（全段階）とダメージ数値。被弾側の最大HP比で 小=点滅だけ、中=ダメージ量に比例した着弾エフェクト、大=派手な着弾エフェクト＋揺れ（HIT_FX）
       if (e.hp !== undefined && hp < e.hp) {
         const ratio = (e.hp - hp) / maxHp;
@@ -1418,22 +1419,22 @@ class GameScene extends Phaser.Scene {
       if (!p || bare) return;
       // 指名手配: 頭上に手配マーク
       if (p.alive && s.teams[p.team]?.wanted === p.id) this.label(`wanted${id}`, '★手配★', cx, cy - h - 30, 'wanted', labelSeen);
-      if (p.boost) feet.lineStyle(2, SKILL_FX_COLOR.heal, 0.9).strokeEllipse(cx, cy, 30, 12); // 白上虎太郎の移動速度上昇
-      if (p.slow) feet.lineStyle(2, SKILL_FX_COLOR.pen_slow, 0.9).strokeEllipse(cx, cy + 2, 24, 8); // 罰: 移動速度低下（足元の青い輪）
-      if (p.weak) { feet.fillStyle(SKILL_FX_COLOR.pen_weak, 0.9).fillTriangle(cx + 9, cy - h + 2, cx + 15, cy - h + 2, cx + 12, cy - h + 8); feet.fillRect(cx + 11, cy - h - 4, 2, 6); } // 罰: 攻撃力低下（下向きの矢印）
+      if (p.boost && onScr) feet.lineStyle(2, SKILL_FX_COLOR.heal, 0.9).strokeEllipse(cx, cy, 30, 12); // 白上虎太郎の移動速度上昇
+      if (p.slow && onScr) feet.lineStyle(2, SKILL_FX_COLOR.pen_slow, 0.9).strokeEllipse(cx, cy + 2, 24, 8); // 罰: 移動速度低下（足元の青い輪）
+      if (p.weak && onScr) { feet.fillStyle(SKILL_FX_COLOR.pen_weak, 0.9).fillTriangle(cx + 9, cy - h + 2, cx + 15, cy - h + 2, cx + 12, cy - h + 8); feet.fillRect(cx + 11, cy - h - 4, 2, 6); } // 罰: 攻撃力低下（下向きの矢印）
       // 状態の目印（client/skills）
       sp.setVisible(true);
       for (const k in STATUS_VIEW) if (p.st?.[k]) STATUS_VIEW[k].mark?.(feet, { x: cx, y: cy, sp, time, v: p.st[k] });
       // ウルト中: 見た目は変えず、変身先の色の光をまとう
       if (p.ult && p.ult.left !== null) {
         const pulse = 0.5 + 0.3 * Math.sin(time / 120);
-        feet.lineStyle(3, ULT_COLOR[p.ult.form], pulse).strokeCircle(cx, cy - h / 2, 20).lineStyle(1, 0xffffff, pulse).strokeCircle(cx, cy - h / 2, 23);
+        if (onScr) feet.lineStyle(3, ULT_COLOR[p.ult.form], pulse).strokeCircle(cx, cy - h / 2, 20).lineStyle(1, 0xffffff, pulse).strokeCircle(cx, cy - h / 2, 23);
         this.label(`ult${id}`, lvText(C.SLOT_MODERN, p.ult.tier + 1), cx, cy - h - 22, '', labelSeen);
       }
       // アシスト: 半透明の縁取りと頭上の「ASSIST」
       if (p.assist) {
         sp.setAlpha(0.8);
-        feet.lineStyle(2, ITEM_COLOR.assist, 0.6).strokeRoundedRect(cx - 14, cy - h - 2, 28, h + 6, 5);
+        if (onScr) feet.lineStyle(2, ITEM_COLOR.assist, 0.6).strokeRoundedRect(cx - 14, cy - h - 2, 28, h + 6, 5);
         this.label(`assist${id}`, `ASSIST ${C.POWER_TIERS[p.tier] ?? lvText(C.SLOT_MODERN, p.tier + 1)}`, cx, cy - h - 14, '', labelSeen);
       }
     };
@@ -1464,7 +1465,7 @@ class GameScene extends Phaser.Scene {
       const id = 'c' + c.id, q = this.interp.at(id, now) ?? c, u = this.units.get(id);
       const f = u && Math.abs(q.x - u.tx) > 0.1 ? (q.x > u.tx ? 0 : Math.PI) : u?.s.flipX ? 0 : Math.PI;
       draw(id, COURIER_CHAR, -1, q.x, q.y, f, 1, 1, 1, C.DOT_SCALE);
-      this.drawItem(feet, { kind: `box_${c.box}`, x: q.x, y: q.y - 54 });
+      if (this.inView(q.x, q.y - 54, 11)) this.drawItem(feet, { kind: `box_${c.box}`, x: q.x, y: q.y - 54 });
     }
     for (const [id, e] of this.units) {
       if (!seen.has(id)) { e.s.destroy(); e.aura?.destroy(); this.units.delete(id); }
