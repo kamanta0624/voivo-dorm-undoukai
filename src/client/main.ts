@@ -59,9 +59,27 @@ const SIDE_BG = '#1a1a22'; // ゲーム画面の外（余白）の既定の色�
 // 余白: 対戦中は自キャラの立ち絵（既定は右、選択画面の切替で左）。入力の邪魔をしない
 const side = document.createElement('div');
 side.id = 'side';
-side.innerHTML = '<img alt="">';
+side.innerHTML = '<img alt=""><div class="pw"></div>';
 document.body.prepend(side);
-{ const st = document.createElement('style'); st.textContent = `body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}`; document.head.append(st); }
+// パワーアップ中の演出（本人の画面だけ。pwfx1）: 立ち絵側の余白は立ち絵の上にオーラと光（強さ 1〜MAX で濃く・速く）、反対側の余白はちびキャラ・スチルの枠（素材待ち）
+// DOM は1回だけ作り、表示・強さはクラスの切り替えだけ。動きは CSS の transform・opacity のアニメーションだけ
+const side2 = document.createElement('div');
+side2.id = 'side2';
+side2.innerHTML = '<div class="still"><span>素材待ち</span></div>';
+document.body.prepend(side2);
+// 反対側の余白の素材（ちびキャラ・スチル）。置き場所 public/assets/pwfx/<キャラのkey>.png。素材が届いたらキーを足す（ないキャラは枠と「素材待ち」）
+const PW_STILL: Record<string, string> = {};
+{ const st = document.createElement('style'); st.textContent = `body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}
+#side .pw{position:absolute;inset:0;opacity:0;transition:opacity .4s}
+#side .pw::before{content:'';position:absolute;left:-25%;right:-25%;top:0;bottom:0;background:radial-gradient(ellipse 50% 60% at 50% 65%,#ffe68ccc,#ff8cd280 45%,#0000 75%);animation:pwaura var(--pd,1.4s) ease-in-out infinite alternate}
+#side .pw::after{content:'';position:absolute;inset:0 0 -96px;background:radial-gradient(circle,#fff 0 1.5px,#0000 2.5px) 0 0/36px 48px,radial-gradient(circle,#ffe68c 0 1px,#0000 2px) 18px 24px/36px 48px;animation:pwrise var(--pd2,3s) linear infinite}
+#side.pw0 .pw{opacity:.35}#side.pw1 .pw{opacity:.55;--pd:1.2s;--pd2:2.4s}#side.pw2 .pw{opacity:.75;--pd:.9s;--pd2:1.8s}#side.pw3 .pw{opacity:1;--pd:.6s;--pd2:1.2s}
+@keyframes pwaura{from{transform:scale(.94);opacity:.6}to{transform:scale(1.06);opacity:1}}
+@keyframes pwrise{from{transform:translateY(0)}to{transform:translateY(-96px)}} /* 模様の周期（48px）の倍数だけ上へ流す（繰り返しの切れ目で跳ばない） */
+#side2{position:fixed;pointer-events:none;display:none;align-items:center;justify-content:center}
+#side2.on{display:flex}
+#side2 .still{width:80%;height:60%;max-width:240px;box-sizing:border-box;border:2px dashed #fff6;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff8;font:bold 13px sans-serif;background:center bottom/contain no-repeat}
+#side2 .still.img{border:0}#side2 .still.img span{display:none}`; document.head.append(st); }
 let sideLeft = false; // 立ち絵を左の余白に出す（端末に保存）
 // 立ち絵ごとの、絵の描かれている左右の範囲（画像の幅に対する割合）。読み込んだ時に1回だけ測る（画像は加工しない）
 const OPAQUE = new Map<string, [number, number]>();
@@ -133,7 +151,7 @@ css.textContent = `
 #fx .prp button.on{background:#7a5a00;border-color:#ffe066}
 #fx .prp .lv{flex:none;min-width:3.2em;text-align:center;font-weight:900;color:#ffe066}
 #fx .prp .end{margin-top:8px}
-#fx .prbtn{position:absolute;left:100%;top:34%;width:max(44px,calc(var(--z) * 22px));height:max(110px,calc(var(--z) * 55px));pointer-events:auto;box-sizing:border-box;border:1px solid #ffe066;border-left:0;border-radius:0 8px 8px 0;background:#000c;color:#ffe066;font:bold max(15px,calc(var(--z) * 8px)) sans-serif;writing-mode:vertical-rl;letter-spacing:.3em;cursor:pointer}
+#fx .prbtn{position:absolute;left:100%;top:50%;width:max(44px,calc(var(--z) * 22px));height:max(110px,calc(var(--z) * 55px));pointer-events:auto;box-sizing:border-box;border:1px solid #ffe066;border-left:0;border-radius:0 8px 8px 0;background:#000c;color:#ffe066;font:bold max(15px,calc(var(--z) * 8px)) sans-serif;writing-mode:vertical-rl;letter-spacing:.3em;cursor:pointer}
 #lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn{display:none}
 #fx .timer{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);background:#000a;color:#fff;font:bold calc(var(--z) * 13px) sans-serif;padding:0 .5em;border-radius:3px}
 #fx .bar{position:absolute;top:2.6%;width:31%;height:2.4%;background:#000b;outline:1px solid #000}
@@ -647,6 +665,7 @@ class GameScene extends Phaser.Scene {
         this.snapAt = performance.now();
         if ((s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me)?.char ?? this.sideChar : null) !== this.sideChar) this.sideFit(); // 余白の立ち絵・色（自キャラが変わった時だけ）
         if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
+        this.powerFx(s); // パワーアップ中の余白の演出
         if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
         if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
@@ -1109,6 +1128,19 @@ class GameScene extends Phaser.Scene {
 
   // 余白の表示: 対戦中は自キャラの色と立ち絵（既定は右の余白、ゲーム画面側に寄せて下揃え。はみ出す分は画面の端側で切る）。それ以外は既定の色だけ
   sideChar: string | null = null;
+  pwTier = -1; // 余白の演出を出している自キャラのパワーアップの強さ（-1 はなし）
+  // パワーアップの演出の切り替え（強さが変わった時だけ）。本人の画面だけ（観戦者は自キャラがいないので出ない）
+  powerFx(s: any) {
+    const mine = s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me) : null, u = mine?.alive && mine.ult && mine.ult.left !== null ? mine.ult : null;
+    const t = u ? Math.min(u.tier, C.POWER_TAGS.length - 1) : -1;
+    if (t === this.pwTier) return;
+    this.pwTier = t;
+    side.classList.remove('pw0', 'pw1', 'pw2', 'pw3');
+    if (t >= 0) side.classList.add(`pw${t}`);
+    const on = t >= 0 && !!this.sideChar, still = side2.querySelector<HTMLElement>('.still')!, src = this.sideChar ? PW_STILL[this.sideChar] : undefined;
+    side2.classList.toggle('on', on);
+    if (on) { still.classList.toggle('img', !!src); still.style.backgroundImage = src ? `url(${src})` : ''; } // 素材は出す時に1回だけ読む
+  }
   sideFit(b?: DOMRect) {
     const s = this.snap, mine = s?.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me) : null, k = mine && PICKABLE.includes(mine.char) ? mine.char : null;
     if (k !== this.sideChar) {
@@ -1124,6 +1156,8 @@ class GameScene extends Phaser.Scene {
     st.top = `${b.top}px`; st.height = `${b.height}px`;
     const w = sideLeft ? Math.max(0, b.left) : Math.max(0, innerWidth - b.right);
     st.left = sideLeft ? '0' : `${b.right}px`; st.width = `${w}px`;
+    const s2 = side2.style; // 反対側の余白（左右入れ替えに付いていく）
+    s2.top = `${b.top}px`; s2.height = `${b.height}px`; s2.left = sideLeft ? `${b.right}px` : '0'; s2.width = `${sideLeft ? Math.max(0, innerWidth - b.right) : Math.max(0, b.left)}px`;
     // 絵の描かれている部分（透明でない範囲）の左右の中心を、余白の左右の中心に合わせる。はみ出す分は両側を切る（高さ・下揃えはそのまま）
     const el = side.querySelector('img')!, o = OPAQUE.get(el.src), dw = el.naturalHeight ? (el.naturalWidth * b.height) / el.naturalHeight : 0;
     im.left = `${w / 2 - (o ? (o[0] + o[1]) / 2 : 0.5) * dw}px`;
