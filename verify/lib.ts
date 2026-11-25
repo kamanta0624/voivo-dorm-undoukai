@@ -23,12 +23,25 @@ export function check(name: string, ok: boolean, detail: any = '') {
 }
 export const failures = () => failed;
 
-// src・index.html を変えた直後は、dev（tsx watch のサーバー再起動・vite の再読み込み）が落ち着くまで待つ（最後の変更から SETTLE_MS）
-const SETTLE_MS = 4000;
+// src・index.html を変えた直後は、dev（tsx watch のサーバー再起動・vite の再読み込み）が収まるまで待つ
+// vite の HMR（再読み込みの通知）を受け、最後の変更・通知から QUIET_MS 何も来なくなるまで待つ。vite は変更から通知まで10秒以上かかることがあるので、
+// クライアントが読むファイル（src/client・src/shared・index.html）を RECENT_MS 以内に変えていたら、その通知が届くまで（最大 NOTIFY_MAX_MS）待ってから数える
+const QUIET_MS = 3000, RECENT_MS = 60000, NOTIFY_MAX_MS = 30000;
 const newest = (dir: string): number => readdirSync(dir, { withFileTypes: true }).reduce((m, e) => Math.max(m, e.isDirectory() ? newest(`${dir}/${e.name}`) : statSync(`${dir}/${e.name}`).mtimeMs), 0);
+const clientFiles = () => Math.max(newest('src/client'), newest('src/shared'), statSync('index.html').mtimeMs);
 async function settle() {
-  const wait = Math.max(newest('src'), statSync('index.html').mtimeMs) + SETTLE_MS - Date.now();
-  if (wait > 0) { log(`  ファイルを変えた直後なので ${(wait / 1000).toFixed(1)}秒待つ`); await sleep(wait); }
+  const t0 = Date.now(); let last = 0, notified = false;
+  const ws = await new Promise<WebSocket | null>((ok) => { try { const w = new WebSocket(`ws://localhost:${CLIENT_PORT}/`, 'vite-hmr'); w.onopen = () => ok(w); w.onerror = () => ok(null); } catch { ok(null); } });
+  if (ws) ws.onmessage = (e) => { const t = JSON.parse(String(e.data)).type; if (t !== 'connected' && t !== 'ping') { last = Date.now(); notified = true; } };
+  const changed = clientFiles();
+  const needNotify = !!ws && Date.now() - changed < RECENT_MS;
+  for (;;) {
+    const quietFrom = Math.max(last, newest('src'), statSync('index.html').mtimeMs);
+    if ((!needNotify || notified || Date.now() - t0 > NOTIFY_MAX_MS) && Date.now() - quietFrom >= QUIET_MS) break;
+    await sleep(200);
+  }
+  ws?.close();
+  if (Date.now() - t0 > 300) log(`  ファイルを変えた直後なので、dev の再読み込みが収まるまで ${((Date.now() - t0) / 1000).toFixed(1)}秒待った`);
 }
 
 export async function launch(): Promise<Browser> {

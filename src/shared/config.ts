@@ -244,7 +244,7 @@ export const CONFIG = {
     colorWin: [40, 20, 15, 20, 5], colorMiss: [91, 6, 2, 1, 0], // 保留の色の選択率（当選時・外れ時。転落は外れと同じ）
     sakibare: { win: 0.3, miss: (0.3 * (1 / 120) * 0.6) / (0.4 * (119 / 120)) }, // 先バレの発生率（当選時・外れ時）。外れ時は徳5の通常で信頼度40%になる固定値。転落では出さない
     special: ['allSpin', 'fishSp'], // 画面全体の視界外を使える特別な演出（それ以外は視界外の隅だけ）
-    // 演出を出せる範囲（論理解像度 VIEW_W×VIEW_H の座標）。視界は画面中央・半径 VISION_RADIUS×VISION_SCALE の円。キルログ域は #fx .kills（上から22%・3行）の仮の外枠
+    // 演出を出せる範囲（論理解像度 VIEW_W×VIEW_H の座標）。視界は画面中央・半径 VISION_RADIUS×VISION_SCALE の円。キルログ域は #fx .kills（上から24%・3行）の仮の外枠
     area: { killLog: { x: 230, y: 76, w: 180, h: 56 } },
     fish: { n: 7, speed: 170, gap: 26 }, // 魚群: 匹数・速さ(px/秒)・間隔(px)
     fishSp: { n: 12, speed: 220, gap: 30, scale: 1.5, rows: [26, 300] }, // 特別な魚群: 匹数・速さ・間隔・表示倍率・横切る高さ（上下2列。論理解像度の y）

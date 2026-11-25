@@ -63,6 +63,18 @@ side.innerHTML = '<img alt="">';
 document.body.prepend(side);
 { const st = document.createElement('style'); st.textContent = `body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}`; document.head.append(st); }
 let sideLeft = false; // 立ち絵を左の余白に出す（端末に保存）
+// 立ち絵ごとの、絵の描かれている左右の範囲（画像の幅に対する割合）。読み込んだ時に1回だけ測る（画像は加工しない）
+const OPAQUE = new Map<string, [number, number]>();
+function measureOpaque(img: HTMLImageElement) {
+  if (OPAQUE.has(img.src) || !img.naturalWidth) return;
+  const w = img.naturalWidth, h = img.naturalHeight, c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true })!; g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, w, h).data, col = (x: number) => { for (let y = 0; y < h; y += 2) if (d[(y * w + x) * 4 + 3] > 16) return true; return false; };
+  let l = 0, r = w - 1;
+  while (l < w && !col(l)) l++;
+  while (r > l && !col(r)) r--;
+  OPAQUE.set(img.src, [l / w, (r + 1) / w]);
+}
 try { sideLeft = localStorage.getItem('sideLeft') === '1'; } catch {}
 const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
 const TAG_RES = 4; // 頭上の強さの札の絵の解像度の倍率
@@ -206,12 +218,11 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .skill{width:calc(var(--z) * 76px);height:calc(var(--z) * 76px);font-size:max(11px,calc(var(--z) * 10px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 6px);transform:none;pointer-events:auto;touch-action:none;cursor:pointer}
 #fx .tb{width:calc(var(--z) * 48px);height:calc(var(--z) * 48px);font-size:max(12px,calc(var(--z) * 10px));background:#1a2a5a;text-shadow:0 1px 2px #000}
 #fx .tk,#fx .roster{zoom:${C.HUD_SCALE}}
-#fx .me{position:absolute;left:1.2%;bottom:1.6%;width:calc(var(--z) * 84px);box-sizing:border-box;padding:calc(var(--z) * 3px) calc(var(--z) * 5px);background:#000a;border-radius:calc(var(--z) * 3px);color:#fff;display:none;pointer-events:none}
+#fx .me{position:absolute;left:1.2%;top:0;width:calc(var(--z) * 84px);box-sizing:border-box;padding:calc(var(--z) * 3px) calc(var(--z) * 5px);background:#000a;border-radius:calc(var(--z) * 3px);color:#fff;display:none;pointer-events:none}
 #fx .me.wanted{outline:calc(var(--z) * 1.5px) solid #ff3030}
 #fx .me .wt{display:none;position:absolute;left:0;right:0;bottom:100%;margin-bottom:calc(var(--z) * 2px);text-align:center;font:900 calc(var(--z) * 9px) sans-serif;color:#ff3030;letter-spacing:.1em;text-shadow:0 0 3px #000}
 #fx .me.wanted .wt{display:block}
 #fx .me .hp{font:900 calc(var(--z) * 20px)/1 sans-serif;text-shadow:0 1px 2px #000}
-#fx .me .hp small{font-size:.4em;color:#ccc;margin-left:.2em}
 #fx .me .bd{position:relative;margin-top:calc(var(--z) * 3px);height:calc(var(--z) * 6px);background:#2a1a3a;outline:1px solid #b070ff}
 #fx .me .bd i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#7a3cff,#c060ff)}
 #fx .me .bd span{position:absolute;left:calc(var(--z) * 2px);top:50%;transform:translateY(-50%);font:bold calc(var(--z) * 5px) sans-serif;text-shadow:0 0 2px #000}
@@ -264,7 +275,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .mem .rs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:900 calc(var(--z) * 9px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .ic{width:calc(var(--z) * 18px);height:calc(var(--z) * 18px);background:#000a no-repeat calc(var(--z) * -7px) calc(var(--z) * -3px)/calc(var(--z) * 32px) calc(var(--z) * 42px);image-rendering:pixelated;border:1px solid var(--c);border-radius:2px;flex:none}
 #fx .ic.dead{filter:grayscale(1) brightness(.35)}
-#fx .kills{position:absolute;top:22%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
+#fx .kills{position:absolute;top:24%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
 #fx .kills div{display:flex;align-items:center;gap:calc(var(--z) * 3px);background:#0008;padding:1px 4px;color:#fff;font:bold calc(var(--z) * 7px) sans-serif}
 #fx .kills .ic{width:calc(var(--z) * 14px);height:calc(var(--z) * 14px);background-position:calc(var(--z) * -9px) calc(var(--z) * -4px)}
 #fx .intro{position:absolute;inset:0;display:none;overflow:hidden}
@@ -325,7 +336,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b><small></small></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
@@ -1104,15 +1115,18 @@ class GameScene extends Phaser.Scene {
       this.sideChar = k;
       document.body.style.background = (k && CHARS[k]?.bg) || SIDE_BG;
       side.style.display = k ? 'block' : 'none';
-      if (k) side.querySelector('img')!.src = TACHIE(k, 'select');
+      if (k) { const im = side.querySelector('img')!; im.onload = () => { measureOpaque(im); this.sideFit(); }; im.src = TACHIE(k, 'select'); }
       b = undefined;
     }
     if (!k) return;
     b ??= this.game.canvas.getBoundingClientRect();
     const st = side.style, im = side.querySelector('img')!.style;
     st.top = `${b.top}px`; st.height = `${b.height}px`;
-    if (sideLeft) { st.left = '0'; st.width = `${Math.max(0, b.left)}px`; im.left = ''; im.right = '0'; }
-    else { st.left = `${b.right}px`; st.width = `${Math.max(0, innerWidth - b.right)}px`; im.right = ''; im.left = '0'; }
+    const w = sideLeft ? Math.max(0, b.left) : Math.max(0, innerWidth - b.right);
+    st.left = sideLeft ? '0' : `${b.right}px`; st.width = `${w}px`;
+    // 絵の描かれている部分（透明でない範囲）の左右の中心を、余白の左右の中心に合わせる。はみ出す分は両側を切る（高さ・下揃えはそのまま）
+    const el = side.querySelector('img')!, o = OPAQUE.get(el.src), dw = el.naturalHeight ? (el.naturalWidth * b.height) / el.naturalHeight : 0;
+    im.left = `${w / 2 - (o ? (o[0] + o[1]) / 2 : 0.5) * dw}px`;
   }
 
   // 先読み: 戦闘画面で DOM に出す画像を、出撃の秒数の間に読み込んでデコードしておく（同じ画像は1回だけ）
@@ -1237,8 +1251,16 @@ class GameScene extends Phaser.Scene {
     const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
     const el = $('.buffs'), r0 = $('.r0');
     if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
-    // 位置は左上の一覧（.r0）の中身が変わった時と、リサイズ等の後だけ測る（毎フレーム offsetTop を読むと DOM を書いた後なので強制レイアウトになる）
-    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.getBoundingClientRect().bottom - fx.getBoundingClientRect().top + 4}px`; } // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
+    // 位置: 左上の一覧（.r0）の下に自分の情報パネル（上に WANTED の分を空ける）、その下にバフ欄。一覧の中身・パネルの表示が変わった時と、リサイズ等の後だけ測る（毎フレーム測ると DOM を書いた後なので強制レイアウトになる）
+    const meP = $('.me'), meOn = !!mine && s.phase !== 'waiting', key = `${this.rosterHtml[0]}|${meOn}`;
+    if (key !== this.buffTopOf || this.fxFit > 0) {
+      this.buffTopOf = key;
+      const z = this.game.scale.zoom, top = r0.getBoundingClientRect().bottom - fx.getBoundingClientRect().top + 4; // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
+      setCss(meP, 'display', meOn ? 'block' : 'none');
+      const meTop = top + 13 * z; // WANTED の表記の高さ
+      meP.style.top = `${meTop}px`;
+      el.style.top = `${meOn ? meTop + meP.offsetHeight + 4 : top}px`;
+    }
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
@@ -1922,7 +1944,7 @@ class GameScene extends Phaser.Scene {
     const meP = $('.me'), meR = mine && s.roster.find((r: any) => r.id === s.me);
     setCss(meP, 'display', mine && s.phase !== 'waiting' ? 'block' : 'none');
     if (mine) {
-      setText($('.me .hp b'), String(Math.max(0, Math.ceil(mine.hp)))); setText($('.me .hp small'), `/ ${Math.round(mine.maxHp)}`);
+      setText($('.me .hp b'), String(Math.max(0, Math.ceil(mine.hp))));
       setCss($('.me .bd i'), 'width', `${Math.min(100, (mine.bad / C.HUD_BAD_MAX) * 100)}%`); setText($('.me .bd span'), `悪行 ${mine.bad.toFixed(1)}`);
       setText($('.me .nm'), meR?.name ?? '');
       meP.classList.toggle('wanted', s.teams[myTeam]?.wanted === mine.id);
@@ -1939,10 +1961,11 @@ const wrap = document.getElementById('wrap')!;
 // 倍率: 実画素で整数倍（ドットの1画素を実画素の均一な正方形に）。表示上の zoom はそれを DPR で割った値（非整数になる）。実画素で1倍も取れないタッチ端末だけ縮小
 const zoom = () => { const dpr = devicePixelRatio || 1, k = Math.min((wrap.clientWidth * dpr) / C.VIEW_W, (wrap.clientHeight * dpr) / C.VIEW_H); return (TOUCH && k < 1 ? k : Math.max(1, Math.floor(k))) / dpr; };
 // キャンバスの位置を実画素の境目にそろえる（Phaser の中央寄せは CSS 画素の整数なので、DPR が整数でないとドットの幅が不ぞろいになる）
+// 画面全体（セーフエリアを含む）の上下・左右の中央に置く。倍率はセーフエリアの内側（#wrap）で決めるので、中央に置いても画面からははみ出さない
 function alignCanvas() {
   const c = game.canvas, dpr = devicePixelRatio || 1, w = wrap.getBoundingClientRect(), cw = C.VIEW_W * game.scale.zoom, ch = C.VIEW_H * game.scale.zoom;
-  c.style.marginLeft = `${Math.round((w.left + Math.max(0, w.width - cw) / 2) * dpr) / dpr - w.left}px`;
-  c.style.marginTop = `${Math.round((w.top + Math.max(0, w.height - ch) / 2) * dpr) / dpr - w.top}px`;
+  c.style.marginLeft = `${Math.round((Math.max(0, innerWidth - cw) / 2) * dpr) / dpr - w.left}px`;
+  c.style.marginTop = `${Math.round((Math.max(0, innerHeight - ch) / 2) * dpr) / dpr - w.top}px`;
 }
 const game = new Phaser.Game({
   type: Phaser.WEBGL, width: C.VIEW_W, height: C.VIEW_H, backgroundColor: '#111', pixelArt: true, scene: GameScene, parent: wrap,
