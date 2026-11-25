@@ -1,7 +1,7 @@
 // 実クライアント(http://localhost:5173)を Playwright の実キー入力で操作するための補助
 // GAME_PORT・CLIENT_PORT: 別のポートで起動した dev（公開中のサーバーとぶつけないとき）に繋ぐ
 import { chromium, Page, Browser } from 'playwright-core';
-import { mkdirSync, appendFileSync } from 'node:fs';
+import { mkdirSync, appendFileSync, readdirSync, statSync } from 'node:fs';
 import { CONFIG as C } from '../src/shared/config';
 import { findPath } from '../src/server/pathfind';
 
@@ -23,7 +23,16 @@ export function check(name: string, ok: boolean, detail: any = '') {
 }
 export const failures = () => failed;
 
+// src・index.html を変えた直後は、dev（tsx watch のサーバー再起動・vite の再読み込み）が落ち着くまで待つ（最後の変更から SETTLE_MS）
+const SETTLE_MS = 4000;
+const newest = (dir: string): number => readdirSync(dir, { withFileTypes: true }).reduce((m, e) => Math.max(m, e.isDirectory() ? newest(`${dir}/${e.name}`) : statSync(`${dir}/${e.name}`).mtimeMs), 0);
+async function settle() {
+  const wait = Math.max(newest('src'), statSync('index.html').mtimeMs) + SETTLE_MS - Date.now();
+  if (wait > 0) { log(`  ファイルを変えた直後なので ${(wait / 1000).toFixed(1)}秒待つ`); await sleep(wait); }
+}
+
 export async function launch(): Promise<Browser> {
+  await settle();
   return chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
 }
 

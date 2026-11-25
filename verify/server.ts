@@ -2153,7 +2153,7 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const nm = OG.randomName();
   for (let i = 0; i < 3; i++) join(a, 'h' + i, nm); join(a, 'h3', 'あいうえお');
   const names = ['h0', 'h1', 'h2', 'h3'].map((id) => a.players.get(id).name);
-  ok('名前: 同じ部屋で重複したら末尾に番号、部品の組み合わせでない名前はサーバーが付け直す', names[0] === nm && names[1] === nm + '2' && names[2] === nm + '3' && OG.validName(names[3]), names);
+  ok('名前: 同じ部屋で重複したら末尾に番号、部品の組み合わせでない名前はサーバーが付け直す', names[0] === nm && names[1] === nm + '2' && names[2] === nm + '3' && OG.validName(names[3].replace(/\d+$/, '')), names); // 付け直した名前が乱数で nm と重なると番号が付く
   a.sendSnapshots(); ok('名前は待機画面の名簿（roster）で送る', a.clients[0].got.roster.find((x: any) => x.id === 'h1').name === nm + '2');
   // 満員（人間 ROOM_FULL 人）・対戦中は入れない。e2e の部屋は従来どおり
   for (let i = 4; i < C.ROOM_FULL; i++) join(a, 'h' + i);
@@ -2401,6 +2401,7 @@ console.log('--- 練習モード（handoff_practice1）');
   ok('練習: 実況は送らない', !r.sent.some(([t]: any) => t === 'cm'));
   // 相手の動き: 棒立ちは動かず攻撃しない、攻撃なしは動くが通常攻撃・技なし
   const f = () => r.players.get('foe');
+  r.messages.pr({ sessionId: 'h' }, { op: 'foe', char: 'aru' }); // 相手は近接（遠距離のキャラは射程内だと Bot でも動かないので「攻撃なしは動く」を見られない）
   const place = () => { Object.assign(f(), { x: 1928, y: 784, dx: 0, dy: 0, path: [] }); Object.assign(me, { x: 1988, y: 784, hp: 1e9 }); }; // 大将から離れた所で向かい合う（大将の攻撃を受けない）
   me.st.test = { until: Infinity, noAuto: true }; let skill = 0; const sk0 = r.skill.bind(r); r.skill = (id: string) => { if (id === 'foe') skill++; return sk0(id); };
   r.messages.pr({ sessionId: 'h' }, { op: 'mode', mode: 'stand' }); place(); f().skillReadyAt = 0; run(r, 3);

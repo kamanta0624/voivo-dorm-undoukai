@@ -316,9 +316,9 @@ export class GameRoom extends Room {
       // 自キャラを (x, y) へ移す
       e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) { this.relocate(`p:${p.id}`, p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles())); p.dx = p.dy = 0; } },
       // 自キャラのキャラを変える（花丸の確認用）
-      e2eChar: (c: Client, m: { char: string }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && PICKABLE.includes(m.char)) { p.char = m.char; p.hp = this.maxHp(p); } },
+      e2eChar: (c: Client, m: { char: string }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && PICKABLE.includes(m.char)) { for (const k of SKILLS[p.char]?.statuses ?? []) delete p.st[k]; p.char = m.char; p.hp = this.maxHp(p); } }, // 前のキャラの技の状態（アルのタメなど）は消す。替えた後のキャラでは終わらず残るので
       // 自キャラの技のクールタイムを明ける（charge: CT 明けから何秒たったことにするか。花丸パンチのチャージの確認用）
-      e2eReady: (c: Client, m?: { charge?: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.skillReadyAt = this.now - (m?.charge ?? 0); if (m?.charge) p.sk.from = undefined; } }, // from: 花丸の撤退からのチャージの起点
+      e2eReady: (c: Client, m?: { charge?: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.skillReadyAt = this.now - (m?.charge ?? 0); if (m?.charge) Object.assign(p.sk, { from: undefined, koAt: p.koAt }); } }, // from: 花丸の撤退からのチャージの起点。koAt もそろえる（撤退から戻った直後だと、次の tick で戻ったとみなされてチャージが0からになる）
       // コバコを自分の近くに出す（dist: 自分からの距離）
       e2eCourier: (c: Client, m: { dist?: number; box?: string }) => {
         const p = this.players.get(this.owners.get(c.sessionId) ?? '');

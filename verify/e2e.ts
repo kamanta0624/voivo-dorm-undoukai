@@ -594,8 +594,8 @@ async function hanamaruCheck(A: Tab) {
   const key = intact(-1) ? 'w' : 's';
   const cracks = () => A.page.evaluate(() => (window as any).game.scene.scenes[0].cracks.size as number), c0 = await cracks(); // 拳が当たった壁は割れ目の数・壊れた壁の数で見る（拳の芯が触れない壁にも外側が触れれば段階が進む）
   await A.page.keyboard.down(key); await sleep(120); await A.page.keyboard.up(key); await A.press('r');
-  const flying = await A.until((x) => x.ents.some((e: any) => e.kind === 'fist'), 1500); await sleep(250);
-  const drawn = await A.page.evaluate(() => (window as any).snap.ents.filter((e: any) => e.kind === 'fist').length); await A.shot('h1_fist');
+  let drawn = 0; // 近い壁に当たると拳はすぐ消えるので、出た瞬間に数える
+  const flying = await A.until((x) => (drawn = x.ents.filter((e: any) => e.kind === 'fist').length) > 0, 1500); await A.shot('h1_fist');
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length, c1 = await cracks(); await A.shot('h2_fist_after');
   check('花丸パンチ（タメなし）: 拳が前方へ飛び、当たった壁が段階を進める（割れ目が付く。中破だった壁なら壊れてマップに反映）', flying && drawn > 0 && (c1 > c0 || b1 > b0), { drawn, broken: [b0, b1], cracks: [c0, c1] });
@@ -631,10 +631,10 @@ async function hanamaruCheck(A: Tab) {
   // パッシブ: 自陣側で、今も壊れていない壁（外周以外、縦3マス）へ西向きに押し込む。前の確認や Bot が壊した壁は避ける（図書室に一番近い場所）
   const spot = pushSpot((await A.snap()).broken);
   await aliveOf(A); await send(A, 'e2eTeleport', { x: spot.x * 16 + 11, y: spot.y * 16 + 8 }); await sleep(150);
-  const p0 = (await A.snap()).broken.length;
+  const wall = (x: any) => x.broken.some(([bx, by]: number[]) => bx === spot.x - 1 && by === spot.y), p0 = wall(await A.snap()); // 押し込んだ西隣の壁（ほかの壁の破壊と混ぜない）
   await A.page.keyboard.down('a'); await sleep(DEFS.hanamaru.skill.push * 1000 + 500); await A.page.keyboard.up('a');
-  await sleep(150); const p1 = (await A.snap()).broken.length; await A.shot('h3_push');
-  check(`花丸のパッシブ: 壁へ押し込むと壊す（${DEFS.hanamaru.skill.push}秒。触れてすぐ壊れないことはサーバー単体で確認）`, p1 > p0, { p0, p1 });
+  await sleep(150); const p1 = wall(await A.snap()); await A.shot('h3_push');
+  check(`花丸のパッシブ: 壁へ押し込むと壊す（${DEFS.hanamaru.skill.push}秒。触れてすぐ壊れないことはサーバー単体で確認）`, !p0 && p1, { p0, p1, spot });
   await send(A, 'e2eChar', { char: 'aru' }); // 結果画面の確認はアルで行う
 }
 
@@ -761,11 +761,12 @@ async function soraCheck(A: Tab, B: Tab) {
   const aid = (await A.snap()).me;
   // B の画面: 毎フレーム、A のソーラーキャノンの状態（予兆の長さ・ビームの長さ）を記録
   await B.page.evaluate(`(() => { const w = window; w.solarLog = []; const f = () => { const v = w.snap?.players.find((p) => p.id === ${JSON.stringify(aid)})?.st?.solar; if (v) w.solarLog.push({ pre: v.pre, len: v.len }); if (w.solarLog.length < 600) requestAnimationFrame(f); }; requestAnimationFrame(f); })()`); // 文字列: 関数の中の関数は tsx の __name が付いてページで動かない
+  const st = async () => { const m = await A.me(); return { char: m.char, alive: m.alive, x: Math.round(m.x), y: Math.round(m.y), cd: m.skillCd, ult: !!m.ult, st: Object.keys(m.st ?? {}) }; }, a0 = await st(); // 技が出なかったときの手がかり
   await send(A, 'skillUp', { a: 0 });
   const seenPre = await B.until((x) => x.players.find((p: any) => p.id === aid)?.st?.solar?.pre > 0, 1500); await B.shot('sora_pre_B');
   const seenBeam = await B.until((x) => x.players.find((p: any) => p.id === aid)?.st?.solar?.len > 0, 1500); await B.shot('sora_beam_B');
   const lg: any[] = await B.page.evaluate(() => (window as any).solarLog), firstBeam = lg.findIndex((v) => v.len > 0);
-  check('そら: 遅れの間は射線の予兆が敵の画面に出て、ビームが出ると同時に消える', seenPre && seenBeam && lg[0]?.pre > 0 && firstBeam > 0 && lg.slice(firstBeam).every((v) => !v.pre) && lg.every((v) => !(v.pre && v.len)), { seenPre, seenBeam, n: lg.length, firstBeam, pre: lg[0]?.pre });
+  check('そら: 遅れの間は射線の予兆が敵の画面に出て、ビームが出ると同時に消える', seenPre && seenBeam && lg[0]?.pre > 0 && firstBeam > 0 && lg.slice(firstBeam).every((v) => !v.pre) && lg.every((v) => !(v.pre && v.len)), { seenPre, seenBeam, n: lg.length, firstBeam, pre: lg[0]?.pre, ...(seenPre && seenBeam ? {} : { a0, a1: await st() }) });
 }
 
 // HUD: ずんだもん軍のプレイヤーでも左＝陣営0、右＝陣営1（大将HPバー・一覧）。一覧の自軍側は右
