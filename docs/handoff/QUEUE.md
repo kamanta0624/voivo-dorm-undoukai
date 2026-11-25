@@ -11,7 +11,7 @@
 
 ## 一覧
 1. handoff_e2efix1.md　済（テストと e2e フックのみ。反映なし・タグなし）
-2. handoff_tune7.md（1〜4章すべてこのセッションで行う）
+2. handoff_tune7.md　済 live-20261125-8（2・3章は調査報告のみ）
 3. handoff_spectate1.md
 4. handoff_hud2.md（2章は docs/voice/sortie.csv が置かれるまで待つ。ほかの章は進めてよい。CSV がなければ2章を残したまま本人に知らせて次へ）
 5. handoff_screen1.md
