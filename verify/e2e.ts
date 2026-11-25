@@ -391,7 +391,7 @@ async function slotCheck(A: Tab, B: Tab) {
   // 罰の出目は SLOT.penHold の間しか出ないので、通知と同時に × の数を取る。前の（自然な罰の）通知と区別するため、今ある通知に印を付けて、印のない通知を待つ
   await Promise.all([A, B].map((T) => T.page.evaluate(() => document.querySelectorAll('#fx .notes div').forEach((e) => ((e as HTMLElement).dataset.old = '1')))));
   const pen = [A, B].map((T, k) => T.page.waitForFunction((k) => {
-    const t = [...document.querySelectorAll<HTMLElement>('#fx .notes div')].find((e) => !e.dataset.old && /あんこもん軍に罰/.test(e.textContent ?? ''))?.textContent;
+    const t = [...document.querySelectorAll<HTMLElement>('#fx .notes div')].find((e) => !e.dataset.old && /だいだい組に罰/.test(e.textContent ?? ''))?.textContent;
     const xs = document.querySelectorAll('#fx .tk .s0 .mfx-ic.pen').length;
     return t && (k || xs === 3) ? { t, xs } : false; // A は × が3つそろうまで（通知と出目の届く順は前後する）
   }, k, { timeout: (C.SLOT.spin + 3) * 1000, polling: 'raf' }).then((h) => h.jsonValue() as Promise<{ t: string; xs: number }>, () => null));
@@ -399,7 +399,7 @@ async function slotCheck(A: Tab, B: Tab) {
   const [ea, eb] = await Promise.all(pen); await A.shot('t5_penalty');
   // 効果音（handoff_se1）: 再生した音の src と、再生できたか（play の Promise）を記録する
   await Promise.all([A, B].map((T) => T.page.evaluate(() => { const w = window as any, o = HTMLMediaElement.prototype.play; w.sePlayed = []; HTMLMediaElement.prototype.play = function () { const r = { src: this.src, ok: null as boolean | null }; w.sePlayed.push(r); const p = o.call(this); p.then(() => (r.ok = true), () => (r.ok = false)); return p; }; })));
-  const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！ずんだもん軍', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
+  const cut = [A, B].map((T) => waitText(T, '#fx .scut', '大当たり！みどり組', (C.SLOT.spin + 3) * 1000)); // 自然に当たった別陣営のカットインと区別
   await send(A, 'e2eSlot', { team: 1, win: true, chain: 0 });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
   await B.page.waitForTimeout(300);
@@ -422,7 +422,7 @@ async function slotCheckModern(A: Tab, B: Tab) {
   const pen = waitText(A, '#fx .mfx-toast', 'ペナルティ（転落）', 8000);
   await send(A, 'e2eSlot', { team: 0, pen: true });
   const pa = await pen; await A.shot('t5_penalty');
-  const cut = [waitText(A, '#fx .mfx-toast', 'ずんだもん軍.*大当たり', 8000), waitText(B, '#fx .mfx-toast', '^大当たり', 8000)];
+  const cut = [waitText(A, '#fx .mfx-toast', 'みどり組.*大当たり', 8000), waitText(B, '#fx .mfx-toast', '^大当たり', 8000)];
   await send(A, 'e2eSlot', { team: 1, win: true });
   const [ca, cb] = await Promise.all(cut); await Promise.all([A.shot('t2_slot_win_A'), B.shot('t2_slot_win_B')]);
   check('徳: 時計の下に陣営別のゲージ（左＝自陣、右＝敵陣）', gauge.length === 2 && gauge.every((t) => /^徳 \d+\.\d/.test(t ?? '')), gauge);
@@ -537,7 +537,7 @@ async function assistCheck(A: Tab, B: Tab) {
   await send(A, 'e2eTeleport', HALL); await send(B, 'e2eTeleport', { x: HALL.x + 220, y: HALL.y + 200 });
   await sleep(200);
   const had = (await A.snap()).players.find((p: any) => p.assist && p.team === 0); // コバコの確認で拾ったアシスト箱で、もう出ていることがある
-  const note = had ? Promise.resolve('（既に出ていた）') : waitText(A, '#fx .notes div', 'あんこもん軍のアシスト: ', 3000);
+  const note = had ? Promise.resolve('（既に出ていた）') : waitText(A, '#fx .notes div', 'だいだい組のアシスト: ', 3000);
   await send(A, 'e2eAssist', { char: 'kurono', tier: 1, dx: -40, dy: 0 });
   const tier1 = had ? Math.min(3, had.tier + 1) : 1;
   await A.until((x) => x.players.some((p: any) => p.assist && p.team === 0), 2000); await sleep(150);

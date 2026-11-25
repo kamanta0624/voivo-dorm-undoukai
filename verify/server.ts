@@ -2172,7 +2172,10 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const nm = OG.randomName();
   for (let i = 0; i < 3; i++) join(a, 'h' + i, nm); join(a, 'h3', 'あいうえお');
   const names = ['h0', 'h1', 'h2', 'h3'].map((id) => a.players.get(id).name);
-  ok('名前: 同じ部屋で重複したら末尾に番号、部品の組み合わせでない名前はサーバーが付け直す', names[0] === nm && names[1] === nm + '2' && names[2] === nm + '3' && OG.validName(names[3].replace(/\d+$/, '')), names); // 付け直した名前が乱数で nm と重なると番号が付く
+  ok('名前: 本人が入力した名前を使う（lobby2）。同じ部屋で重複したら末尾に番号', names[0] === nm && names[1] === nm + '2' && names[2] === nm + '3' && names[3] === 'あいうえお', names);
+  { const n = room(); join(n, 'n0', '  ' + 'あ'.repeat(C.NAME_MAX) + ' '); join(n, 'n1', 'あ'.repeat(C.NAME_MAX + 1)); join(n, 'n2', '   '); join(n, 'n3', 'a\u0007b');
+    const ns = ['n0', 'n1', 'n2', 'n3'].map((id) => n.players.get(id).name);
+    ok(`名前: 前後の空白・制御文字は除く。空・${C.NAME_MAX}文字を超える名前はサーバーが自動の名前を付ける`, ns[0] === 'あ'.repeat(C.NAME_MAX) && OG.validName(ns[1].replace(/\d+$/, '')) && OG.validName(ns[2].replace(/\d+$/, '')) && ns[3] === 'ab', ns); }
   a.sendSnapshots(); ok('名前は待機画面の名簿（roster）で送る', a.clients[0].got.roster.find((x: any) => x.id === 'h1').name === nm + '2');
   // 満員（人間 ROOM_FULL 人）・対戦中は入れない。e2e の部屋は従来どおり
   for (let i = 4; i < C.ROOM_FULL; i++) join(a, 'h' + i);

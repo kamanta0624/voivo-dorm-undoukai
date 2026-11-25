@@ -465,7 +465,7 @@ export class GameRoom extends Room {
     const counts = [0, 0];
     this.players.forEach((p) => counts[p.team]++);
     const p = this.addPlayer(client.sessionId, counts[0] <= counts[1] ? 0 : 1, false);
-    const base = OG.validName(name) ? name! : OG.randomName(); // 部品の組み合わせでない名前は付け直す
+    const base = OG.cleanName(name) ?? OG.randomName(); // 本人が入力した名前（空・長すぎる時は自動の名前）。同じ部屋で重なったら末尾に番号
     Object.assign(p, { name: OG.uniqueName(base, [...this.players.values()].filter((q) => q !== p).map((q) => q.name ?? '')), ip: client.auth?.ip, bid: client.auth?.bid });
     this.owners.set(client.sessionId, client.sessionId);
     this.specName.delete(client.sessionId); this.specView.delete(client.sessionId);

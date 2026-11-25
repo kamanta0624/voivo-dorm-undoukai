@@ -32,7 +32,7 @@ const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.
 const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), ずんだもん軍(緑)
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
-const TEAM_NAME = ['あんこもん軍', 'ずんだもん軍'];
+const TEAM_NAME = ['だいだい組', 'みどり組'];
 const TITLE = 'VOICE SQUAD';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
@@ -198,14 +198,18 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby .card{flex:0 0 calc(var(--z) * ${CARD_W}px);min-width:0;display:flex;flex-direction:column;cursor:pointer;border:calc(var(--z) * 1px) solid #fff4;border-radius:calc(var(--z) * 2px);background:#fff1;text-align:center;font-size:calc(var(--z) * 5.5px);white-space:nowrap;overflow:hidden}
 #lobby .card img{flex:1 1 0;min-height:0;width:100%;object-fit:cover;object-position:top}
 #lobby .card.mine{border-color:#ffd700;background:#ffd70033}
-#lobby #roster{position:absolute;right:2%;top:2%;width:32%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 2px) calc(var(--z) * 4px);line-height:1.35;z-index:2}
+#lobby .rcol{position:absolute;right:2%;top:2%;width:22%;display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--z) * 4px);z-index:2} /* 右上: 組の一覧、その下に設定のボタン */
+#lobby #roster{box-sizing:border-box;width:100%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 2px) calc(var(--z) * 4px);line-height:1.35;z-index:2}
 #lobby #roster .tm b{font-size:calc(var(--z) * 7px)}
 #lobby #roster .row{display:flex;justify-content:space-between;gap:calc(var(--z) * 3px);white-space:nowrap}
-#lobby #roster .row em{font-style:normal;font-weight:bold}
+#lobby #roster .row em{font-style:normal;font-weight:bold;flex:none}
+#lobby #roster .row .pn{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#lobby #roster .row .pc{flex:none}
+#lobby #roster .row.self .pn{color:#ffe066} /* .me は HUD の自分の情報パネル（#fx .me）と重なるので使わない */
 #lobby #roster .foe{color:#aaa;font-size:calc(var(--z) * 5.5px);margin-top:calc(var(--z) * 2px)}
 #lobby #roster button{font-size:calc(var(--z) * 5.5px);pointer-events:auto}
 #lobby button.big{position:absolute;z-index:2;border:0;cursor:pointer;font:900 calc(var(--z) * 13px) sans-serif;color:#fff;border-radius:calc(var(--z) * 6px);padding:calc(var(--z) * 3px) calc(var(--z) * 14px)}
-#lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
+#lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
 #lobby:not(.browse) #okbtn{display:block}
 #lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:none;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
 /* 出撃ボタンの光: 影＋光（小・橙）と影＋光（大・黄）の2枚をボタンの後ろに置き、透明度で入れ替える（box-shadow を毎フレーム描き直さない: render_policy 5）。両端は以前の box-shadow の点滅と同じ */
@@ -213,9 +217,8 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby.sortie #okbtn::before{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c;animation-name:startglowA}
 #lobby.sortie #okbtn::after{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a;animation-name:startglowB}
 #lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
-#lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 12px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby:not(.browse) #backsel{display:block}
-#lobby .vsub{display:none;position:absolute;left:50%;bottom:48%;transform:translateX(-50%);z-index:3;background:#000c;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:bold calc(var(--z) * 10px) sans-serif;color:#fff;white-space:nowrap;pointer-events:none} /* 出撃セリフの字幕 */
 #lobby .grace{display:none;position:absolute;left:50%;top:20%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
 
 @keyframes startpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
@@ -331,12 +334,15 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 @keyframes logoin{0%{transform:translateX(30%) skewX(-8deg);opacity:0}100%{transform:skewX(-8deg);opacity:1}}
 @keyframes pop{0%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:1}}
 #fx .cmsub{position:absolute;left:50%;bottom:calc(var(--z) * 6px);transform:translateX(-50%);max-width:56%;display:none;z-index:4;pointer-events:none;background:#000b;color:#fff;font:bold max(11px,calc(var(--z) * 8px))/1.35 sans-serif;padding:.25em .7em;border-radius:4px;text-align:center}
-#lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
-#lobby #cmbtn.off{color:#fff8}
-#lobby #sidebtn{left:34%;top:calc(3% + max(50px,var(--z) * 24px + 4px));font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby.practice #sidebtn{display:none}
-html.touch #lobby #cmbtn,html.touch #lobby #sidebtn{left:26%}html.touch #lobby #totitle{left:37%} /* 指で押せる高さ（44px）にすると下の情報窓にかかるので、右へずらす */
-#lobby #totitle{left:34%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+/* 設定のボタン（実況・立ち絵）: 丸い形・半透明・記号つき。画面遷移の「タイトルへ」（角のある濃い青の板・矢印つき）と見分ける */
+#lobby .opts{display:flex;gap:calc(var(--z) * 4px);width:max-content}
+#lobby .opt{pointer-events:auto;cursor:pointer;font:bold calc(var(--z) * 10.5px) sans-serif;padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:999px;border:calc(var(--z) * 1px) solid #fffa;background:#ffffff26;color:#fff}
+#lobby .opt.off{color:#fff8}
+#lobby #cmbtn::before{content:'♪ '}#lobby #sidebtn::before{content:'⇄ '}
+#lobby #totitle{left:50%;top:3%;transform:translateX(-50%);transition:transform .35s;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:calc(var(--z) * 2px);background:#1e2f66;border:calc(var(--z) * 1px) solid #6f8fe0}
+#lobby #totitle::before{content:'◀ '}
+#lobby:not(.browse) #totitle{transform:translate(-50%,calc(-100% - var(--z) * 20px))} /* キャラを選んだ後は画面の外へ（立ち絵と被るため） */
 #fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
 `;
 document.head.appendChild(css);
@@ -552,8 +558,8 @@ class GameScene extends Phaser.Scene {
     // 待機画面（キャラ選択）: 背後に選んだキャラの立ち絵・名前・ロール・ステータス、下半分に選択バー、右上に味方の選択状況
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
-    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div id="roster"></div>`
-      + '<div class="vsub"></div><div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button><button id="sidebtn" class="big"></button>';
+    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div class="rcol"><div id="roster"></div><div class="opts"><button id="cmbtn" class="opt"></button><button id="sidebtn" class="opt"></button></div></div>`
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="totitle" class="big">タイトルへ</button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
     const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
@@ -1175,7 +1181,7 @@ class GameScene extends Phaser.Scene {
     for (const u of [...dots, ...tachie]) { if (this.warmed.has(u)) continue; this.warmed.add(u); const im = new Image(); im.src = u; im.decode().catch(() => {}); }
   }
 
-  // 出撃セリフ（hud2 2章）: 出撃の秒数（常設の部屋）が始まったら、自キャラのセリフを1本ランダムに鳴らして字幕を出す。本人の端末だけ（観戦者は自キャラがいないので鳴らない）。言い終わるまで鳴らす（3秒を超えるセリフは戦闘画面に移っても続く）
+  // 出撃セリフ（hud2 2章）: 出撃の秒数（常設の部屋）が始まったら、自キャラのセリフを1本ランダムに鳴らす（字幕は出さない）。本人の端末だけ（観戦者は自キャラがいないので鳴らない）。言い終わるまで鳴らす（3秒を超えるセリフは戦闘画面に移っても続く）
   sortieSaid = false;
   sortieVoice(s: any) {
     if (s.sortie == null) { if (s.phase === 'waiting') this.sortieSaid = false; return; }
@@ -1185,11 +1191,8 @@ class GameScene extends Phaser.Scene {
     (VOICE_TABLE ??= fetch('voice/sortie.json').then((r) => r.json()).catch(() => ({}))).then((t: Record<string, { src: string; text: string }[]>) => {
       const list = t[char];
       if (!list?.length) return;
-      const v = list[Math.floor(Math.random() * list.length)], a = new Audio(v.src), sub = document.querySelector<HTMLElement>('#lobby .vsub')!;
+      const a = new Audio(list[Math.floor(Math.random() * list.length)].src); // プレイヤーキャラのセリフの字幕は出さない（lobby2）
       a.volume = C.VOICE_VOLUME;
-      sub.textContent = v.text; sub.style.display = 'block';
-      const hide = () => (sub.style.display = 'none');
-      a.onended = hide; a.onerror = hide; setTimeout(hide, 6000); // 鳴らせなくても字幕は消す
       a.play().catch(() => {});
     });
   }
@@ -1416,7 +1419,8 @@ class GameScene extends Phaser.Scene {
     if (me?.ok) { this.selMode = 'go'; this.selChar = me.char; } else if (this.selMode === 'go') this.selMode = 'sortie';
     if (!this.selChar && me) this.selChar = me.char;
     // 右上: 味方の選択状況（今選んでいるキャラと、選択中／出撃済み）、敵陣営の一覧と陣営の移動
-    const row = (r: any) => `<div class="row"><span>${r.bot ? 'Bot' : `${r.id === s.me ? 'あなた' : '人間'}${r.name ? `（${esc(r.name)}）` : ''}`} ${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? '出撃済み' : '選択中…'}</em></div>`;
+    // 1人1行: 名前（入りきらなければ末尾を「…」）・キャラ名・状態。自分の行は色と★（lobby2: 一覧の幅を狭めたので「あなた（…）」「人間（…）」はやめた）
+    const row = (r: any) => `<div class="row${r.id === s.me ? ' self' : ''}"><span class="pn">${r.bot ? 'Bot' : `${r.id === s.me ? '★' : ''}${esc(r.name ?? '')}`}</span><span class="pc">${CHARS[r.char]?.name ?? ''}</span><em style="color:${r.bot || r.ok ? LOBBY_COLOR.ok : LOBBY_COLOR.pending}">${r.bot ? '' : r.ok ? '出撃済み' : '選択中…'}</em></div>`;
     const team = (t: number) => {
       const list = s.roster.filter((r: any) => r.team === t), rows = list.map(row);
       while (rows.length < C.TEAM_SIZE) rows.push('<div class="row"><span>（空き: 開始時にBot）</span></div>');

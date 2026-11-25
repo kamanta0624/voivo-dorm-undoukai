@@ -30,6 +30,8 @@ export function removeBan(i: number) { bans.splice(i, 1); saveBans(); }
 // プレイヤー名: 部品 a＋b（src/shared/player_names.json）。部品の組み合わせでない名前はサーバーが付け直す（本人は変更できない）
 const pickOf = (a: string[]) => a[Math.floor(Math.random() * a.length)];
 export const randomName = () => pickOf(NAMES.a) + pickOf(NAMES.b);
+// 本人が入力した名前（lobby2）: 前後の空白と制御文字を除き、1〜NAME_MAX 文字なら使う。それ以外は null（サーバーが自動の名前を付ける）。NG ワードの判定はない
+export const cleanName = (n: unknown) => { if (typeof n !== 'string') return null; const t = n.replace(/[\u0000-\u001f\u007f]/g, '').trim(); return t && [...t].length <= C.NAME_MAX ? t : null; };
 export const validName = (n: unknown) => typeof n === 'string' && NAMES.a.some((a) => n.startsWith(a) && NAMES.b.includes(n.slice(a.length)));
 // 同じ部屋で重複したら末尾に番号（2から）
 export function uniqueName(base: string, taken: string[]) {

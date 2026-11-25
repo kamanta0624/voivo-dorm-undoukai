@@ -19,10 +19,12 @@ ver.style.cssText = 'position:fixed;left:2px;bottom:1px;z-index:9999;font:10px m
 document.body.appendChild(ver);
 
 const ss = { get: (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch {} }, del: (k: string) => { try { sessionStorage.removeItem(k); } catch {} } };
-// 名前: タブ（セッション）ごとにランダム。変更できない。ブラウザ保存ID: BAN の判定用（端末に保存）
+// 名前: タイトルで本人が入力して変えられる（端末に保存。lobby2）。保存がない・空欄の時はタブ（セッション）ごとの自動の名前。ブラウザ保存ID: BAN の判定用（端末に保存）
 const pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
-const name = ss.get('pname') ?? pick(NAMES.a) + pick(NAMES.b);
-ss.set('pname', name);
+const autoName = ss.get('pname') ?? pick(NAMES.a) + pick(NAMES.b);
+ss.set('pname', autoName);
+let name = autoName;
+try { name = localStorage.getItem('myName') || autoName; } catch {}
 let bid = '';
 try { bid = localStorage.getItem('bid') ?? ''; if (!bid) { bid = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('bid', bid); } } catch {}
 
@@ -44,7 +46,7 @@ css.textContent = `
 #title .in{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
 #title h1{margin:4px 0 0;font:900 clamp(28px,7vw,44px) sans-serif;color:#ffe066;-webkit-text-stroke:1px #000;text-shadow:0 0 6px #000;text-align:center}
 #title .me{text-align:center;color:#ddd}
-#title .me b{color:#fff;font-size:17px}
+#title .me input{width:12em;max-width:70%;box-sizing:border-box;margin-left:4px;padding:6px 8px;border:1px solid #fff8;border-radius:6px;background:#0008;color:#fff;font:bold 17px sans-serif;text-align:center}
 #title .notice{background:#a33;border-radius:6px;padding:8px 12px;font-weight:bold}
 #title .msg{min-height:1.2em;color:#ffb0b0;text-align:center;font-weight:bold}
 #title .rooms{display:flex;flex-direction:column;gap:8px}
@@ -93,12 +95,21 @@ function buildCheck(build: string | null, msg: (t: string) => void) {
 function showTitle() {
   const el = document.createElement('div');
   el.id = 'title';
-  el.innerHTML = `<div class="in"><h1>${TITLE}</h1><div class="me">あなたの名前: <b></b></div><div class="notice" hidden></div><div class="msg"></div><div class="rooms"></div>
+  el.innerHTML = `<div class="in"><h1>${TITLE}</h1><div class="me"><label>あなたの名前:<input class="nm" type="text" enterkeyhint="done" autocomplete="off"></label></div><div class="notice" hidden></div><div class="msg"></div><div class="rooms"></div>
 <div class="row"><button class="rules">ルール説明</button><button class="notes">更新情報</button><button class="credits">クレジット</button></div><div class="news" hidden></div></div>
 <div class="pop"><div class="body"></div><button>閉じる</button></div>`;
   document.body.appendChild(el);
   const $ = (s: string) => el.querySelector<HTMLElement>(s)!;
-  $('.me b').textContent = name;
+  // 名前の入力: 決めた時（フォーカスが外れた・Enter）に端末へ保存。空欄なら自動の名前に戻す。長さは NAME_MAX 文字まで
+  const nm = el.querySelector<HTMLInputElement>('.me .nm')!;
+  nm.maxLength = C.NAME_MAX; nm.value = name;
+  const commit = () => {
+    const t = nm.value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    name = t || autoName; nm.value = name;
+    try { if (t) localStorage.setItem('myName', t); else localStorage.removeItem('myName'); } catch {}
+  };
+  nm.addEventListener('change', commit);
+  nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') nm.blur(); });
   const msg = (t: string) => { $('.msg').textContent = t; };
   const left = ss.get('leaveMsg'); // キック・BAN されて戻ってきた
   if (left) { msg(left); ss.del('leaveMsg'); }
