@@ -17,3 +17,4 @@
 5. handoff_screen1.md　済 live-20261125-11
 6. handoff_perf5.md　済 live-20261125-12（スロット演出のマスクは今のまま。案A は WebKit で効かず）
 7. handoff_pwfx1.md　済 live-20261126-2（PC の画面内の演出は案のみ）
+8. handoff_lobby2.md
