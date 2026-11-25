@@ -508,7 +508,7 @@ console.log('--- 開始人数・途中参加（e2e から移動）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
   Object.defineProperty(r, 'clients', { value: [] });
-  r.onCreate(); r.onJoin({ sessionId: 'h' });
+  r.onCreate({ e2e: 't' }); r.onJoin({ sessionId: 'h' }); // 途中参加（Bot と入れ替わる）は e2e の部屋だけ。常設の部屋は観戦（spectate1）
   ok('入室で待機画面（1人）', r.phase === 'waiting' && r.players.size === 1);
   r.startMatch(); r.beginPlay();
   const ps = [...r.players.values()];
@@ -2159,7 +2159,29 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   for (let i = 4; i < C.ROOM_FULL; i++) join(a, 'h' + i);
   ok(`満員（人間${C.ROOM_FULL}人）の部屋には入れない。/status は満員`, auth(a).err === 'この部屋は満員です' && OG.status([a]).rooms[0].state === 'full', auth(a));
   join(b, 'p0'); b.startMatch();
-  ok('対戦中の部屋には入れない。/status は対戦中', auth(b).err === 'この部屋は対戦中です' && OG.status([b]).rooms[0].state === 'playing' && OG.status([b]).rooms[0].humans === 1);
+  // 観戦（spectate1）: 対戦中の常設の部屋には観戦で入る（Bot と入れ替えない）。観戦者は別枠で SPECTATOR_MAX まで
+  const bots0 = [...b.players.values()].filter((p: any) => p.bot).length, s1 = join(b, 's1', nm);
+  ok('対戦中の常設の部屋へ観戦で入れる（参加者にならず Bot はそのまま）。/status は対戦中・観戦者数', !b.owners.has('s1') && [...b.players.values()].filter((p: any) => p.bot).length === bots0 && OG.status([b]).rooms[0].state === 'playing' && OG.status([b]).rooms[0].humans === 1 && OG.status([b]).rooms[0].spec === 1);
+  b.sendSnapshots(); ok('観戦者のスナップショット: me なし・フォグなし（全員）・実況のフォーカスと視点', s1.got.me === null && s1.got.players.length === b.players.size && s1.got.spec.view === 'all' && 'focus' in s1.got.spec);
+  b.messages.spec(s1, { view: 1 }); b.sendSnapshots(); b.messages.spec(b.clients[0], { view: 'all' });
+  ok('観戦者の視点「組の視界」: その組の視界の分だけ送る。参加者の視点の指定は無視', s1.got.spec.view === 1 && s1.got.players.length < b.players.size && s1.got.players.filter((p: any) => p.team === 1).length === C.TEAM_SIZE && !b.specView.has(b.clients[0].sessionId));
+  for (let i = 2; i <= C.SPECTATOR_MAX; i++) join(b, 's' + i);
+  ok(`観戦者は${C.SPECTATOR_MAX}人まで。超えたら「観戦席が満員です」`, auth(b).err === '観戦席が満員です' && OG.status([b]).rooms[0].spec === C.SPECTATOR_MAX);
+  // 結果画面で参加者全員が「戻る」→ 観戦者を入室順に参加者へ（陣営は人数の少ない側、参加者 TEAM_SIZE×2 まで。残りは観戦のまま）
+  b.beginPlay(); b.endMatch(0); b.messages.back(b.clients[0]);
+  const ps = [...b.players.values()], promoted = ps.filter((p: any) => p.id.startsWith('s')).map((p: any) => p.id);
+  ok('結果画面で参加者の人間全員が「戻る」→ 観戦者が入室順に参加者になる（名前つき・人数の少ない陣営へ。8人で残りは観戦）', b.phase === 'waiting' && ps.length === C.TEAM_SIZE * 2 && JSON.stringify(promoted) === JSON.stringify(Array.from({ length: C.TEAM_SIZE * 2 - 1 }, (_, i) => 's' + (i + 1))) && b.players.get('s1').name === nm && b.owners.get('s1') === 's1' && [0, 1].every((t) => ps.filter((p: any) => p.team === t).length === C.TEAM_SIZE) && !b.owners.has('s' + C.SPECTATOR_MAX) && OG.status([b]).rooms[0].spec === 1, promoted);
+  // 参加者の人間が0人で観戦者だけ → ABANDON_SEC 秒のカウントダウン、0で打ち切って待機画面へ（観戦者は参加者に）。再接続で解除
+  {
+    const h = room(), q0 = join(h, 'q0'); h.startMatch(); h.beginPlay(); const w = join(h, 'w1');
+    h.allowReconnection = () => {};
+    const run = (sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) h.tick(0.05, false); };
+    h.onDrop(q0); run(3); h.sendSnapshots(); const cnt = w.got.spec.abandon, ph = h.phase;
+    h.onReconnect(q0); run(0.1); const off = h.abandonLeft;
+    h.onDrop(q0); run(C.ABANDON_SEC - 1); const still = h.phase;
+    h.clients.splice(h.clients.indexOf(q0), 1); h.onLeave(q0); run(1.2);
+    ok(`参加者の人間が0人（再接続待ちは数えない）で観戦者だけ → ${C.ABANDON_SEC}秒のカウントダウン（観戦者に秒数を送る）。再接続で解除。0で打ち切って待機画面へ、観戦者は参加者に`, ph === 'playing' && cnt === C.ABANDON_SEC - 3 && off === null && still === 'playing' && h.phase === 'waiting' && h.owners.get('w1') === 'w1' && h.players.size === 1, { cnt, off, still, phase: h.phase });
+  }
   e.startMatch(); ok('e2e の部屋は対戦中でも入れる（途中参加）', !auth(e).err);
   // メンテ中: 常設の部屋に入れない。/status にメンテ中と告知文
   OG.setMaintenance(true);

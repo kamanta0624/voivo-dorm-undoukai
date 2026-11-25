@@ -188,6 +188,10 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #fx .tb:active{background:#88a}
 #fx .rc{right:calc(var(--z) * 8px);bottom:calc(var(--z) * 132px)}
 #fx .aimb{right:calc(var(--z) * 50px);bottom:calc(var(--z) * 132px)}
+#fx .spec{position:absolute;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 132px);display:none;flex-direction:column;align-items:stretch;gap:calc(var(--z) * 3px);pointer-events:auto}
+#fx .spec button{font:bold max(12px,calc(var(--z) * 7px)) sans-serif;padding:.35em .8em;border-radius:4px;border:2px solid #fff;background:#1a2a5acc;color:#fff;cursor:pointer}
+#fx .spec button.on{background:#7a5a00;border-color:#ffe066}
+#fx .aband{position:absolute;left:0;right:0;top:22%;text-align:center;display:none;font:bold max(14px,calc(var(--z) * 9px)) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 html.touch #fx .skill span:last-child{display:none}
 #fx .skill{width:calc(var(--z) * 42px);height:calc(var(--z) * 42px);font-size:max(9px,calc(var(--z) * 7px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 84px);transform:none;pointer-events:auto;touch-action:none;cursor:pointer}
 #fx .tb{font-size:max(12px,calc(var(--z) * 9px));background:#1a2a5a;text-shadow:0 1px 2px #000}
@@ -297,7 +301,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
@@ -742,6 +746,8 @@ class GameScene extends Phaser.Scene {
     for (const t of ['pointerup', 'pointercancel']) addEventListener(t, (e) => this.skillUp(src(e as PointerEvent))); // ボタンの外（捕捉が外れた後など）で離しても届くよう window で受ける
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
+    // 観戦者の視点の切り替え（全体・実況追従・組の視界）
+    for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) btn(`.spec [data-v="${b.dataset.v}"]`, () => { const v = b.dataset.v!; this.room?.send('spec', { view: v === '0' || v === '1' ? Number(v) : v }); });
     const mm = $('.mm');
     let held: number | null = null;
     const at = (e: PointerEvent) => { const b = mm.getBoundingClientRect(); this.mmCam = { x: Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * C.MAP_W, y: Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * C.MAP_H }; };
@@ -1582,6 +1588,7 @@ class GameScene extends Phaser.Scene {
     if (C.INTRO_MODE === 'old') this.introCamOld(s, myTeam, camera);
     else this.introCamNew(s, myTeam, sinceSnap, camera, labelSeen);
     const fcam = s.phase === 'finale'; // 決着演出のカメラ（finaleView）
+    const spec = !mine && s.phase !== 'waiting' && !this.introCam && !fcam ? s.spec : null; // 観戦者: 実況追従はフォーカスの対象へ、それ以外は自由視点（撤退中の視点移動と同じ操作）
     const mmOn = !!this.mmCam && !this.introCam && s.phase !== 'waiting' && !fcam;
     setCss($('.mm'), 'display', this.introCam || s.phase === 'waiting' ? 'none' : 'block');
     if (mmOn) camera.stopFollow();
@@ -1592,8 +1599,21 @@ class GameScene extends Phaser.Scene {
     else if (freeCam) {
       camera.stopFollow();
       camera.scrollX += dx * C.FREE_CAM_SPEED * dt; camera.scrollY += dy * C.FREE_CAM_SPEED * dt;
+    } else if (spec?.view === 'focus') {
+      const fu = spec.focus && this.units.get(spec.focus); // フォーカスなしの間は直前の位置のまま
+      if (fu && (camera as any)._follow !== fu.s) camera.startFollow(fu.s, true, C.CAM_LERP, C.CAM_LERP);
+    } else if (spec) {
+      camera.stopFollow();
+      camera.scrollX += dx * C.FREE_CAM_SPEED * dt; camera.scrollY += dy * C.FREE_CAM_SPEED * dt;
     } else if (meUnit && !this.introCam && !fcam && (camera as any)._follow !== meUnit.s) camera.startFollow(meUnit.s, true, C.CAM_LERP, C.CAM_LERP);
     this.finaleView(s, sinceSnap, camera);
+    // 観戦者: 視点のボタン、打ち切りのカウントダウン。自キャラ用のボタン（帰還・照準）は出さない
+    const specUi = !mine && s.phase !== 'waiting' && !!s.spec;
+    setCss($('.spec'), 'display', specUi ? 'flex' : 'none');
+    if (specUi) for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) b.classList.toggle('on', b.dataset.v === String(s.spec.view));
+    for (const q of ['.rc', '.aimb']) setCss($(q), 'display', mine ? '' : 'none');
+    const ab = specUi && s.spec.abandon !== null ? `プレイヤーがいなくなりました。${s.spec.abandon}秒後選択画面に戻ります` : '';
+    setCss($('.aband'), 'display', ab ? 'block' : 'none'); setText($('.aband'), ab);
     // 画面に固定の表示（フォグ・ミニマップ）はカメラの拡大で崩れるので、開始演出の間は隠す
     this.miniImg.setVisible(!this.introCam && !fcam); this.ui.setVisible(!this.introCam && !fcam);
 
@@ -1724,9 +1744,10 @@ class GameScene extends Phaser.Scene {
 
     // 視界（観戦者はフォグなし）
     const vg = this.visG;
-    this.fog.setVisible(!!mine && !this.introCam && s.phase !== 'finale');
-    if (mine) {
-      const eyes = this.eyes(s, myTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
+    const fogTeam = mine ? myTeam : s.spec?.view === 0 || s.spec?.view === 1 ? s.spec.view : null; // 観戦者の「組の視界」はその組の視界で
+    this.fog.setVisible(fogTeam !== null && !this.introCam && s.phase !== 'finale');
+    if (fogTeam !== null) {
+      const eyes = this.eyes(s, fogTeam, sinceSnap); // 倒された味方は大爆発の後に視界が縮む（eyeRadius）
       const t0 = performance.now();
       const wv = this.cameras.main.worldView, polys = eyes.map((e) => this.visPoly(e.x, e.y, e.r));
       // 視界ポリゴン（visPoly の配列）と壁が前のフレームと同じなら、マスクの形は描き直さない（壁が変わらない間は同じ配列なら中身も同じ）

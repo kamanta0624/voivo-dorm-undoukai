@@ -15,4 +15,5 @@
 3. handoff_spectate1.md
 4. handoff_hud2.md（2章は docs/voice/sortie.csv が置かれるまで待つ。ほかの章は進めてよい。CSV がなければ2章を残したまま本人に知らせて次へ）
 5. handoff_screen1.md
-6. handoff_pwfx1.md（Chat待ち：screen1 と立ち絵の左右が食い違っているため Chat が書き直す。着手しない）
+6. handoff_perf5.md
+7. handoff_pwfx1.md（Chat待ち：screen1 と立ち絵の左右が食い違っているため Chat が書き直す。着手しない）

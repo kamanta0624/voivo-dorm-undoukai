@@ -49,7 +49,7 @@ export function status(rooms: GameRoom[]) {
     build: serverBuild(), maintenance: maintenance(), notice: maintenance() ? maintText() : '',
     rooms: rooms.map((r, i) => {
       const humans = r.humanCount();
-      return { id: r.roomId, no: i + 1, state: r.phase !== 'waiting' ? 'playing' : humans >= C.ROOM_FULL ? 'full' : 'waiting', humans, max: C.ROOM_FULL };
+      return { id: r.roomId, no: i + 1, state: r.phase !== 'waiting' ? 'playing' : humans >= C.ROOM_FULL ? 'full' : 'waiting', humans, max: C.ROOM_FULL, spec: r.spectators(), specMax: C.SPECTATOR_MAX };
     }),
   };
 }

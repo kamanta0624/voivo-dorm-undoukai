@@ -79,6 +79,8 @@ export const CONFIG = {
   ROOMS: 2, // 常設の部屋の数（サーバー起動時に作り、空になっても残す）。仮置き
   PRACTICE_ROOMS: 4, // 練習の部屋を同時に作れる数（仮置き。handoff_practice1）
   ROOM_FULL: 8, // 常設の部屋の満員（人間の参加者の数）。仮置き
+  SPECTATOR_MAX: 8, // 常設の部屋の観戦者の上限（参加者とは別枠）。仮置き
+  ABANDON_SEC: 10, // 対戦中に参加者の人間が0人になり観戦者だけ残ったら、この秒数で打ち切って待機画面へ（再接続待ちは待たない）
   STATUS_POLL_SEC: 3, // タイトル画面の部屋一覧の自動更新の間隔(秒)
   TUTORIAL: { autoBase: 1.5, autoPerChar: 0.12 }, // ルール説明のオートで音声のない行: autoBase + 文字数 × autoPerChar 秒で次へ
   MATCH_TIME: 300, // 秒

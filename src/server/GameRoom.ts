@@ -139,6 +139,9 @@ export class GameRoom extends Room {
   dropped = new Set<string>(); // 再接続待ちのプレイヤーid（途中参加の入れ替え先にしない）
   kicked = new Set<string>(); // 管理ページでキックしたプレイヤーid（再接続待ちの間にキックされたら、戻ってきた時点で外す）
   backVotes = new Set<string>(); // リザルトで「戻る」を押した人間のプレイヤーid
+  specName = new Map<string, string>(); // 観戦者（owners にない client）の名前。待機画面で参加者になるときに使う
+  specView = new Map<string, 'all' | 'focus' | 0 | 1>(); // 観戦者の視点: 全体・実況追従・組の視界（陣営）
+  abandonLeft: number | null = null; // 参加者の人間がいなくなってからの打ち切りまでの秒数（観戦者だけ残ったとき）
   fx: Fx[] = []; // このティックに起きた技のエフェクト（送信後に空にする）
   tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
   walls = C.WALLS;
@@ -199,6 +202,10 @@ export class GameRoom extends Room {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (!p || p.qAt === null) return;
       p.qAt = p.recallAt = null;
+    },
+    // 観戦者の視点の切り替え（観戦者だけ。参加者は無視）
+    spec: (client: Client, m: { view: unknown }) => {
+      if (!this.owners.has(client.sessionId) && (['all', 'focus', 0, 1] as unknown[]).includes(m?.view)) this.specView.set(client.sessionId, m.view as 'all' | 'focus' | 0 | 1);
     },
     // リザルトの「戻る」
     back: (client: Client) => {
@@ -423,6 +430,42 @@ export class GameRoom extends Room {
     this.players.clear();
     this.setup();
     for (const h of humans) this.addPlayer(h.id, h.team, false).char = h.char;
+    this.promoteSpectators();
+    this.unlock();
+  }
+
+  // 待機画面に戻るとき: 観戦者を入室順に参加者へ（陣営は人数の少ない側）。参加者が TEAM_SIZE×2・人間が ROOM_FULL に達したら残りは観戦のまま
+  promoteSpectators() {
+    for (const c of this.clients) {
+      if (this.owners.has(c.sessionId)) continue;
+      if (this.players.size >= C.TEAM_SIZE * 2 || (this.pub && this.humanCount() >= C.ROOM_FULL)) break;
+      this.joinPlayer(c, this.specName.get(c.sessionId));
+    }
+    this.abandonLeft = null;
+  }
+
+  // 参加者として加える（待機画面）。名前は部品の組み合わせでなければ付け直し、重複は番号
+  joinPlayer(client: Client, name?: string) {
+    const counts = [0, 0];
+    this.players.forEach((p) => counts[p.team]++);
+    const p = this.addPlayer(client.sessionId, counts[0] <= counts[1] ? 0 : 1, false);
+    const base = OG.validName(name) ? name! : OG.randomName(); // 部品の組み合わせでない名前は付け直す
+    Object.assign(p, { name: OG.uniqueName(base, [...this.players.values()].filter((q) => q !== p).map((q) => q.name ?? '')), ip: client.auth?.ip, bid: client.auth?.bid });
+    this.owners.set(client.sessionId, client.sessionId);
+    this.specName.delete(client.sessionId); this.specView.delete(client.sessionId);
+  }
+
+  // 観戦者の数（owners にない client）
+  spectators() { return this.clients.filter((c) => !this.owners.has(c.sessionId)).length; }
+
+  // 対戦中に参加者の人間（再接続待ちは数えない）が0人で観戦者だけ残ったら、ABANDON_SEC 秒で打ち切って待機画面へ。参加者が戻れば解除
+  updateAbandon(dt: number) {
+    if (!this.pub || !this.spectators() || [...this.players.values()].some((p) => !p.bot && !p.assist)) { this.abandonLeft = null; return; }
+    this.abandonLeft = (this.abandonLeft ?? C.ABANDON_SEC) - dt;
+    if (this.abandonLeft > 0) return;
+    if (this.measure && this.startedAt) this.writeLog('disconnect');
+    this.players.clear(); this.setup(); this.lobbyLeft = null;
+    this.promoteSpectators();
     this.unlock();
   }
 
@@ -464,8 +507,8 @@ export class GameRoom extends Room {
     if (OG.banned(ip, bid)) throw new ServerError(4403, '入室できません');
     if ((this.pub || this.practice) && OG.maintenance()) throw new ServerError(4503, OG.maintText());
     if (this.practice && this.humanCount() >= 1) throw new ServerError(4409, 'この部屋には入れません'); // 練習の部屋は作った本人だけ
-    if (this.pub && this.phase !== 'waiting') throw new ServerError(4409, 'この部屋は対戦中です');
-    if (this.pub && this.humanCount() >= C.ROOM_FULL) throw new ServerError(4429, 'この部屋は満員です');
+    if (this.pub && this.phase !== 'waiting' && this.spectators() >= C.SPECTATOR_MAX) throw new ServerError(4429, '観戦席が満員です'); // 対戦中は観戦で入る
+    if (this.pub && this.phase === 'waiting' && this.humanCount() >= C.ROOM_FULL) throw new ServerError(4429, 'この部屋は満員です');
     return { ip, bid };
   }
 
@@ -473,14 +516,11 @@ export class GameRoom extends Room {
     this.crackSent.delete(client.sessionId); // 壁の段階は最初から送る
     if (this.phase === 'playing') this.measure?.client(client.sessionId);
     if (this.phase === 'waiting') {
-      if (this.players.size >= C.TEAM_SIZE * 2) return; // 観戦
-      const counts = [0, 0];
-      this.players.forEach((p) => counts[p.team]++);
-      const p = this.addPlayer(client.sessionId, counts[0] <= counts[1] ? 0 : 1, false);
-      const base = OG.validName(options?.name) ? options!.name! : OG.randomName(); // 部品の組み合わせでない名前は付け直す
-      Object.assign(p, { name: OG.uniqueName(base, [...this.players.values()].filter((q) => q !== p).map((q) => q.name ?? '')), ip: client.auth?.ip, bid: client.auth?.bid });
-      this.owners.set(client.sessionId, client.sessionId);
+      if (this.players.size >= C.TEAM_SIZE * 2) { this.specName.set(client.sessionId, options?.name ?? ''); return; } // 観戦
+      this.joinPlayer(client, options?.name);
       if (this.practice) this.lock(); // 練習の部屋は本人だけ
+    } else if (this.pub) {
+      this.specName.set(client.sessionId, options?.name ?? ''); // 常設の部屋の対戦中は観戦（Bot とは入れ替えない）。待機画面に戻るときに参加者になる
     } else if (this.phase !== 'ended') {
       // 人間の少ない陣営のBotと入れ替わる。Botがいなければ観戦
       const humans = [0, 0];
@@ -517,13 +557,15 @@ export class GameRoom extends Room {
   onLeave(client: Client) {
     const id = this.owners.get(client.sessionId);
     this.owners.delete(client.sessionId);
-    if (!id) return;
-    this.dropped.delete(id);
-    if (this.phase === 'waiting') this.players.delete(id);
-    else {
-      const p = this.players.get(id);
-      if (p) { p.bot = true; p.path = []; p.aim = C.BOT_AIM; p.qAt = p.recallAt = null; }
-      this.checkBack();
+    this.specName.delete(client.sessionId); this.specView.delete(client.sessionId);
+    if (id) {
+      this.dropped.delete(id);
+      if (this.phase === 'waiting') this.players.delete(id);
+      else {
+        const p = this.players.get(id);
+        if (p) { p.bot = true; p.path = []; p.aim = C.BOT_AIM; p.qAt = p.recallAt = null; }
+        this.checkBack();
+      }
     }
     // 常設の部屋: 人間が誰もいなくなったら（再接続待ちもなし）、試合を打ち切って待機に戻す
     if (this.pub && this.phase !== 'waiting' && !this.clients.length && !this.dropped.size) { if (this.measure && this.startedAt) this.writeLog('disconnect'); this.players.clear(); this.setup(); this.lobbyLeft = null; this.unlock(); }
@@ -685,6 +727,7 @@ export class GameRoom extends Room {
     if (this.phase === 'ended') this.updateEnded(dt);
     if (this.phase === 'finale') this.updateFinale(dt);
     if (this.phase !== 'waiting') this.cm.flow(dt); // 実況のタイムライン（試合前後も進める）
+    if (this.phase !== 'waiting') this.updateAbandon(dt);
     if (this.phase === 'playing') {
       this.now += dt;
       this.timeLeft = this.practice ? C.MATCH_TIME : Math.max(0, C.MATCH_TIME - this.now); // 練習は時間無制限
@@ -831,7 +874,7 @@ export class GameRoom extends Room {
         p.hp = this.maxHp(p);
       });
     }
-    this.lock();
+    if (!this.pub) this.lock(); // 常設の部屋は結果画面でも観戦で入れる（入室の判定は onAuth）
   }
 
   // 試合ログ: 1試合1行。kind: boss=大将撃破、timeout=時間切れ（winner 2 は引き分け）
@@ -2044,11 +2087,13 @@ export class GameRoom extends Room {
       const me = this.players.get(this.owners.get(client.sessionId) ?? '');
       const cn = this.crackSent.get(client.sessionId) ?? 0, cracks = cn < this.crackLog.length ? this.crackLog.slice(cn) : null; // 壁の段階（小破・中破）は変わった分だけ
       this.crackSent.set(client.sessionId, this.crackLog.length);
-      const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : all; // 観戦者・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
+      const sv = me ? null : this.specView.get(client.sessionId) ?? 'all'; // 観戦者の視点
+      const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : (sv === 0 || sv === 1) && this.phase !== 'finale' ? vis[sv] : all; // 観戦者（組の視界以外）・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
       const myTeam = me ? me.team : 0;
       const pr = this.practice ? { mode: this.foeMode, lv: [me?.ult?.tier ?? -1, this.players.get('foe')?.ult?.tier ?? -1], foe: this.players.get('foe')?.char ?? null } : null; // 練習パネルの表示（相手は視界外でも）
       client.send('s', {
         ...(pr ? { practice: pr } : {}),
+        ...(me ? {} : { spec: { view: sv, focus: this.cm.focus, abandon: this.abandonLeft === null ? null : Math.ceil(this.abandonLeft) } }), // 観戦者: 視点・実況のフォーカス・打ち切りまでの秒数
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）

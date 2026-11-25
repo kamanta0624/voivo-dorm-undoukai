@@ -114,14 +114,15 @@ function showTitle() {
   $('.credits').onclick = () => fetchText('credits.md').then((t) => open(md(t)));
   $('.rules').onclick = () => location.assign('/rules.html'); // ルール説明のページ（public/rules.html。戻るボタンはページの中）。ADV（tutorial.ts）は将来使うので残す
 
-  // 部屋一覧: STATUS_POLL_SEC 秒ごとに自動更新。待機中かつ空きありの部屋だけ押せる。メンテ中は全部押せない
+  // 部屋一覧: STATUS_POLL_SEC 秒ごとに自動更新。待機中かつ空きありの部屋と、観戦席の空いている対戦中の部屋を押せる。メンテ中は全部押せない
   let busy = false;
   const render = (s: any) => {
     const n = $('.notice');
     n.hidden = !s.maintenance;
     n.textContent = s.notice;
     // 部屋の一覧の最後に「練習」（同じ形のボタン、色だけ別。fb1124）
-    $('.rooms').innerHTML = s.rooms.map((r: any) => `<button class="room" data-id="${esc(r.id)}" ${r.state !== 'waiting' || s.maintenance ? 'disabled' : ''}><span>部屋${r.no}</span><span>${STATE_LABEL[r.state]}${r.state === 'playing' ? '' : `（${r.humans}/${r.max}）`}</span></button>`).join('')
+    // 対戦中の部屋は「観戦」で入れる（観戦席が満員なら押せない）
+    $('.rooms').innerHTML = s.rooms.map((r: any) => `<button class="room" data-id="${esc(r.id)}" ${s.maintenance || r.state === 'full' || (r.state === 'playing' && r.spec >= r.specMax) ? 'disabled' : ''}><span>部屋${r.no}</span><span>${r.state === 'playing' ? `対戦中・観戦 ${r.spec}/${r.specMax}` : `${STATE_LABEL[r.state]}（${r.humans}/${r.max}）`}</span></button>`).join('')
       + '<button class="room practice"><span>練習</span><span>自分1 vs 相手1</span></button>';
     el.querySelectorAll<HTMLButtonElement>('.room[data-id]').forEach((b) => (b.onclick = () => join(() => client.joinById(b.dataset.id!, { name, bid }))));
     $('.room.practice').onclick = () => join(() => client.create('game', { practice: true, name, bid })); // 練習（handoff_practice1）: 押すたびに本人専用の部屋を作って入る
