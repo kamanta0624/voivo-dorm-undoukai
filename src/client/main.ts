@@ -17,7 +17,7 @@ import { GUMI, TEAM_GUMI } from '../shared/commentary';
 import { ModernFx } from './slot_modern_fx';
 import { powerText, assistText } from '../shared/slot_modern';
 
-type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number };
+type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
@@ -55,6 +55,15 @@ const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const MM_TOP = 86; // ミニマップの上端（論理座標）。右上の顔パネル（みどり組の側）の下
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
+const SIDE_BG = '#1a1a22'; // ゲーム画面の外（余白）の既定の色（仮置き）。対戦中は自キャラの色（chars.json の bg）
+// 余白: 対戦中は自キャラの立ち絵（既定は右、選択画面の切替で左）。入力の邪魔をしない
+const side = document.createElement('div');
+side.id = 'side';
+side.innerHTML = '<img alt="">';
+document.body.prepend(side);
+{ const st = document.createElement('style'); st.textContent = `body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}`; document.head.append(st); }
+let sideLeft = false; // 立ち絵を左の余白に出す（端末に保存）
+try { sideLeft = localStorage.getItem('sideLeft') === '1'; } catch {}
 const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
 const TAG_RES = 4; // 頭上の強さの札の絵の解像度の倍率
 const CRACK_TEX = 'cracks'; // 壁の割れ目（小破・中破）の絵のキー。コマ '1'（小破）・'2'（中破）。素材に差し替えるときはこのキーで読み込む（makeCrackTexture を外す）
@@ -175,7 +184,7 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
 #lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby:not(.browse) #backsel{display:block}
-#lobby .grace{display:none;position:absolute;left:50%;top:3%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
+#lobby .grace{display:none;position:absolute;left:50%;top:20%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
 
 @keyframes startpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
 @keyframes startglowA{0%,100%{opacity:1}50%{opacity:0}}
@@ -293,7 +302,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .cmsub{position:absolute;left:50%;bottom:calc(var(--z) * 6px);transform:translateX(-50%);max-width:56%;display:none;z-index:4;pointer-events:none;background:#000b;color:#fff;font:bold max(11px,calc(var(--z) * 8px))/1.35 sans-serif;padding:.25em .7em;border-radius:4px;text-align:center}
 #lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby #cmbtn.off{color:#fff8}
-html.touch #lobby #cmbtn{left:26%}html.touch #lobby #totitle{left:37%} /* 指で押せる高さ（44px）にすると下の情報窓にかかるので、右へずらす */
+#lobby #sidebtn{left:34%;top:calc(3% + max(50px,var(--z) * 24px + 4px));font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#lobby.practice #sidebtn{display:none}
+html.touch #lobby #cmbtn,html.touch #lobby #sidebtn{left:26%}html.touch #lobby #totitle{left:37%} /* 指で押せる高さ（44px）にすると下の情報窓にかかるので、右へずらす */
 #lobby #totitle{left:34%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
 `;
@@ -511,12 +522,16 @@ class GameScene extends Phaser.Scene {
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
     lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div id="roster"></div>`
-      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button>';
+      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button><button id="sidebtn" class="big"></button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
     const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
     cmBtn.onclick = () => { commentary.setOn(!commentary.on); cmShow(); };
     cmShow();
+    // 立ち絵（対戦中の余白）を出す側の切り替え。端末に保存
+    const sdBtn = document.getElementById('sidebtn')!, sdShow = () => { sdBtn.textContent = sideLeft ? '立ち絵 左' : '立ち絵 右'; };
+    sdBtn.onclick = () => { sideLeft = !sideLeft; try { localStorage.setItem('sideLeft', sideLeft ? '1' : '0'); } catch {} sdShow(); this.fxFit = FX_FIT_FRAMES; };
+    sdShow();
     // 選択バーは全員分を BAR_COPIES 回並べて左右をつなぐ（複製したカードも同じキャラ。data-k で扱う）
     lobby.querySelector('.cards')!.innerHTML = Array.from({ length: BAR_COPIES }, () => PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('')).join('');
     // 選択バーのスクロール: 指・マウスで左右にドラッグ、ホイール（縦・横どちらも横送り）。ドラッグした時はカードを押した扱いにしない
@@ -619,6 +634,7 @@ class GameScene extends Phaser.Scene {
         if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
         this.snap = s;
         this.snapAt = performance.now();
+        if ((s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me)?.char ?? this.sideChar : null) !== this.sideChar) this.sideFit(); // 余白の立ち絵・色（自キャラが変わった時だけ）
         if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
         if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
@@ -1077,6 +1093,25 @@ class GameScene extends Phaser.Scene {
     return `<span class="ic${dead ? ' dead' : ''}" style="background-image:url(${DOT(char)});--c:${css16(teamColor(team))}"></span>`;
   }
 
+  // 余白の表示: 対戦中は自キャラの色と立ち絵（既定は右の余白、ゲーム画面側に寄せて下揃え。はみ出す分は画面の端側で切る）。それ以外は既定の色だけ
+  sideChar: string | null = null;
+  sideFit(b?: DOMRect) {
+    const s = this.snap, mine = s?.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me) : null, k = mine && PICKABLE.includes(mine.char) ? mine.char : null;
+    if (k !== this.sideChar) {
+      this.sideChar = k;
+      document.body.style.background = (k && CHARS[k]?.bg) || SIDE_BG;
+      side.style.display = k ? 'block' : 'none';
+      if (k) side.querySelector('img')!.src = TACHIE(k, 'select');
+      b = undefined;
+    }
+    if (!k) return;
+    b ??= this.game.canvas.getBoundingClientRect();
+    const st = side.style, im = side.querySelector('img')!.style;
+    st.top = `${b.top}px`; st.height = `${b.height}px`;
+    if (sideLeft) { st.left = '0'; st.width = `${Math.max(0, b.left)}px`; im.left = ''; im.right = '0'; }
+    else { st.left = `${b.right}px`; st.width = `${Math.max(0, innerWidth - b.right)}px`; im.right = ''; im.left = '0'; }
+  }
+
   // 先読み: 戦闘画面で DOM に出す画像を、出撃の秒数の間に読み込んでデコードしておく（同じ画像は1回だけ）
   // ドット（HUD・キルログのアイコン、スロットの演出。全キャラで約0.3MB）は全員分。立ち絵（撃破のカットイン。1枚約0.5MB）は名簿のキャラだけ（Bot は戦闘画面に入った時点で決まるので、そこで読む。使うのは最初の撃破から）
   warmed: Set<string> = new Set();
@@ -1199,7 +1234,7 @@ class GameScene extends Phaser.Scene {
     const el = $('.buffs'), r0 = $('.r0');
     if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
     // 位置は左上の一覧（.r0）の中身が変わった時と、リサイズ等の後だけ測る（毎フレーム offsetTop を読むと DOM を書いた後なので強制レイアウトになる）
-    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.getBoundingClientRect().bottom - el.offsetParent!.getBoundingClientRect().top + 4}px`; } // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
+    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.getBoundingClientRect().bottom - fx.getBoundingClientRect().top + 4}px`; } // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
@@ -1422,9 +1457,11 @@ class GameScene extends Phaser.Scene {
   update(time: number, dtMs: number) {
     if (this.fxFit > 0) { // #fx をキャンバスに重ねる（リサイズ・拡大率の変更の後だけ測る。毎フレーム測ると強制レイアウトになる）
       this.fxFit--;
+      alignCanvas(); // 実画素の境目にそろえる（ドットを均一に）
       const r = fx.style, b = this.game.canvas.getBoundingClientRect();
       r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
       r.setProperty('--z', String(this.game.scale.zoom));
+      this.sideFit(b);
     }
     const s = this.snap;
     if (!s) return;
@@ -1892,7 +1929,14 @@ class GameScene extends Phaser.Scene {
 // 論理解像度を整数倍で表示（#wrap はノッチなどを除いた範囲）
 const wrap = document.getElementById('wrap')!;
 // スマホで等倍に収まらない時（Safari のアドレスバーなど）だけ、収まるように縮小する
-const zoom = () => { const z = Math.min(wrap.clientWidth / C.VIEW_W, wrap.clientHeight / C.VIEW_H); return TOUCH && z < 1 ? z : Math.max(1, Math.floor(z)); };
+// 倍率: 実画素で整数倍（ドットの1画素を実画素の均一な正方形に）。表示上の zoom はそれを DPR で割った値（非整数になる）。実画素で1倍も取れないタッチ端末だけ縮小
+const zoom = () => { const dpr = devicePixelRatio || 1, k = Math.min((wrap.clientWidth * dpr) / C.VIEW_W, (wrap.clientHeight * dpr) / C.VIEW_H); return (TOUCH && k < 1 ? k : Math.max(1, Math.floor(k))) / dpr; };
+// キャンバスの位置を実画素の境目にそろえる（Phaser の中央寄せは CSS 画素の整数なので、DPR が整数でないとドットの幅が不ぞろいになる）
+function alignCanvas() {
+  const c = game.canvas, dpr = devicePixelRatio || 1, w = wrap.getBoundingClientRect(), cw = C.VIEW_W * game.scale.zoom, ch = C.VIEW_H * game.scale.zoom;
+  c.style.marginLeft = `${Math.round((w.left + Math.max(0, w.width - cw) / 2) * dpr) / dpr - w.left}px`;
+  c.style.marginTop = `${Math.round((w.top + Math.max(0, w.height - ch) / 2) * dpr) / dpr - w.top}px`;
+}
 const game = new Phaser.Game({
   type: Phaser.WEBGL, width: C.VIEW_W, height: C.VIEW_H, backgroundColor: '#111', pixelArt: true, scene: GameScene, parent: wrap,
   scale: { mode: Phaser.Scale.NONE, zoom: zoom(), autoCenter: Phaser.Scale.CENTER_BOTH },
