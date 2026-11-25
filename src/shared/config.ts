@@ -231,7 +231,6 @@ export const CONFIG = {
     reach: { // リーチ演出: 当選時・外れ時の選択率（重み）と、リールが止まらない秒数（最大3秒）
       plain: { name: 'リーチのみ', win: 20, miss: 70, sec: 1.5 },
       chibi: { name: 'ちびキャラ', win: 30, miss: 20, sec: 3 },
-      cutin: { name: 'カットイン', win: 30, miss: 8, sec: 3 },
       fish: { name: '魚群', win: 14, miss: 2, sec: 3 },
       fishSp: { name: '特別な魚群', win: 6, miss: 0.2, sec: 3 }, // 画面全体の視界外を使う（special）。通常の魚群より信頼度が高い
     } as Record<string, { name: string; win: number; miss: number; sec: number }>,

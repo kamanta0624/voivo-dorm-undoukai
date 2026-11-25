@@ -9,7 +9,6 @@ const SE_EL: Partial<Record<keyof typeof SE, HTMLAudioElement>> = {};
 
 const M = C.SLOT_MODERN, W = C.VIEW_W, H = C.VIEW_H;
 const DOT = (k: string, f = 'idle') => `assets/gen/dot/${k}/${f}.png`;
-const TACHIE = (k: string) => `assets/gen/tachie/${k}/select.png`;
 export const HOLD_COLORS = ['#e8e8e8', '#3d8bff', '#3ccf5a', '#ff3b3b', 'conic-gradient(#f33,#fd3,#3f6,#3cf,#a3f,#f33)'];
 
 const CSS = `
@@ -34,9 +33,6 @@ const CSS = `
 .mfx-toast.bad{color:#ff6060}
 .mfx-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;-webkit-mask-size:100% 100%;mask-size:100% 100%}
 .mfx-fx img{position:absolute;image-rendering:pixelated}
-.mfx-cut{position:absolute;border:3px solid #ffd700;background:linear-gradient(135deg,#402060,#a02040);box-shadow:0 0 8px #000;overflow:hidden;animation:mfxin .25s ease-out}
-.mfx-cut img{position:absolute;left:50%;top:0;transform:translateX(-50%);height:260%;image-rendering:auto}
-.mfx-cut.win{border-color:#ff3030;background:linear-gradient(135deg,#a01010,#ffb000)}
 .mfx-bang{position:absolute;font:900 16px sans-serif;color:#fff;-webkit-text-stroke:.6px #000;animation:mfxpop .3s ease-out}
 .mfx-rainbow{position:absolute;inset:0;background:conic-gradient(from var(--a,0deg),#f336,#fd36,#3f66,#3cf6,#a3f6,#f336);animation:mfxspin 1.2s linear infinite}
 @keyframes mfxreach{0%{border-color:#ff3030;box-shadow:0 0 5px #ff3030}100%{border-color:#ffd700;box-shadow:none}}
@@ -146,8 +142,6 @@ export class ModernFx {
       const walk = sec * 0.6, t0 = performance.now();
       const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.left = `${-34 + (60 * p) / walk}px`; im.src = DOT(char, Math.floor(p * 6) % 2 ? 'walk2' : 'walk1'); requestAnimationFrame(tick); } else { im.src = DOT(char, win ? 'banzai' : 'idle'); el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
       requestAnimationFrame(tick);
-    } else if (act === 'cutin') { // 枠付きカットイン（Moiky 立ち絵）: 右下の隅
-      el(`<div class="mfx-cut${win ? ' win' : ''}" style="left:${W - 96}px;top:${H - 120}px;width:96px;height:120px"><img src="${TACHIE(char)}"></div>`);
     } else if (act === 'fish') { // 魚群: 陣営のキャラの群れが下の端を横切る
       const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[i % this.chars.length], 'walk1')}" style="top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px">`) as HTMLImageElement);
       const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.left = `${W + i * F.gap - F.speed * p}px`; im.src = DOT(this.chars[i % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };

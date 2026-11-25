@@ -324,7 +324,7 @@ const AIM_SHORT: Record<string, string> = { nearest: '近い', lowhp: 'HP', boss
 if (TOUCH) {
   document.documentElement.classList.add('touch');
   for (const t of ['gesturestart', 'dblclick', 'contextmenu']) document.addEventListener(t, (e) => e.preventDefault());
-  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない
+  document.addEventListener('touchmove', (e) => { if (!(e.target as Element).closest?.('#fx .prp')) e.preventDefault(); }, { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない。練習パネルの中だけは縦にスクロールできる
 }
 const rotate = document.createElement('div');
 rotate.id = 'rotate';
