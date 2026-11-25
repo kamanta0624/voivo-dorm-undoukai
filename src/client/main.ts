@@ -83,6 +83,7 @@ const PW_STILL: Record<string, string> = {};
 let sideLeft = false; // 立ち絵を左の余白に出す（端末に保存）
 // 立ち絵ごとの、絵の描かれている左右の範囲（画像の幅に対する割合）。読み込んだ時に1回だけ測る（画像は加工しない）
 const OPAQUE = new Map<string, [number, number]>();
+let VOICE_TABLE: Promise<any> | null = null; // 出撃セリフの一覧（public/voice/sortie.json。npm run voice:audio）。最初に使う時に1回だけ読む
 function measureOpaque(img: HTMLImageElement) {
   if (OPAQUE.has(img.src) || !img.naturalWidth) return;
   const w = img.naturalWidth, h = img.naturalHeight, c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -214,6 +215,7 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
 #lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 11px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby:not(.browse) #backsel{display:block}
+#lobby .vsub{display:none;position:absolute;left:50%;bottom:48%;transform:translateX(-50%);z-index:3;background:#000c;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:bold calc(var(--z) * 10px) sans-serif;color:#fff;white-space:nowrap;pointer-events:none} /* 出撃セリフの字幕 */
 #lobby .grace{display:none;position:absolute;left:50%;top:20%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
 
 @keyframes startpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
@@ -551,7 +553,7 @@ class GameScene extends Phaser.Scene {
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
     lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div id="roster"></div>`
-      + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button><button id="sidebtn" class="big"></button>';
+      + '<div class="vsub"></div><div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="cmbtn" class="big"></button><button id="totitle" class="big">タイトルへ</button><button id="sidebtn" class="big"></button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
     const cmBtn = document.getElementById('cmbtn')!, cmShow = () => { cmBtn.textContent = commentary.on ? '実況 ON' : '実況 OFF'; cmBtn.classList.toggle('off', !commentary.on); };
@@ -665,6 +667,7 @@ class GameScene extends Phaser.Scene {
         this.snapAt = performance.now();
         if ((s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me)?.char ?? this.sideChar : null) !== this.sideChar) this.sideFit(); // 余白の立ち絵・色（自キャラが変わった時だけ）
         if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
+        this.sortieVoice(s); // 出撃セリフ（本人の端末だけ）
         this.powerFx(s); // パワーアップ中の余白の演出
         if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
@@ -1170,6 +1173,25 @@ class GameScene extends Phaser.Scene {
     const dots = [...PICKABLE, ...Object.values(BOSS_CHAR), ...Object.keys(C.ASSIST.units)].flatMap((k) => ['idle', 'walk1', 'walk2', 'banzai'].map((f) => DOT(k, f)));
     const tachie = s.roster.filter((r: any) => PICKABLE.includes(r.char)).flatMap((r: any) => ['ko', 'select'].map((f) => TACHIE(r.char, f)));
     for (const u of [...dots, ...tachie]) { if (this.warmed.has(u)) continue; this.warmed.add(u); const im = new Image(); im.src = u; im.decode().catch(() => {}); }
+  }
+
+  // 出撃セリフ（hud2 2章）: 出撃の秒数（常設の部屋）が始まったら、自キャラのセリフを1本ランダムに鳴らして字幕を出す。本人の端末だけ（観戦者は自キャラがいないので鳴らない）。言い終わるまで鳴らす（3秒を超えるセリフは戦闘画面に移っても続く）
+  sortieSaid = false;
+  sortieVoice(s: any) {
+    if (s.sortie == null) { if (s.phase === 'waiting') this.sortieSaid = false; return; }
+    const char = s.me && s.roster.find((r: any) => r.id === s.me)?.char;
+    if (this.sortieSaid || !char) return;
+    this.sortieSaid = true;
+    (VOICE_TABLE ??= fetch('voice/sortie.json').then((r) => r.json()).catch(() => ({}))).then((t: Record<string, { src: string; text: string }[]>) => {
+      const list = t[char];
+      if (!list?.length) return;
+      const v = list[Math.floor(Math.random() * list.length)], a = new Audio(v.src), sub = document.querySelector<HTMLElement>('#lobby .vsub')!;
+      a.volume = C.VOICE_VOLUME;
+      sub.textContent = v.text; sub.style.display = 'block';
+      const hide = () => (sub.style.display = 'none');
+      a.onended = hide; a.onerror = hide; setTimeout(hide, 6000); // 鳴らせなくても字幕は消す
+      a.play().catch(() => {});
+    });
   }
 
   // キルログ: 倒した側 → 倒された側。1行ずつ KILL_LOG_SEC 秒で消え、KILL_LOG_MAX 件を超えたら古い順に消える

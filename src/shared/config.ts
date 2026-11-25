@@ -113,6 +113,7 @@ export const CONFIG = {
   INTRO_GAP: 40, // 開始演出で study に横並びにする間隔(px)
   INTRO_ZOOM: 2.5, // 開始演出のカメラの拡大率
   INTRO_CAM_MS: 600 / INTRO_SPEED, // 開始演出のカメラの寄り・戻りの時間
+  VOICE_VOLUME: 0.8, // キャラボイス（出撃セリフ）の音量（0〜1。仮置き）
   SE_VOLUME: 0.5, // スロットの先バレ音・当選音の音量（0〜1。仮置き）
   SLOT_CUTIN_MS: 2000, // スロットの当たり・連チャンのカットインの長さ
   SLOT_REEL_MS: 70, // 回転中のリールの絵柄が切り替わる間隔
