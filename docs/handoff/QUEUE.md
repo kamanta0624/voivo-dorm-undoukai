@@ -13,7 +13,7 @@
 1. handoff_e2efix1.md　済（テストと e2e フックのみ。反映なし・タグなし）
 2. handoff_tune7.md　済 live-20261125-8（2・3章は調査報告のみ）
 3. handoff_spectate1.md　済 live-20261125-9
-4. handoff_hud2.md（2章以外は済 live-20261125-10。2章は 2026-11-26 に docs/voice/sortie.csv を置いたので着手可）
+4. handoff_hud2.md　済 live-20261125-10（2章は live-20261126-5。出撃セリフの調声は後回し）
 5. handoff_screen1.md　済 live-20261125-11
 6. handoff_perf5.md　済 live-20261125-12（スロット演出のマスクは今のまま。案A は WebKit で効かず）
 7. handoff_pwfx1.md　済 live-20261126-2（PC の画面内の演出は案のみ）
