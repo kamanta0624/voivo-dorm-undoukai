@@ -16,4 +16,4 @@
 4. handoff_hud2.md（2章以外は済 live-20261125-10。2章は docs/voice/sortie.csv が置かれるまで待つ）
 5. handoff_screen1.md　済 live-20261125-11
 6. handoff_perf5.md　済 live-20261125-12（スロット演出のマスクは今のまま。案A は WebKit で効かず）
-7. handoff_pwfx1.md（Chat待ち：screen1 と立ち絵の左右が食い違っているため Chat が書き直す。着手しない）
+7. handoff_pwfx1.md（2026-11-26 Chat が書き直し済み）
