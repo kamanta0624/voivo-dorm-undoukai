@@ -65,6 +65,7 @@ export type Player = {
   assist: boolean; tier: number; ult: Ult | null; // assist: アシストユニット（復活しない）、tier: アシストの強さ（POWER_* の添字）
   goal: string; stuckX: number; stuckY: number; stuckSince: number; penalty: Map<string, number>; // Bot: 今の目的地、詰まり判定、避ける目的地（期限）
   qAt: number | null; recallAt: number | null; // Q を押した時刻と、リコールの溜めの開始時刻（被弾で溜め直し）
+  qSeq: number; // Q を押した時点でクライアントが送り終えていた移動入力の番号（これ以前の入力では溜めを中断しない）
   boostUntil: number; // 白上虎太郎の移動速度上昇
   inDx: number; inDy: number; // 人間: 最後に届いた移動入力
   skillA?: number; // 人間: 技の矢印で決めた向き（技の発動の間だけ。skillAim がこれを返す）
@@ -161,6 +162,7 @@ export class GameRoom extends Room {
   bossGuard = false; // e2e: Bot の攻撃では大将が減らない（E2E_HOOKS のときだけ変わる）
   courierGuard = false; // e2e: Bot の攻撃ではコバコが倒れない（E2E_HOOKS のときだけ変わる）
   slotChance: number | null = null; // チャンスアップの確率（e2e で決める。null＝徳で決まる）
+  sortieLeft: number | null = null; // 出撃: 開始が決まってから戦闘画面へ移るまでの残り秒数（常設の部屋だけ。SORTIE_SEC）。null は出撃前
   lobbyLeft: number | null = null; // 待機画面: 選択猶予の残り秒数（最初の出撃で始まり、止まらない）。null は未開始
   modern = C.SLOT_MODE === 'modern'; // この試合のスロットがモダンか（startMatch で CONFIG.SLOT_MODE から決める）
   slotMiss = false; // e2e: スロットの自然な回転を外れに固定（技の検証中にウルト変身で技が出なくならないように）
@@ -193,9 +195,9 @@ export class GameRoom extends Room {
       if (p.inputs.length > C.NET_QUEUE_MAX) { p.inputs.shift(); if (this.measure && this.phase === 'playing') this.measure.client(client.sessionId).dropped++; }
     },
     // Q を押した: 押している間リコールを溜める
-    qdown: (client: Client) => {
+    qdown: (client: Client, m?: { seq?: number }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'playing' && p.alive && p.qAt === null) p.qAt = p.recallAt = this.now;
+      if (p && this.phase === 'playing' && p.alive && p.qAt === null) { p.qAt = p.recallAt = this.now; p.qSeq = Number.isFinite(m?.seq) ? m!.seq! : -Infinity; } // seq: 押す前に送った移動入力（まだ処理待ちの分で中断しない）
     },
     // Q を離した: 溜めを捨てる（短押しは何もしない）
     qup: (client: Client) => {
@@ -233,12 +235,12 @@ export class GameRoom extends Room {
     // 待機画面で今選んでいる（表示している）キャラ。猶予の時間切れで未出撃なら、このキャラで出撃する
     pick: (client: Client, m: { char: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting' && PICKABLE.includes(m.char)) p.char = m.char;
+      if (p && this.phase === 'waiting' && this.sortieLeft === null && PICKABLE.includes(m.char)) p.char = m.char; // 出撃の秒数の間は変えられない
     },
     // 出撃: そのキャラで出撃済みにする。開始の判定（全員出撃で開始、最初の出撃で選択猶予のカウント開始）
     go: (client: Client, m: { char: string }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p || this.phase !== 'waiting' || !PICKABLE.includes(m.char)) return;
+      if (!p || this.phase !== 'waiting' || this.sortieLeft !== null || !PICKABLE.includes(m.char)) return;
       Object.assign(p, { char: m.char, ok: true });
       if (this.practice) { this.startPractice(PICKABLE[Math.floor(Math.random() * PICKABLE.length)]); return; } // 練習: 相手は選べるキャラからランダムで即開始
       if (this.lobbyLeft === null) this.lobbyLeft = C.LOBBY_GRACE;
@@ -247,12 +249,12 @@ export class GameRoom extends Room {
     // 出撃を取り消す（キャラはそのまま。カウントは止まらない）
     unpick: (client: Client) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting') p.ok = false;
+      if (p && this.phase === 'waiting' && this.sortieLeft === null) p.ok = false;
     },
     // 待機画面で陣営を移る（満員なら移れない）
     team: (client: Client, m: { team: number }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p || this.phase !== 'waiting' || (m.team !== 0 && m.team !== 1) || p.team === m.team) return;
+      if (!p || this.phase !== 'waiting' || this.sortieLeft !== null || (m.team !== 0 && m.team !== 1) || p.team === m.team) return;
       if ([...this.players.values()].filter((q) => q.team === m.team).length >= C.TEAM_SIZE) return;
       this.players.delete(p.id);
       this.addPlayer(p.id, m.team, false).char = p.char;
@@ -359,13 +361,13 @@ export class GameRoom extends Room {
   };
 
   // 人間・Bot共通の操作経路
-  setInput(id: string, dx: number, dy: number) {
+  setInput(id: string, dx: number, dy: number, keepRecall = false) {
     const p = this.players.get(id);
     if (!p) return;
     const len = Math.hypot(dx, dy);
     p.dx = len > 0 ? dx / len : 0;
     p.dy = len > 0 ? dy / len : 0;
-    if (len > 0) { p.face = Math.atan2(p.dy, p.dx); this.cancelRecall(p); } // 移動でリコール中断
+    if (len > 0) { p.face = Math.atan2(p.dy, p.dx); if (!keepRecall) this.cancelRecall(p); } // 移動でリコール中断（Q を押す前に送った入力は除く）
   }
 
   // リコールの中断: 溜めを0に戻す（Q を押し直すまで溜めない）
@@ -394,7 +396,7 @@ export class GameRoom extends Room {
 
   // 試合の初期状態（部屋を作ったときと、リザルトから待機画面に戻ったとき）
   setup() {
-    Object.assign(this, { now: 0, phase: 'waiting', finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], wallDmg: new Map(), crackLog: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
+    Object.assign(this, { now: 0, phase: 'waiting', sortieLeft: null, finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], wallDmg: new Map(), crackLog: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
     this.crackSent.clear();
@@ -414,12 +416,25 @@ export class GameRoom extends Room {
   // 待機画面の開始の判定: 接続中の人間（再接続待ちは除く）が全員出撃済みなら開始。選択猶予が切れたら、未出撃の人は今選んでいるキャラで開始
   // 接続中の人間がいないまま猶予が切れたら開始せず、カウントを止める（誰も操作できない試合を始めない）
   updateLobby(dt: number) {
+    const humans = [...this.players.values()].filter((p) => !p.bot && !this.dropped.has(p.id));
+    if (this.sortieLeft !== null) { // 出撃の秒数が過ぎたら戦闘画面へ（その間に人間がいなくなったら始めない）
+      this.sortieLeft -= dt;
+      if (this.sortieLeft > 0) return;
+      this.sortieLeft = null;
+      if (humans.length) this.startMatch();
+      return;
+    }
     if (this.lobbyLeft === null) return;
     this.lobbyLeft = Math.max(0, this.lobbyLeft - dt);
-    const humans = [...this.players.values()].filter((p) => !p.bot && !this.dropped.has(p.id));
-    if (humans.length && humans.every((p) => p.ok)) return this.startMatch();
+    if (humans.length && humans.every((p) => p.ok)) return this.decideStart();
     if (this.lobbyLeft > 0) return;
-    if (humans.length) this.startMatch(); else this.lobbyLeft = null;
+    if (humans.length) this.decideStart(); else this.lobbyLeft = null;
+  }
+
+  // 開始が決まった: 常設の部屋は SORTIE_SEC 秒、選択画面のまま置いてから戦闘画面へ（e2e の部屋はすぐ）
+  decideStart() {
+    if (!this.pub) return this.startMatch();
+    this.lobbyLeft = null; this.sortieLeft = C.SORTIE_SEC;
   }
 
   // 人間全員が「戻る」を押したら（Botは押した扱い）待機画面へ。Botは消し、人間は陣営と選んだキャラのまま
@@ -488,7 +503,7 @@ export class GameRoom extends Room {
       aim: bot ? C.BOT_AIM : C.AIM_MODES[0], tgt: null, inputs: [], ack: 0,
       skillReadyAt: 0, st: {}, sk: {},
       assist: false, tier: 1, ult: null,
-      goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null,
+      goal: '', stuckX: 0, stuckY: 0, stuckSince: 0, penalty: new Map(), qAt: null, recallAt: null, qSeq: -Infinity,
       boostUntil: 0, inDx: 0, inDy: 0, slowUntil: 0, weakUntil: 0, eating: false, ok: false, koAt: 0,
       hitAt: -Infinity, lowFight: false, lowUntil: -Infinity, recallBreaks: 0, recallBanUntil: -Infinity,
     };
@@ -952,7 +967,7 @@ export class GameRoom extends Room {
         }
         for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
           const m = p.inputs.shift()!;
-          this.setInput(p.id, m.dx, m.dy);
+          this.setInput(p.id, m.dx, m.dy, m.seq <= p.qSeq);
           if (Number.isFinite(m.rt)) p.viewT = m.rt; // この入力を送ったときの画面の時刻
           if (this.now >= p.stunUntil && !locked) Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), moveWalls(p.char, obs)));
           p.ack = m.seq;
@@ -992,7 +1007,7 @@ export class GameRoom extends Room {
       p.tgt = this.pickTarget(p);
       const lt = this.lagT(p), rt = lt === null ? null : this.pickTarget(p, undefined, lt);
       if (rt && this.meleeAt(p, rt)) p.tgt = rt;
-      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id)) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
+      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id) && (p.bot || p.recallAt === null)) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
     }
   }
 
@@ -1366,7 +1381,8 @@ export class GameRoom extends Room {
     if (v.ult && !v.ult.pending && !raw) dmg *= C.ULT_FORMS[v.ult.form].def;
     v.hp -= Math.round(dmg);
     v.hitAt = this.now;
-    this.cancelRecall(v); // 被弾でリコール中断
+    if (!v.bot && v.qAt !== null) v.recallAt = this.now; // 被弾: 押し続けている人間は溜め直し（0から）
+    else this.cancelRecall(v); // Bot は中断
     if (attacker) v.lastHitBy.set(attacker, this.now);
     this.cm.damage(v, attacker ? this.players.get(attacker) ?? null : null, dmg, how);
     if (v.hp > 0) return;
@@ -1374,7 +1390,7 @@ export class GameRoom extends Room {
     v.alive = false;
     v.hp = 0;
     v.koAt = this.now;
-    v.recallAt = null; v.recallBreaks = 0;
+    v.qAt = v.recallAt = null; v.recallBreaks = 0;
     this.cancelStatuses(v); // KOで消える状態（タメ中に倒されたら突撃は不発。CTは消費済み）
     const killer = attacker ? this.players.get(attacker) : undefined;
     if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char, how }); // KOカットイン用（アシストは立ち絵がないので出さない）
@@ -2094,7 +2110,7 @@ export class GameRoom extends Room {
       client.send('s', {
         ...(pr ? { practice: pr } : {}),
         ...(me ? {} : { spec: { view: sv, focus: this.cm.focus, abandon: this.abandonLeft === null ? null : Math.ceil(this.abandonLeft) } }), // 観戦者: 視点・実況のフォーカス・打ち切りまでの秒数
-        netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
+        netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, sortie: this.sortieLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),
         wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
         players: v.players.map((p) => ({

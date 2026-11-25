@@ -9,8 +9,8 @@ import { OUT, launch, Tab, log, check, failures, sleep } from './lib';
 import CHARS from '../src/shared/chars.json';
 
 
-const hudCoord = (h: string) => h.match(/自キャラ座標: (\d+), (\d+)/)!.slice(1).map(Number);
-const hudTime = (h: string) => Number(h.match(/残り (\d+)秒/)![1]);
+const hudCoord = async (T: Tab) => { const m = await T.me(); return [Math.round(m.x), Math.round(m.y)]; }; // 左下のデバッグ表示は消したので、座標はスナップショットから（hud2）
+const hudTime = async (T: Tab) => { const [m, s] = (await T.page.textContent('#fx .timer'))!.split(':').map(Number); return m * 60 + s; }; // 残り秒数は上のタイマー表示から
 const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
 // 区間ごとの所要時間
 const T0 = Date.now();
@@ -47,17 +47,17 @@ async function match1() {
   await walkCheck(A);
 
   // 基準2 自キャラが動く・タイマー表示が減る（リコールと撤退中の視点の確認の間に進んだ分と比べる）
-  const h0 = await A.hud();
+  const h0 = await hudCoord(A);
   await A.hold('w', 1000);
   await sleep(150);
-  const h1 = await A.hud();
-  const [x0, y0] = hudCoord(h0), [x1, y1] = hudCoord(h1);
+  const h1 = await hudCoord(A);
+  const [x0, y0] = h0, [x1, y1] = h1;
   check('基準2 Wを1秒押すと自キャラ座標が変わる', y1 < y0 - 100, { before: [x0, y0], after: [x1, y1] });
   await A.shot('2a_moved');
-  const tm0 = hudTime(await A.hud()), w0 = Date.now();
+  const tm0 = await hudTime(A), w0 = Date.now();
   await recallCheck(A);
   await freeCamCheck(A);
-  const tm1 = hudTime(await A.hud()), real = (Date.now() - w0) / 1000;
+  const tm1 = await hudTime(A), real = (Date.now() - w0) / 1000;
   check('基準2 タイマー表示が実時間どおり減る', Math.abs(tm0 - tm1 - real) <= 1.5, { before: tm0, after: tm1, real: real.toFixed(1) });
   mark('歩き・移動・リコール・撤退中の視点');
 

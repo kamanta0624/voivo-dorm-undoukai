@@ -52,6 +52,7 @@ const BUFF: Record<string, [string, boolean]> = {
 const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
+const MM_TOP = 86; // ミニマップの上端（論理座標）。右上の顔パネル（みどり組の側）の下
 const HOME_TINT = [0xd9a878, 0x9fca86], HOME_TINT_ALPHA = 0.3; // 大将の候補部屋の床に重ねる組の色（陣営0・1、前の単色の床と同じ色）と濃さ（仮）
 const SLASH_R = 64; // 斬撃の絵の半径(px)。射程に合わせて拡大縮小する
 const FX_FIT_FRAMES = 30; // リサイズ等の後、#fx の位置を測り直し続けるフレーム数（キャンバスの配置が遅れて変わる場合に備える）
@@ -120,7 +121,7 @@ css.textContent = `
 #fx .bar i{position:absolute;top:0;bottom:0}
 #fx .b0 i{left:0;background:#ff8c28}
 #fx .b1 i{right:0;background:#3cc850}
-#fx #info{position:absolute;left:.6%;bottom:1%;color:#fff;background:#0009;font:calc(var(--z) * 6.5px)/1.35 sans-serif;padding:.3em .5em;white-space:pre}
+#fx #info{position:absolute;left:.6%;top:40%;color:#fff;background:#0009;font:calc(var(--z) * 6.5px)/1.35 sans-serif;padding:.3em .5em;white-space:pre}
 #fx .notes{position:absolute;top:30%;left:50%;transform:translateX(-50%);text-align:center}
 #fx .notes div{background:#000b;color:#ffe066;font:bold calc(var(--z) * 8px) sans-serif;padding:.2em .8em;margin-bottom:.3em;border-radius:3px;white-space:nowrap}
 #fx .pop{position:absolute;transform:translate(-50%,-100%);font:bold calc(var(--z) * 8px) sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;animation:popup var(--d) ease-out forwards}
@@ -186,16 +187,27 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 @media (orientation:portrait){html.touch #rotate{display:flex}}
 #fx .tb{display:block;position:absolute;pointer-events:auto;touch-action:none;cursor:pointer;width:calc(var(--z) * 36px);height:calc(var(--z) * 36px);border-radius:50%;border:2px solid #fff;background:#335c;color:#fff;font:bold calc(var(--z) * 7px)/1.1 sans-serif;padding:0}
 #fx .tb:active{background:#88a}
-#fx .rc{right:calc(var(--z) * 8px);bottom:calc(var(--z) * 132px)}
-#fx .aimb{right:calc(var(--z) * 50px);bottom:calc(var(--z) * 132px)}
-#fx .spec{position:absolute;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 132px);display:none;flex-direction:column;align-items:stretch;gap:calc(var(--z) * 3px);pointer-events:auto}
+#fx .rc{right:calc(var(--z) * 8px);bottom:calc(var(--z) * 88px)}
+#fx .aimb{right:calc(var(--z) * 62px);bottom:calc(var(--z) * 88px)}
+#fx .spec{position:absolute;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 8px);display:none;flex-direction:column;align-items:stretch;gap:calc(var(--z) * 3px);pointer-events:auto}
 #fx .spec button{font:bold max(12px,calc(var(--z) * 7px)) sans-serif;padding:.35em .8em;border-radius:4px;border:2px solid #fff;background:#1a2a5acc;color:#fff;cursor:pointer}
 #fx .spec button.on{background:#7a5a00;border-color:#ffe066}
 #fx .aband{position:absolute;left:0;right:0;top:22%;text-align:center;display:none;font:bold max(14px,calc(var(--z) * 9px)) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 html.touch #fx .skill span:last-child{display:none}
-#fx .skill{width:calc(var(--z) * 42px);height:calc(var(--z) * 42px);font-size:max(9px,calc(var(--z) * 7px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 84px);transform:none;pointer-events:auto;touch-action:none;cursor:pointer}
-#fx .tb{font-size:max(12px,calc(var(--z) * 9px));background:#1a2a5a;text-shadow:0 1px 2px #000}
-#fx .mm{position:absolute;right:calc(var(--z) * 4px);bottom:calc(var(--z) * 4px);width:calc(var(--z) * ${MAP.width * MINI}px);height:calc(var(--z) * ${MAP.height * MINI}px);pointer-events:auto;touch-action:none}
+#fx .skill{width:calc(var(--z) * 76px);height:calc(var(--z) * 76px);font-size:max(11px,calc(var(--z) * 10px));line-height:1.15;text-shadow:0 1px 2px #000;left:auto;right:calc(var(--z) * 8px);bottom:calc(var(--z) * 6px);transform:none;pointer-events:auto;touch-action:none;cursor:pointer}
+#fx .tb{width:calc(var(--z) * 48px);height:calc(var(--z) * 48px);font-size:max(12px,calc(var(--z) * 10px));background:#1a2a5a;text-shadow:0 1px 2px #000}
+#fx .tk,#fx .roster{zoom:${C.HUD_SCALE}}
+#fx .me{position:absolute;left:1.2%;bottom:1.6%;width:calc(var(--z) * 84px);box-sizing:border-box;padding:calc(var(--z) * 3px) calc(var(--z) * 5px);background:#000a;border-radius:calc(var(--z) * 3px);color:#fff;display:none;pointer-events:none}
+#fx .me.wanted{outline:calc(var(--z) * 1.5px) solid #ff3030}
+#fx .me .wt{display:none;position:absolute;left:0;right:0;bottom:100%;margin-bottom:calc(var(--z) * 2px);text-align:center;font:900 calc(var(--z) * 9px) sans-serif;color:#ff3030;letter-spacing:.1em;text-shadow:0 0 3px #000}
+#fx .me.wanted .wt{display:block}
+#fx .me .hp{font:900 calc(var(--z) * 20px)/1 sans-serif;text-shadow:0 1px 2px #000}
+#fx .me .hp small{font-size:.4em;color:#ccc;margin-left:.2em}
+#fx .me .bd{position:relative;margin-top:calc(var(--z) * 3px);height:calc(var(--z) * 6px);background:#2a1a3a;outline:1px solid #b070ff}
+#fx .me .bd i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#7a3cff,#c060ff)}
+#fx .me .bd span{position:absolute;left:calc(var(--z) * 2px);top:50%;transform:translateY(-50%);font:bold calc(var(--z) * 5px) sans-serif;text-shadow:0 0 2px #000}
+#fx .me .nm{margin-top:calc(var(--z) * 3px);font:bold calc(var(--z) * 7px) sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fx .mm{position:absolute;right:calc(var(--z) * 4px);top:calc(var(--z) * ${MM_TOP}px);width:calc(var(--z) * ${MAP.width * MINI}px);height:calc(var(--z) * ${MAP.height * MINI}px);pointer-events:auto;touch-action:none}
 #fx .killer{position:absolute;left:${50 + C.KO_CUTIN_GAP / 2}%;transform:translateX(-50%);bottom:22%;height:62%;display:none}
 #fx .killer img{height:100%}
 #fx .kohow,#fx .cut .how{position:absolute;right:0;top:4%;white-space:nowrap;color:#fff;font:900 calc(var(--z) * 14px) sans-serif;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 4px #000,0 0 4px #000}
@@ -279,9 +291,10 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 @keyframes logoin{0%{transform:translateX(30%) skewX(-8deg);opacity:0}100%{transform:skewX(-8deg);opacity:1}}
 @keyframes pop{0%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:1}}
 #fx .cmsub{position:absolute;left:50%;bottom:calc(var(--z) * 6px);transform:translateX(-50%);max-width:56%;display:none;z-index:4;pointer-events:none;background:#000b;color:#fff;font:bold max(11px,calc(var(--z) * 8px))/1.35 sans-serif;padding:.25em .7em;border-radius:4px;text-align:center}
-#lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 7px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+#lobby #cmbtn{left:22%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby #cmbtn.off{color:#fff8}
-#lobby #totitle{left:34%;top:3%;font-size:calc(var(--z) * 7px);padding:calc(var(--z) * 2px) calc(var(--z) * 6px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
+html.touch #lobby #cmbtn{left:26%}html.touch #lobby #totitle{left:37%} /* 指で押せる高さ（44px）にすると下の情報窓にかかるので、右へずらす */
+#lobby #totitle{left:34%;top:3%;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
 `;
 document.head.appendChild(css);
@@ -301,7 +314,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b><small></small></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
@@ -384,7 +397,7 @@ class GameScene extends Phaser.Scene {
   slotHtml = ['', ''];
   mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxSnap: any = null; mfxMyTeam = -1; mfxKeyNow = ''; mfxTm: any[] = [null, null]; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
-  ctl = new Controls((t, m) => this.room?.send(t, m)); // キーボード・タッチの入力 → サーバーへ送るコマンド
+  ctl = new Controls((t, m) => this.room?.send(t, t === 'qdown' ? { seq: this.pred.seq } : m)); // キーボード・タッチの入力 → サーバーへ送るコマンド。帰還（qdown）には送り終えた移動入力の番号を付ける
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
   stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置、画面のpx）
   hiddenAt = 0; // バックグラウンドに入った時刻(ms)
@@ -470,7 +483,7 @@ class GameScene extends Phaser.Scene {
 
     // HUD（文字以外: ミニマップ・矢印）
     this.ui = this.add.graphics().setScrollFactor(0).setDepth(101);
-    this.miniImg = this.add.image(C.VIEW_W - 4, C.VIEW_H - 4, 'mini').setOrigin(1).setScrollFactor(0).setDepth(100).setAlpha(0.85);
+    this.miniImg = this.add.image(C.VIEW_W - 4, MM_TOP, 'mini').setOrigin(1, 0).setScrollFactor(0).setDepth(100).setAlpha(0.85);
 
     this.cameras.main.setBounds(0, 0, C.MAP_W, C.MAP_H).setRoundPixels(true).centerOn(C.MAP_W / 2, C.MAP_H / 2);
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,Q,R,TAB') as any;
@@ -606,6 +619,7 @@ class GameScene extends Phaser.Scene {
         if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
         this.snap = s;
         this.snapAt = performance.now();
+        if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
         if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
         this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
         if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
@@ -1063,10 +1077,19 @@ class GameScene extends Phaser.Scene {
     return `<span class="ic${dead ? ' dead' : ''}" style="background-image:url(${DOT(char)});--c:${css16(teamColor(team))}"></span>`;
   }
 
+  // 先読み: 戦闘画面で DOM に出す画像を、出撃の秒数の間に読み込んでデコードしておく（同じ画像は1回だけ）
+  // ドット（HUD・キルログのアイコン、スロットの演出。全キャラで約0.3MB）は全員分。立ち絵（撃破のカットイン。1枚約0.5MB）は名簿のキャラだけ（Bot は戦闘画面に入った時点で決まるので、そこで読む。使うのは最初の撃破から）
+  warmed: Set<string> = new Set();
+  warmup(s: any) {
+    const dots = [...PICKABLE, ...Object.values(BOSS_CHAR), ...Object.keys(C.ASSIST.units)].flatMap((k) => ['idle', 'walk1', 'walk2', 'banzai'].map((f) => DOT(k, f)));
+    const tachie = s.roster.filter((r: any) => PICKABLE.includes(r.char)).flatMap((r: any) => ['ko', 'select'].map((f) => TACHIE(r.char, f)));
+    for (const u of [...dots, ...tachie]) { if (this.warmed.has(u)) continue; this.warmed.add(u); const im = new Image(); im.src = u; im.decode().catch(() => {}); }
+  }
+
   // キルログ: 倒した側 → 倒された側。1行ずつ KILL_LOG_SEC 秒で消え、KILL_LOG_MAX 件を超えたら古い順に消える
   killLog(kc: string, kt: number, vc: string, vt: number) {
     const el = document.createElement('div');
-    el.innerHTML = `${this.icon(kc, kt)}<span style="color:${css16(TEAM_COLOR[kt])}">▶</span>${this.icon(vc, vt)}`;
+    el.innerHTML = `${this.icon(kc, kt)}<span>${charName(kc)}</span><span style="color:${css16(TEAM_COLOR[kt])}">▶</span>${this.icon(vc, vt)}<span>${charName(vc)}</span>`; // アイコンの横にキャラ名
     const box = $('.kills');
     box.appendChild(el);
     setTimeout(() => el.remove(), C.KILL_LOG_SEC * 1000);
@@ -1176,7 +1199,7 @@ class GameScene extends Phaser.Scene {
     const el = $('.buffs'), r0 = $('.r0');
     if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
     // 位置は左上の一覧（.r0）の中身が変わった時と、リサイズ等の後だけ測る（毎フレーム offsetTop を読むと DOM を書いた後なので強制レイアウトになる）
-    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.offsetTop + r0.offsetHeight + 4}px`; }
+    if (this.rosterHtml[0] !== this.buffTopOf || this.fxFit > 0) { this.buffTopOf = this.rosterHtml[0]; el.style.top = `${r0.getBoundingClientRect().bottom - el.offsetParent!.getBoundingClientRect().top + 4}px`; } // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
   }
 
   // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
@@ -1803,7 +1826,7 @@ class GameScene extends Phaser.Scene {
     { const t = `照準<br>${AIM_SHORT[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}`; if ($('.aimb').innerHTML !== t) $('.aimb').innerHTML = t; }
     // ミニマップ
     const ui = this.ui.clear();
-    const mx = C.VIEW_W - 4 - MAP.width * MINI, my = C.VIEW_H - 4 - MAP.height * MINI, ms = MINI / T;
+    const mx = C.VIEW_W - 4 - MAP.width * MINI, my = MM_TOP, ms = MINI / T;
     for (const p of s.players) if (p.alive && (p.team === myTeam || !views(p).some((v) => v.bare))) ui.fillStyle(p.id === s.me ? 0xffffff : TEAM_COLOR[p.team]).fillRect(mx + (p.id === s.me ? this.me.x : p.x) * ms - 1, my + (p.id === s.me ? this.me.y : p.y) * ms - 1, 3, 3);
     // 大将: 味方は常時、敵は見えている間は塗り、見えていなければ最後に見た位置を枠だけ
     const foeBoss = s.bosses.find((x: any) => x.team !== myTeam);
@@ -1851,16 +1874,18 @@ class GameScene extends Phaser.Scene {
       setCss(killer, 'display', by ? 'block' : 'none'); setCss(kohow, 'display', by ? 'block' : 'none');
     } else { setCss(down, 'display', 'none'); setCss(killer, 'display', 'none'); setCss(kohow, 'display', 'none'); }
 
-    const result = s.winner === 2 ? '引き分け' : s.winner >= 0 ? `${TEAM_NAME[s.winner]}の勝ち` : '';
-    setText($('#info'), [
-      `あなた: ${mine ? TEAM_NAME[myTeam] : '観戦中'}  状態: ${s.phase}  残り ${Math.ceil(s.timeLeft)}秒 ${result}`,
-      `自キャラ座標: ${mine ? `${Math.round(mine.x)}, ${Math.round(mine.y)}` : '-'}`,
-      ...s.teams.map((t: any, i: number) => `${TEAM_NAME[i]}: 徳${t.toku.toFixed(1)} 大将耐久${Math.round(t.bossHpRatio * 100)}%`),
-      `悪行 ${(mine?.bad ?? 0).toFixed(2)}${mine?.ult ? `  パワーアップ${powerText(C.SLOT_MODERN, mine.ult.tier + 1)}: ${C.ULT_FORMS[mine.ult.form].name}${mine.ult.left === null ? ' 復活後に開始' : ` 残り${Math.ceil(mine.ult.left)}秒`}` : ''}`,
-      ...(this.perf ? [`視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`] : []),
-      `照準: ${C.AIM_LABEL[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}${TOUCH ? '' : '（Tabで切替）'}  技: ${sk ? `${sk.name}${TOUCH ? '' : '（R）'}` : 'なし'}`,
-      ...(TOUCH ? [] : ['WASD移動 / 通常攻撃は自動 / Q長押しで帰還 / R技 / Tab照準 / ミニマップ右クリック長押しで視点']), // タッチ端末にはPCのキー操作を出さない
-    ].join('\n'));
+    // 自分の情報パネル（左下）: 残りHP・悪行のバー・プレイヤー名。指名手配中は枠と WANTED
+    const meP = $('.me'), meR = mine && s.roster.find((r: any) => r.id === s.me);
+    setCss(meP, 'display', mine && s.phase !== 'waiting' ? 'block' : 'none');
+    if (mine) {
+      setText($('.me .hp b'), String(Math.max(0, Math.ceil(mine.hp)))); setText($('.me .hp small'), `/ ${Math.round(mine.maxHp)}`);
+      setCss($('.me .bd i'), 'width', `${Math.min(100, (mine.bad / C.HUD_BAD_MAX) * 100)}%`); setText($('.me .bd span'), `悪行 ${mine.bad.toFixed(1)}`);
+      setText($('.me .nm'), meR?.name ?? '');
+      meP.classList.toggle('wanted', s.teams[myTeam]?.wanted === mine.id);
+    }
+    // 計測用の表示（?perf=1 のときだけ）
+    setCss($('#info'), 'display', this.perf ? 'block' : 'none');
+    if (this.perf) setText($('#info'), `視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`);
   }
 }
 

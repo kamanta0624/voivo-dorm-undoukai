@@ -444,15 +444,25 @@ console.log('--- リコール・回復・技のCT');
   const run = (sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { r.now += 0.05; r.updatePlayers(0.05); } };
   r.messages.qdown(cl); run(C.RECALL_HOLD - 0.2);
   ok('Q を押している間は溜める（まだワープしない）', !inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt !== null);
-  r.damagePlayer(A, 1, 'x');
-  ok('被弾で中断し、溜めは0（Q を押し続けても溜めない）', A.recallAt === null);
-  run(C.RECALL_HOLD); ok('中断後は押し直すまでワープしない', !inRoom(A, C.RECALL_ROOMS[0]));
+  r.damagePlayer(A, 1, 'x'); const re = A.recallAt === r.now && A.qAt !== null;
+  run(C.RECALL_HOLD - 0.2); const mid = !inRoom(A, C.RECALL_ROOMS[0]); run(0.3);
+  ok(`被弾で溜め直し（Q を押し続けていれば0から再開し、${C.RECALL_HOLD}秒でワープ）`, re && mid && inRoom(A, C.RECALL_ROOMS[0]));
+  r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900 });
   r.messages.qup(cl); r.messages.qdown(cl); run(1); r.messages.input(cl, { seq: 1, dx: 1, dy: 0 }); run(0.1);
   ok('移動で中断し、溜めは0', A.recallAt === null && A.qAt === null);
+  // Q を押す前に送った移動入力（サーバーでまだ処理待ち）では中断しない。押した後の入力で中断
+  r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900 }); r.messages.input(cl, { seq: 5, dx: 1, dy: 0 }); r.messages.qdown(cl, { seq: 5 }); run(0.1); const kept = A.recallAt !== null;
+  r.messages.input(cl, { seq: 6, dx: 1, dy: 0 }); run(0.1);
+  ok('Q を押す前に送った移動入力では中断しない（押した後の移動入力で中断）', kept && A.recallAt === null);
   r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900 }); r.messages.qdown(cl); run(1); A.cooldownUntil = 0; r.attack('a', 0);
   ok('通常攻撃で中断し、溜めは0', A.recallAt === null);
   r.messages.qup(cl); r.messages.qdown(cl); run(1); A.skillReadyAt = 0; r.skill('a'); fly(r);
   ok('技で中断し、溜めは0', A.recallAt === null);
+  // 溜めている間は自動の通常攻撃をしない（射程内に敵がいても溜まり続ける）
+  { const z = mk('hanamaru', 'sayo'), zc = { sessionId: 'a' }; z.r.owners.set('a', 'a'); delete z.A.st.test; Object.assign(z.B, { x: z.A.x + 20, y: z.A.y, hp: 9999 });
+    z.r.messages.qdown(zc); for (let i = 0; i < 10; i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
+    const charging = z.A.recallAt !== null && z.B.hp === 9999; z.r.messages.qup(zc); for (let i = 0; i < 10; i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
+    ok('帰還を溜めている間は自動の通常攻撃をしない（離すと攻撃する）', charging && z.B.hp < 9999, { charging, hp: z.B.hp }); }
   r.messages.qup(cl); Object.assign(A, { x: 1552, y: 900, hp: 30 }); r.messages.qdown(cl);
   run(C.RECALL_HOLD + 0.1);
   ok(`Q を${C.RECALL_HOLD}秒押し続けると自陣の給湯室へワープ`, inRoom(A, C.RECALL_ROOMS[0]) && A.recallAt === null);
@@ -1560,26 +1570,35 @@ console.log('--- 待機画面の開始の流れ（出撃・選択猶予）');
     for (let i = 0; i < n; i++) r.onJoin({ sessionId: `h${i}` });
     return { r, h: (i: number) => ({ sessionId: `h${i}` }), p: (i: number) => r.players.get(`h${i}`), run: (sec: number) => { for (let k = 0; k < Math.round(sec / 0.05); k++) r.tick(0.05, false); } };
   };
-  const G = C.LOBBY_GRACE;
+  const G = C.LOBBY_GRACE, decided = (r: any) => r.phase === 'waiting' && r.sortieLeft !== null; // 開始が決まった（常設の部屋は出撃の秒数に入る）
   const a = lobby(1); a.r.messages.go(a.h(0), { char: 'sayo' });
-  ok('人間が1人だけなら、出撃した時点で開始', a.r.phase === 'intro' && a.p(0).char === 'sayo');
+  ok('人間が1人だけなら、出撃した時点で開始', decided(a.r) && a.p(0).char === 'sayo');
   const b = lobby(2); b.r.messages.go(b.h(0), { char: 'sayo' });
   ok(`人間が2人: 片方が出撃するとカウント開始（${G}秒）、まだ開始しない`, b.r.phase === 'waiting' && b.r.lobbyLeft === G);
   b.run(3); b.r.messages.go(b.h(1), { char: 'metan' });
-  ok('カウント中に全員が出撃したら、その時点で開始', b.r.phase === 'intro' && b.p(1).char === 'metan');
+  ok('カウント中に全員が出撃したら、その時点で開始', decided(b.r) && b.p(1).char === 'metan');
   const c = lobby(2); c.r.messages.pick(c.h(1), { char: 'zunko' }); c.r.messages.go(c.h(0), { char: 'sayo' }); c.run(G - 0.1); const before = c.r.phase; c.run(0.15);
-  ok(`${G}秒たつと、未出撃の人は今選んでいるキャラ（pick）のまま出撃して開始`, before === 'waiting' && c.r.phase === 'intro' && c.p(1).char === 'zunko' && c.p(0).char === 'sayo');
+  ok(`${G}秒たつと、未出撃の人は今選んでいるキャラ（pick）のまま出撃して開始`, before === 'waiting' && decided(c.r) && c.p(1).char === 'zunko' && c.p(0).char === 'sayo');
   const d = lobby(2); d.r.messages.go(d.h(0), { char: 'sayo' }); d.run(5); const left0 = d.r.lobbyLeft; d.r.onJoin({ sessionId: 'h2' }); d.run(0); const left1 = d.r.lobbyLeft; d.run(G - 5 - 0.1); const mid = d.r.phase; d.run(0.15);
-  ok('カウント中に入ってきた人は未出撃、残り時間は延びない', Math.abs(left0 - (G - 5)) < 1e-6 && left1 === left0 && d.p(2).ok === false && mid === 'waiting' && d.r.phase === 'intro', { left0, left1 });
+  ok('カウント中に入ってきた人は未出撃、残り時間は延びない', Math.abs(left0 - (G - 5)) < 1e-6 && left1 === left0 && d.p(2).ok === false && mid === 'waiting' && decided(d.r), { left0, left1 });
   const e = lobby(2); e.r.messages.go(e.h(0), { char: 'sayo' }); e.run(3); e.r.messages.unpick(e.h(0)); e.run(2);
   ok('カウント中に出撃を取り消してもカウントは止まらない', e.r.phase === 'waiting' && Math.abs(e.r.lobbyLeft - (G - 5)) < 1e-6 && !e.p(0).ok);
   e.run(G - 5 - 0.1); const mid2 = e.r.phase; e.run(0.15);
-  ok(`全員が未出撃に戻っても、${G}秒で開始`, mid2 === 'waiting' && e.r.phase === 'intro');
+  ok(`全員が未出撃に戻っても、${G}秒で開始`, mid2 === 'waiting' && decided(e.r));
   const f = lobby(2); f.r.dropped.add('h1'); f.r.messages.go(f.h(0), { char: 'sayo' });
-  ok('再接続待ち（切断中）の人間は判定から除く（接続中の全員が出撃済みなら開始）', f.r.phase === 'intro');
+  ok('再接続待ち（切断中）の人間は判定から除く（接続中の全員が出撃済みなら開始）', decided(f.r));
   const g = lobby(2); g.r.messages.go(g.h(0), { char: 'sayo' }); g.r.dropped.add('h0'); g.r.dropped.add('h1'); g.run(G + 0.1);
   ok('接続中の人間がいないまま猶予が切れたら開始せず、カウントを止める', g.r.phase === 'waiting' && g.r.lobbyLeft === null);
   ok('開始ボタン（start メッセージ）はない', !('start' in lobby(1).r.messages));
+  // 出撃（hud2）: 開始が決まってから SORTIE_SEC 秒は選択画面のまま。その間は選び直し・陣営移動・取り消しはできない。過ぎたら戦闘画面へ
+  const o = lobby(2); o.r.messages.go(o.h(0), { char: 'sayo' }); o.r.messages.go(o.h(1), { char: 'metan' });
+  o.r.messages.unpick(o.h(0)); o.r.messages.pick(o.h(1), { char: 'zunko' }); o.r.messages.team(o.h(1), { team: 0 });
+  o.run(C.SORTIE_SEC - 0.1); const mid3 = o.r.phase; o.run(0.15);
+  ok(`開始が決まってから${C.SORTIE_SEC}秒は選択画面のまま（キャラ・陣営・出撃は変えられない）。過ぎたら戦闘画面へ`, mid3 === 'waiting' && o.r.phase === 'intro' && o.p(0).ok && o.p(1).char === 'metan' && o.p(1).team === 1);
+  const q = lobby(1); q.r.messages.go(q.h(0), { char: 'sayo' }); q.r.dropped.add('h0'); q.run(C.SORTIE_SEC + 0.1);
+  ok('出撃の秒数の間に人間がいなくなったら始めない', q.r.phase === 'waiting' && q.r.sortieLeft === null);
+  const e2 = new (GameRoom as any)(); e2.setSimulationInterval = () => {}; e2.lock = () => {}; e2.unlock = () => {}; Object.defineProperty(e2, 'clients', { value: [] }); e2.onCreate({ e2e: 'x' }); e2.onJoin({ sessionId: 'h0' }); e2.messages.go({ sessionId: 'h0' }, { char: 'sayo' });
+  ok('e2e の部屋は出撃の秒数を挟まず、すぐ戦闘画面へ', e2.phase === 'intro');
 }
 
 console.log('--- 四国めたん（ドリル: 出しっぱなし・接触でダメージ＋はじき・再ヒット間隔）');
@@ -2558,11 +2577,11 @@ console.log('--- 自動照準は自陣営の画面に映っている敵だけ（
 console.log('--- WhiteCUL のクナイ（fb1124）');
 {
   const W = CHARS.whitecul, [k] = W.aa;
-  ok(`通常攻撃はクナイ（遠距離）: 射程 ${k.range}（吹雪の長さと同じ）、間隔 ${k.cd}秒（近接の1.1倍）、威力の倍率 ${k.dmg}（近接と同じ）`, W.aa.length === 1 && k.name === 'クナイ' && k.kind === 'shot' && k.shot === 'kunai' && k.range === 200 && k.range === W.skill.len && Math.abs(k.cd - C.ATTACK_COOLDOWN_MELEE * 1.1) < 1e-12 && k.dmg === 1);
-  const w = mk('whitecul', 'sayo'); Object.assign(w.B, { x: 1552 + 150, y: 900, hp: 9999 }); w.B.st.test = NOAUTO(); delete w.A.st.test; w.A.tgt = null;
+  ok(`通常攻撃はクナイ（遠距離）: 射程 ${k.range}、間隔 ${k.cd}秒（近接と同じ）、威力の倍率 ${k.dmg}（近接と同じ）`, W.aa.length === 1 && k.name === 'クナイ' && k.kind === 'shot' && k.shot === 'kunai' && k.range === 150 && Math.abs(k.cd - C.ATTACK_COOLDOWN_MELEE * 1.0) < 1e-12 && k.dmg === 1);
+  const w = mk('whitecul', 'sayo'); Object.assign(w.B, { x: 1552 + 120, y: 900, hp: 9999 }); w.B.st.test = NOAUTO(); delete w.A.st.test; w.A.tgt = null;
   w.r.updatePlayers(0.05); const sh = w.r.shots.find((q: any) => q.owner === 'a'), cd0 = w.A.cooldownUntil - w.r.now;
   let t = 0; while (w.B.hp === 9999 && t < 2) { w.r.now += 0.05; t += 0.05; w.r.updateShots(0.05); }
-  ok('クナイが飛んで当たる（射程200・間隔1.1秒）', !!sh && sh.kind === 'kunai' && sh.left <= 200 + 1e-9 && w.B.hp < 9999 && Math.abs(cd0 - 1.1) < 1e-9, { kind: sh?.kind, left: sh?.left, cd0, hp: w.B.hp });
+  ok('クナイが飛んで当たる（射程150・間隔1秒）', !!sh && sh.kind === 'kunai' && sh.left <= 150 + 1e-9 && w.B.hp < 9999 && Math.abs(cd0 - 1.0) < 1e-9, { kind: sh?.kind, left: sh?.left, cd0, hp: w.B.hp });
 }
 
 console.log('--- ルール説明のスロットのスペック表（fb1124）');
