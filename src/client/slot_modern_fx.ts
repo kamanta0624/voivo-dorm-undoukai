@@ -17,7 +17,7 @@ const CSS = `
 .mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
 .mfx-sl.win{border-color:#ffd700;box-shadow:0 0 6px #ffd700}
 .mfx-sl.flash{animation:mfxflash .5s ease-out}
-.mfx-ic{position:relative;width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box}
+.mfx-ic{position:relative;width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box;contain:layout size} /* 回転中は番号（::after）が毎回変わってレイアウトが起きるので、範囲を枠の中だけにする */
 .mfx-ic[data-n]::after{content:attr(data-n);position:absolute;right:0;bottom:-1px;font:900 6px sans-serif;color:#fff;-webkit-text-stroke:.4px #000}
 .mfx-ic.good[data-n]::after{color:#ffd700}
 .mfx-ic.pen{background:#400;color:#f66;text-align:center;line-height:13px;font-size:10px}
@@ -81,9 +81,10 @@ export class ModernFx {
   private setReel(i: number, k: number) {
     const e = this.reelEls[i];
     this.shown[i] = k;
-    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; return; }
+    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; (e as any)._bg = ''; return; }
     const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1; // 回転中は番号を巡回
-    e.className = `mfx-ic${M.reel.group[no - 1] !== 'even' ? ' good' : ''}`; e.textContent = ''; e.dataset.n = String(no); e.style.backgroundImage = `url(${DOT(this.syms[no - 1])})`;
+    const cls = `mfx-ic${M.reel.group[no - 1] !== 'even' ? ' good' : ''}`, bg = `url(${DOT(this.syms[no - 1])})`; // 変わった所だけ書く
+    if (e.className !== cls) e.className = cls; if (e.textContent) e.textContent = ''; if (e.dataset.n !== String(no)) e.dataset.n = String(no); if ((e as any)._bg !== bg) { (e as any)._bg = bg; e.style.backgroundImage = bg; }
   }
 
   // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄

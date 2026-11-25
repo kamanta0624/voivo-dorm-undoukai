@@ -133,7 +133,7 @@ css.textContent = `
 #fx #info{position:absolute;left:.6%;top:40%;color:#fff;background:#0009;font:calc(var(--z) * 6.5px)/1.35 sans-serif;padding:.3em .5em;white-space:pre}
 #fx .notes{position:absolute;top:30%;left:50%;transform:translateX(-50%);text-align:center}
 #fx .notes div{background:#000b;color:#ffe066;font:bold calc(var(--z) * 8px) sans-serif;padding:.2em .8em;margin-bottom:.3em;border-radius:3px;white-space:nowrap}
-#fx .pop{position:absolute;transform:translate(-50%,-100%);font:bold calc(var(--z) * 8px) sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;animation:popup var(--d) ease-out forwards}
+#fx .pop{position:absolute;left:0;top:0;font:bold calc(var(--z) * 8px) sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;animation:popup var(--d) ease-out forwards}
 #fx .pop.dmg{color:#ff5050}
 #fx .pop.plus{color:#ffe066;font-size:calc(var(--z) * 10px)}
 #fx .pop.plus.hi{color:#ff7ad9;font-size:calc(var(--z) * 13px)}
@@ -237,7 +237,7 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .fin .kn small{display:block;font-size:calc(var(--z) * 9px);color:#fff}
 #fx .fin .kn.k0{left:6%}
 #fx .fin .kn.k1{right:6%;text-align:right}
-#fx .lbl{position:absolute;transform:translate(-50%,-50%);font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
+#fx .lbl{position:absolute;left:0;top:0;font:bold calc(var(--z) * 5.5px) sans-serif;white-space:nowrap;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
 #fx .skill{isolation:isolate}
@@ -260,7 +260,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .mem{position:relative;display:flex}
 #fx .mem .pt{position:absolute;right:-2px;top:-3px;font:900 calc(var(--z) * 5.5px)/1 sans-serif;font-style:normal;color:#ffe066;background:#000c;padding:0 calc(var(--z) * 1px);border-radius:2px;white-space:nowrap} /* 強さの札（パワーアップ 1〜MAX・アシスト★） */
 #fx .mem .hp{position:absolute;left:2px;right:2px;bottom:2px;height:calc(var(--z) * 2.5px);background:#000b}
-#fx .mem .hp i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
+#fx .mem .hp i{position:absolute;left:0;top:0;bottom:0;right:0;background:var(--c);transform-origin:0 50%} /* 長さは transform（scaleX）で変える（レイアウトを起こさない: render_policy 5） */
 #fx .mem .rs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:900 calc(var(--z) * 9px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .ic{width:calc(var(--z) * 18px);height:calc(var(--z) * 18px);background:#000a no-repeat calc(var(--z) * -7px) calc(var(--z) * -3px)/calc(var(--z) * 32px) calc(var(--z) * 42px);image-rendering:pixelated;border:1px solid var(--c);border-radius:2px;flex:none}
 #fx .ic.dead{filter:grayscale(1) brightness(.35)}
@@ -283,7 +283,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .tk{position:absolute;top:6.4%;left:50%;transform:translateX(-50%);display:flex;gap:calc(var(--z) * 8px)}
 #fx .tk .side{display:flex;flex-direction:column;align-items:center;gap:calc(var(--z) * 1.5px)}
 #fx .tk .tg{position:relative;width:calc(var(--z) * 54px);height:calc(var(--z) * 5px);background:#000b;outline:1px solid var(--c)}
-#fx .tk .tg i{position:absolute;left:0;top:0;bottom:0;background:var(--c)}
+#fx .tk .tg i{position:absolute;left:0;top:0;bottom:0;right:0;background:var(--c);transform-origin:0 50%}
 #fx .tk .tv{color:#fff;font:bold calc(var(--z) * 5.5px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .scut{position:absolute;left:0;right:0;top:40%;padding:.4em 0;text-align:center;background:linear-gradient(90deg,transparent,var(--c) 30%,var(--c) 70%,transparent);animation:cutfade var(--d) linear forwards}
 #fx .scut b{display:block;font:900 calc(var(--z) * 22px) sans-serif;color:#ffd700;-webkit-text-stroke:calc(var(--z) * 1px) #000;text-shadow:0 0 8px #000;animation:pop .3s ease-out}
@@ -1004,8 +1004,11 @@ class GameScene extends Phaser.Scene {
     this.mfxTm[k] = tm;
     if (fresh) {
       const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
-      const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i style="width:${(tm.toku / C.TOKU_MAX) * 100}%"></i></div><div class="tv">徳 ${tm.toku.toFixed(1)}${rf}</div>`;
-      if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; $(`.tk .s${k} .tkg`).innerHTML = html; }
+      const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i></i></div><div class="tv"></div>`, g = $(`.tk .s${k} .tkg`); // 骨組みは陣営が変わった時だけ作り、ゲージは transform・文字は変わった時だけ書く
+      if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; g.innerHTML = html; }
+      this.setTf(g.querySelector('i')!, `scaleX(${Math.max(0, Math.min(1, tm.toku / C.TOKU_MAX))})`);
+      const tv = g.querySelector<HTMLElement>('.tv')!, tvh = `徳 ${tm.toku.toFixed(1)}${rf}`;
+      if ((tv as any)._h !== tvh) { (tv as any)._h = tvh; tv.innerHTML = tvh; }
     }
     if (this.mfxIdleAt[t] && now >= this.mfxIdleAt[t]) { this.mfxIdleAt[t] = 0; f.idle(now); }
     if (s.phase === 'playing') f.frame(now);
@@ -1208,7 +1211,7 @@ class GameScene extends Phaser.Scene {
   buffHtml = '';
   buffTopOf: string | null = null; // バフ欄の位置を測った時の .r0 の中身
   rosterHud(s: any, myTeam: number, sinceSnap: number) {
-    const c = css16(TEAM_COLOR[myTeam]), bar = (p: any) => `<span class="hp"><i style="width:${p ? Math.min(100, (p.hp / p.maxHp) * 100) : 100}%"></i></span>`;
+    const c = css16(TEAM_COLOR[myTeam]), hp: number[] = [], bar = (p: any) => (hp.push(p ? Math.min(1, p.hp / p.maxHp) : 1), '<span class="hp"><i></i></span>'); // HP バーの長さは骨組みと分けて transform で（HP が変わるたびに HTML を作り直さない）
     const tag = (t: string) => `<em class="pt">${t}</em>`, ut = (r: any) => (r.ult !== null && r.ult !== undefined && r.alive ? tag(C.POWER_TAGS[Math.min(r.ult, C.POWER_TAGS.length - 1)]) : ''); // 強さの札: パワーアップ中は 1〜MAX、アシストは★
     const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
       const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
@@ -1217,6 +1220,7 @@ class GameScene extends Phaser.Scene {
     const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => `<div class="mem">${this.icon(r.char, 1 - myTeam, !r.alive)}${ut(r)}</div>`).join('') + '</div>';
     const html = myTeam === 0 ? [allies, foes] : [foes, allies];
     html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
+    $(`.r${myTeam}`).querySelectorAll<HTMLElement>('.hp i').forEach((e, i) => this.setTf(e, `scaleX(${Math.max(0, hp[i] ?? 1)})`));
   }
 
   // バフ／デバフ欄（自キャラだけ。常に左上の組のアイコン列の下）: 時間制限つきの状態を名前＋残り秒数で。良い効果は緑、悪い効果は赤。指名手配中は悪行ポイント
@@ -1294,10 +1298,13 @@ class GameScene extends Phaser.Scene {
   }
 
   // ワールド座標 → fx 内の座標(px)
-  toScreen(x: number, y: number) {
+  // ワールド座標 → #fx 上の位置（transform で動かす。left/top を毎フレーム書くとレイアウトが起きる）。anchor: 要素のどこを合わせるか
+  toScreen(x: number, y: number, anchor: string) {
     const cam = this.cameras.main, v = cam.worldView, z = this.game.scale.zoom * cam.zoom;
-    return { left: `${(x - v.x) * z}px`, top: `${(y - v.y) * z}px` };
+    return `translate(${((x - v.x) * z).toFixed(1)}px,${((y - v.y) * z).toFixed(1)}px) ${anchor}`;
   }
+  // 値が変わった時だけ transform を書く
+  setTf(el: HTMLElement, t: string) { if ((el as any)._tf !== t) { (el as any)._tf = t; el.style.transform = t; } }
 
   // ワールド座標に付く常時表示のラベル（毎フレーム呼んだものだけ残す）
   label(key: string, text: string, x: number, y: number, cls: string, seen: Set<string>) {
@@ -1310,7 +1317,7 @@ class GameScene extends Phaser.Scene {
       this.labels.set(key, el);
     }
     if (el.textContent !== text) el.textContent = text;
-    Object.assign(el.style, this.toScreen(x, y));
+    this.setTf(el, this.toScreen(x, y, 'translate(-50%,-50%)'));
   }
 
   lobbyUpdate(s: any) {
@@ -1889,7 +1896,7 @@ class GameScene extends Phaser.Scene {
     const cam = this.cameras.main.worldView;
     ui.lineStyle(1, 0xffffff, 0.6).strokeRect(mx + cam.x * ms, my + cam.y * ms, cam.width * ms, cam.height * ms);
     // ワールドに付く一時表示とラベルの位置
-    this.pops = this.pops.filter((p) => (now < p.until ? (Object.assign(p.el.style, this.toScreen(p.x, p.y)), true) : (p.el.remove(), false)));
+    this.pops = this.pops.filter((p) => (now < p.until ? (this.setTf(p.el, this.toScreen(p.x, p.y, 'translate(-50%,-100%)')), true) : (p.el.remove(), false)));
     for (const [key, el] of this.labels) if (!labelSeen.has(key)) { el.remove(); this.labels.delete(key); }
 
     // KOされた時: やられ顔と復活までの残り時間
