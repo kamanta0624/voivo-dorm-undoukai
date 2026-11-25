@@ -142,6 +142,7 @@ export class GameRoom extends Room {
   backVotes = new Set<string>(); // リザルトで「戻る」を押した人間のプレイヤーid
   specName = new Map<string, string>(); // 観戦者（owners にない client）の名前。待機画面で参加者になるときに使う
   specView = new Map<string, 'all' | 'focus' | 0 | 1>(); // 観戦者の視点: 全体・実況追従・組の視界（陣営）
+  e2eFists = new Map<string, number>(); // e2e: プレイヤーごとの花丸パンチの拳を出した回数（E2E_HOOKS のときだけ数え、本人のスナップショットに載せる）
   abandonLeft: number | null = null; // 参加者の人間がいなくなってからの打ち切りまでの秒数（観戦者だけ残ったとき）
   fx: Fx[] = []; // このティックに起きた技のエフェクト（送信後に空にする）
   tiles = [...MAP.tiles]; // 試合中のタイル（壁破壊で変わる）
@@ -2109,6 +2110,7 @@ export class GameRoom extends Room {
       const pr = this.practice ? { mode: this.foeMode, lv: [me?.ult?.tier ?? -1, this.players.get('foe')?.ult?.tier ?? -1], foe: this.players.get('foe')?.char ?? null } : null; // 練習パネルの表示（相手は視界外でも）
       client.send('s', {
         ...(pr ? { practice: pr } : {}),
+        ...(process.env.E2E_HOOKS && me ? { e2eFists: this.e2eFists.get(me.id) ?? 0 } : {}),
         ...(me ? {} : { spec: { view: sv, focus: this.cm.focus, abandon: this.abandonLeft === null ? null : Math.ceil(this.abandonLeft) } }), // 観戦者: 視点・実況のフォーカス・打ち切りまでの秒数
         netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, sortie: this.sortieLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
         teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),

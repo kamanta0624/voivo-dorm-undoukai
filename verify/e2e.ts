@@ -594,8 +594,8 @@ async function hanamaruCheck(A: Tab) {
   const key = intact(-1) ? 'w' : 's';
   const cracks = () => A.page.evaluate(() => (window as any).game.scene.scenes[0].cracks.size as number), c0 = await cracks(); // 拳が当たった壁は割れ目の数・壊れた壁の数で見る（拳の芯が触れない壁にも外側が触れれば段階が進む）
   await A.page.keyboard.down(key); await sleep(120); await A.page.keyboard.up(key); await A.press('r');
-  let drawn = 0; // 近い壁に当たると拳はすぐ消えるので、出た瞬間に数える
-  const flying = await A.until((x) => (drawn = x.ents.filter((e: any) => e.kind === 'fist').length) > 0, 1500); await A.shot('h1_fist');
+  const f0 = (await A.snap()).e2eFists ?? 0; // 拳はサーバーで出した回数で数える（近い壁に当たると1回の更新の間に消え、スナップショットに載らないことがある）
+  const flying = await A.until((x) => (x.e2eFists ?? 0) > f0, 1500), drawn = ((await A.snap()).e2eFists ?? 0) - f0; await A.shot('h1_fist');
   await A.until((x) => !x.ents.some((e: any) => e.kind === 'fist'), 3000); await sleep(200);
   const b1 = (await A.snap()).broken.length, c1 = await cracks(); await A.shot('h2_fist_after');
   check('花丸パンチ（タメなし）: 拳が前方へ飛び、当たった壁が段階を進める（割れ目が付く。中破だった壁なら壊れてマップに反映）', flying && drawn > 0 && (c1 > c0 || b1 > b0), { drawn, broken: [b0, b1], cracks: [c0, c1] });

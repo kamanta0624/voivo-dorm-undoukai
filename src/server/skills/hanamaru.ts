@@ -104,6 +104,7 @@ function charge(room: GameRoom, p: Player) {
 // 拳を出す（命中・破壊は updateFist）。lv: チャージのレベル（lv の添字）、a: 向き
 function fire(room: GameRoom, p: Player, lv: number, a: number) {
   const L = H.lv[lv];
+  if (process.env.E2E_HOOKS) room.e2eFists.set(p.id, (room.e2eFists.get(p.id) ?? 0) + 1); // e2e: 拳を出した回数（すぐ壁に当たって消えた拳もスナップショットに関係なく数える）
   room.ents.push({ id: room.nextId++, kind: 'fist', team: p.team, owner: p.id, x: p.x, y: p.y, r: H.r * L.size, body: null, a, left: H.range, sp: H.speed * L.speed, dmg: H.dmg * L.dmg, hit: new Set(), broke: false, wallHit: new Set() });
 }
 
