@@ -22,7 +22,7 @@
 10. handoff_news1.md　済 live-20261126-7（更新情報の画面にも要約の行を出す）
 11. handoff_botsim1.md　済 live-20261126-8（launchd com.vvsports.botsim 登録済み。集計は npx tsx tools/matchlog_report.ts）
 12. handoff_title2.md　済 live-20261126-9（char_lines.md のシート名は残した）
-13. handoff_ierutan1.md
+13. handoff_ierutan1.md　済 live-20261126-10（弾は bullet・弾速600）
 14. handoff_font1.md（戦闘画面の文字を +20%。result1 の前：新しい画面が同じ文字の基準を使えるように）
 15. handoff_result1.md（botsim1 の後。試合結果画面）
 16. handoff_pwfx2.md
