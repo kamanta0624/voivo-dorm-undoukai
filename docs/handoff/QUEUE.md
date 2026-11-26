@@ -26,6 +26,7 @@
 14. handoff_font1.md　済 live-20261126-11（リーチ！・当選！は保留の丸の下。モダンのスロットは未対応＝使わない）
 15. handoff_result1.md　済 live-20261126-12（行頭は顔＋プレイヤー名。結果画面の間に入った人は resultReq で取得）
 16. handoff_pwfx2.md
-17. handoff_nia1.md（台本は docs/handoff/nia_lines.json）
-18. handoff_botai1.md（botsim1 の後）
-19. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから）
+17. handoff_result2.md（result1 の直し。結果画面を画面サイズに収める・縦持ちでは出さない）
+18. handoff_nia1.md（台本は docs/handoff/nia_lines.json）
+19. handoff_botai1.md（botsim1 の後）
+20. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから）
