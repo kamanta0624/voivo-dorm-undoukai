@@ -49,7 +49,7 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
     }
     if (gone) break;
     if (tiles.length && room.phase === 'playing') {
-      const adv = room.hitWalls(tiles, f.wallHit);
+      const adv = room.hitWalls(tiles, f.wallHit, 1, owner);
       if (adv.length) room.addFx(f, 'wall', { tiles: adv, r: 0 });
       if (adv.length && !f.broke) { f.broke = true; room.addToku(f.team, owner!, 'wall'); } // 1回の技につき1回
       if (tiles.some(([tx, ty]) => room.tiles[ty][tx] === '#' && circleRect(f.x, f.y, H.core, { x: tx * T, y: ty * T, w: T, h: T }))) { gone = true; break; } // 壊れずに残った壁に芯が触れた: 消える
@@ -86,7 +86,7 @@ function pushWall(room: GameRoom, p: Player, px: number, py: number) {
   const tiles = breakTiles(room, p, Math.atan2(dy, dx), hit);
   p.sk.pushTile = null;
   if (!tiles.length) return;
-  const adv = room.hitWalls(tiles, new Set(), C.WALL_HITS); // 一気に破壊
+  const adv = room.hitWalls(tiles, new Set(), C.WALL_HITS, p); // 一気に破壊
   room.addToku(p.team, p, 'wall', undefined, Math.max(...adv.map((t) => t[2]))); // 残っていた段階の分（一番多いマス）
   room.addFx(p, 'wall', { tiles, r: 0 });
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 誰もいない時の Bot 戦（launchd）。tools/launchd.sh botsim-install が __〜__ を埋めて ~/Library/LaunchAgents/<ラベル>.plist に置く。
+     StartInterval ごとに起こすだけ。間隔・本数・上限時間は CONFIG.BOTSIM（tools/botsim.ts が前回の開始からの秒数を見て、早ければ何もせず終わる）。ログは logs/botsim.log へ追記 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>WorkingDirectory</key><string>__DIR__</string>
+  <key>ProgramArguments</key>
+  <array><string>__NODE__</string><string>node_modules/tsx/dist/cli.mjs</string><string>tools/botsim.ts</string><string>--port</string><string>__PORT__</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__PATH__</string>
+  </dict>
+  <key>StartInterval</key><integer>600</integer>
+  <key>Nice</key><integer>10</integer>
+  <key>LowPriorityIO</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__DIR__/logs/botsim.log</string>
+  <key>StandardErrorPath</key><string>__DIR__/logs/botsim.log</string>
+</dict>
+</plist>

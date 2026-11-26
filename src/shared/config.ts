@@ -86,6 +86,10 @@ export const CONFIG = {
   STATUS_POLL_SEC: 3, // タイトル画面の部屋一覧の自動更新の間隔(秒)
   TUTORIAL: { autoBase: 1.5, autoPerChar: 0.12 }, // ルール説明のオートで音声のない行: autoBase + 文字数 × autoPerChar 秒で次へ
   MATCH_TIME: 300, // 秒
+  // 試合の記録部（src/server/matchlog.ts、handoff_botsim1）。bossBig: 大将への単発の大ダメージの印（大将の最大HPに対する割合、仮置き）。maxBytes: logs/ の合計の上限（超えたら書かずに警告、仮置き2GB）
+  MATCHLOG: { bossBig: 0.05, maxBytes: 2 * 2 ** 30 },
+  // 誰もいない時の Bot 戦（tools/botsim.ts）。intervalSec: 前回の開始からこの秒数が経つまで始めない（launchd は短い間隔で起こすだけ）。matches: 1回の本数。maxMin: 1回の上限（分）。値は仮置き
+  BOTSIM: { intervalSec: 3600, matches: 20, maxMin: 30 },
   // 開始と終了の演出
   INTRO_SPEED,
   INTRO_MODE: 'new' as 'new' | 'old', // 開幕演出: new=カメラが敵大将→味方大将→散らかった一角→味方全員→準備してね→3,2,1,0 / old=旧（横並び万歳→味方カットイン→3,2,1→GAME START）

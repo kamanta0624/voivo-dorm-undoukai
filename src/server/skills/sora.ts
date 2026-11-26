@@ -20,7 +20,7 @@ const boomDmg = (b: Beam, t: Thing) => solarAt(b.charge, 1, t.k === 'boss') * (1
 // 壁の段階を進める（外周は除く。1回の照射で同じマスは1段階まで）。徳は1回の照射で、進めた段階が一番多いマスの段階数分（即破壊は残っていた段階の分）。at があればエフェクトを出す。進めたマスを返す
 function breakTiles(room: GameRoom, p: Player, b: Beam, tiles: number[][], at?: { x: number; y: number }) {
   if (!tiles.length || room.phase !== 'playing') return [];
-  const adv = room.hitWalls(tiles, b.wallHit, b.hits);
+  const adv = room.hitWalls(tiles, b.wallHit, b.hits, p);
   if (!adv.length) return adv;
   if (at) room.addFx({ x: at.x, y: at.y, team: p.team }, 'wall', { tiles: adv, r: 0 });
   const d = Math.max(...adv.map((t) => t[2]));

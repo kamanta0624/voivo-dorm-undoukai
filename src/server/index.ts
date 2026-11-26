@@ -8,6 +8,7 @@ import * as OG from './outgame';
 if (process.env.NET_MEASURE !== undefined) CONFIG.NET_MEASURE = process.env.NET_MEASURE !== '0';
 
 GameRoom.logFile = 'logs/matches.jsonl'; // 試合ログ（サーバー単体テストは書かない）
+GameRoom.matchlogDir = 'logs/matchlog'; // 試合の記録部の書き出し先（人間の試合。Bot 戦は tools/botsim.ts）
 Object.assign(OG.files, { maint: 'logs/maintenance.txt', bans: 'logs/bans.json', build: process.env.SERVE_DIST ? 'dist/build.txt' : '' }); // メンテ中フラグ（あればメンテ中）・BAN一覧・配信中のビルド
 mkdirSync('logs', { recursive: true });
 OG.loadBans();

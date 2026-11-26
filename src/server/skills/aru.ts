@@ -34,7 +34,7 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
     if (room.tiles[ty]?.[tx] !== '#' || !inDashShape(S, tx * T + T / 2, ty * T + T / 2, nx, ny, a, T / 2)) continue;
     if (!unbreakable(tx, ty)) tiles.push([tx, ty]);
   }
-  if (tiles.length && room.hitWalls(tiles, p.sk.wallHit).length && !p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); }
+  if (tiles.length && room.hitWalls(tiles, p.sk.wallHit, 1, p).length && !p.sk.broke) { p.sk.broke = true; room.addToku(p.team, p, 'wall'); }
   // 体が壁に止められたら壁に沿って滑る（正面なら前に進まず、dur まで突撃を続ける）
   Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), true, (q) => room.noteJump(`p:${p.id}`, p, q)));
   for (const t of room.enemyThings(p.team)) {
