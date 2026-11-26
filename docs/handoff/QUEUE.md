@@ -25,8 +25,8 @@
 13. handoff_ierutan1.md　済 live-20261126-10（弾は bullet・弾速600）
 14. handoff_font1.md　済 live-20261126-11（リーチ！・当選！は保留の丸の下。モダンのスロットは未対応＝使わない）
 15. handoff_result1.md　済 live-20261126-12（行頭は顔＋プレイヤー名。結果画面の間に入った人は resultReq で取得）
-16. handoff_pwfx2.md
-17. handoff_result2.md（result1 の直し。結果画面を画面サイズに収める・縦持ちでは出さない）
+16. handoff_pwfx2.md　済 live-20261127-1（強さの判定は素材待ちの枠に使うので残した。更新情報の該当行は削除）
+17. handoff_result2.md　済 live-20261127-2（原因は高さを見ていなかったこととノッチ・ホームバーの未考慮。iPhone 実機で本人確認済み）
 18. handoff_nia1.md（台本は docs/handoff/nia_lines.json）
 19. handoff_botai1.md（botsim1 の後）
 20. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから）
