@@ -11,18 +11,19 @@ const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 const css = document.createElement('style');
 css.textContent = ufCss(`
-#result{position:fixed;inset:0;z-index:11;display:none;overflow-y:auto;overscroll-behavior:contain;background:#08080c;color:#fff;font:max(10px,calc(var(--rz) * 7px))/1.4 sans-serif;padding:8px;box-sizing:border-box;touch-action:pan-y}
-#result .in{max-width:1000px;margin:0 auto}
-#result .hd{display:flex;align-items:center;gap:.8em;flex-wrap:wrap}
+#result{position:fixed;inset:0;z-index:11;display:none;overflow-y:auto;overscroll-behavior:contain;background:#08080c;color:#fff;font:max(10px,calc(var(--rz) * 7px))/1.4 sans-serif;padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));box-sizing:border-box;touch-action:pan-y}
+#result .in{max-width:1200px;margin:0 auto}
+#result .hd{display:flex;align-items:center;gap:.8em;white-space:nowrap}
 #result .hd b{font:900 max(10px,calc(var(--rz) * 14px)) sans-serif}
-#result .hd .sc{font-weight:bold;font-size:max(10px,calc(var(--rz) * 8px))}
-#result .hd .x{margin-left:auto;min-height:40px;padding:0 1.2em;font:bold max(10px,calc(var(--rz) * 8px)) sans-serif;color:#fff;background:#335;border:2px solid #fff;border-radius:6px;cursor:pointer}
+#result .hd .sc{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:bold;font-size:max(10px,calc(var(--rz) * 8px))}
+#result .hd .x{min-height:32px;padding:0 1.2em;font:bold max(10px,calc(var(--rz) * 8px)) sans-serif;color:#fff;background:#335;border:2px solid #fff;border-radius:6px;cursor:pointer}
 #result svg{display:block}
 #result svg text{fill:#ccc;font-family:sans-serif}
-#result .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
-#result .tabs button{min-height:36px;padding:0 1em;font:bold max(10px,calc(var(--rz) * 7px)) sans-serif;color:#ccc;background:#222;border:1px solid #666;border-radius:6px;cursor:pointer}
+#result .tabs{display:flex;gap:6px;flex:none}
+#result .tabs button{min-height:32px;padding:0 1em;font:bold max(10px,calc(var(--rz) * 7px)) sans-serif;color:#ccc;background:#222;border:1px solid #666;border-radius:6px;cursor:pointer}
 #result .tabs button.on{color:#fff;border-color:#fff;background:#445}
-#result .tabs .gap{flex:1}
+#result .hd .gap{flex:1}
+@media (orientation:portrait){html.touch #result{display:none!important}} /* 縦持ちでは出さない（ゲームと同じ「横にしてください」。横に戻せば開いていたまま出る） */
 #result .tb{display:grid;align-items:center;row-gap:2px}
 #result .tb div{text-align:right;padding-right:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
 #result .tb .h{color:#aaa;font-size:max(10px,calc(var(--rz) * 6px))}
@@ -49,18 +50,20 @@ addEventListener('resize', () => { if (resultOpen()) render(); });
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
 // 文字の大きさ: 論理 640×360 を画面に合わせた倍率（縦持ちは幅 400 を基準）。物理の下限 10px（CSS は max(10px, …)、SVG は fsz）
-function rz() { return innerHeight > innerWidth ? innerWidth / 400 : Math.min(innerWidth / 640, innerHeight / 360); }
+function rz() { return Math.min(2, innerHeight > innerWidth ? innerWidth / 400 : Math.min(innerWidth / 640, innerHeight / 360)); } // 大きい画面では 2 倍で止める（文字が大きすぎて見出しが詰まらないように）
 const fsz = (n: number) => Math.max(10, uf(n) * rz()); // SVG の文字(px)。下限 10px
 
 function render() {
   if (!data || !opt) return;
   const d = data, o = opt, z = rz();
   el.style.setProperty('--rz', String(z));
-  const W = Math.min(1000, el.clientWidth - 16), L = Math.max(120, 110 * z), R = Math.max(46, 44 * z), P = W - L - R, sec = Math.max(1, d.sec);
-  const x = (t: number) => L + (P * Math.min(t, sec)) / sec, tx = fsz(6), h = Math.max(80, Math.min(150, W * 0.16));
+  const cs = getComputedStyle(el), px = (k: string) => parseFloat(cs.getPropertyValue(k)) || 0; // 表示領域（ノッチ・ホームバーの分の余白を除く）
+  const W = Math.min(1200, el.clientWidth - px('padding-left') - px('padding-right')), innerH = el.clientHeight - px('padding-top') - px('padding-bottom'), L = Math.max(120, 64 * z), R = Math.max(46, 44 * z), P = W - L - R, sec = Math.max(1, d.sec);
+  const x = (t: number) => L + (P * Math.min(t, sec)) / sec, tx = fsz(6);
   const step = C.RESULT.bucketSec, nb = Math.ceil(sec / step), edges = Array.from({ length: nb + 1 }, (_, i) => Math.min(sec, i * step));
   const pts = (s: number[][], k: number, y: (v: number) => number) => s.map((v, i) => `${x(i === s.length - 1 ? sec : i).toFixed(1)},${y(v[k]).toFixed(1)}`).join(' ');
-  // 推移グラフ（上段＝徳、下段＝大将HP%）
+  // 推移グラフ（上段＝徳、下段＝大将HP%）。h: 1段の高さ（画面の高さに収まるように render が決める）
+  const graph = (h: number) => {
   const panel = (top: number, label: string, s: number[][], max: number, last: (v: number) => string) => {
     const y = (v: number) => top + h * (1 - v / max);
     let g = `<text x="4" y="${top + tx}" font-size="${tx}">${label}</text>`;
@@ -94,7 +97,9 @@ function render() {
     svg += `<rect x="${cx - ic / 2}" y="${cy - ic / 2}" width="${ic}" height="${ic}" fill="#000"/><image class="slot" data-t="${s.t}" data-team="${s.team}" data-kind="${s.sym.kind}" data-char="${k}" href="${DOT(k)}" x="${cx - ic / 2 - (9 * ic) / 15}" y="${cy - ic / 2 - (4 * ic) / 15}" width="${(32 * ic) / 15}" height="${(42 * ic) / 15}" clip-path="url(#${id})" style="image-rendering:pixelated"/>`;
     svg += `<rect x="${cx - ic / 2}" y="${cy - ic / 2}" width="${ic}" height="${ic}" fill="none" stroke="${o.colors[s.team]}" stroke-width="2"/>`;
   }
-  const minY = Math.min(top1, ...placed.map((q) => q.y - ic / 2)) - 2;
+  const minY = Math.min(top1, ...placed.map((q) => q.y - ic / 2)) - 2, H = axis + 4 - minY;
+  return { H, html: `<svg width="${W}" height="${H}" viewBox="0 ${minY} ${W} ${H}">${svg}</svg>` };
+  };
   // 下半分: 時間帯別の個人の数字（列は上のグラフの時間軸とそろえる）
   const sum = (a: number[], i: number) => { let n = 0; for (let t = edges[i]; t < edges[i + 1]; t++) n += a[t] ?? 0; return n; };
   const rows = d.chars.filter((c: any) => c.team === team).map((c: any) => ({ face: c.char, name: o.players[c.id] ?? '', v: edges.slice(0, -1).map((_, i) => (metric === 'boss' ? sum(c.series.bossDmg, i) : sum(c.series.tokuGain, i) - sum(c.series.tokuLoss, i))) }));
@@ -110,9 +115,13 @@ function render() {
   const tn = o.myTeam === null ? ['左の組', '右の組'] : o.myTeam === 0 ? ['味方チーム', '相手チーム'] : ['相手チーム', '味方チーム'];
   const order = o.myTeam === 1 ? [1, 0] : [0, 1];
   const t0 = d.teams[0], t1 = d.teams[1];
-  el.innerHTML = `<div class="in"><div class="hd"><b>${o.title}</b><span class="sc"><span style="color:${o.colors[0]}">${o.names[0]} ${Math.round(t0.bossPct)}%</span> − <span style="color:${o.colors[1]}">${Math.round(t1.bossPct)}% ${o.names[1]}</span></span><button class="x">閉じる</button></div>`
-    + `<svg width="${W}" height="${axis + 4 - minY}" viewBox="0 ${minY} ${W} ${axis + 4 - minY}">${svg}</svg>`
-    + `<div class="tabs">${order.map((t) => `<button data-team="${t}" class="${t === team ? 'on' : ''}">${tn[t]}</button>`).join('')}<span class="gap"></span><button data-m="boss" class="${metric === 'boss' ? 'on' : ''}">大将ダメージ</button><button data-m="toku" class="${metric === 'toku' ? 'on' : ''}">徳</button></div>${tb}</div>`;
+  // 見出しの行にタブも並べる（高さを使わない）。グラフは、見出しと表を置いた残りの高さに収める（1段 30〜150px）
+  el.innerHTML = `<div class="in"><div class="hd"><b>${o.title}</b><span class="sc"><span style="color:${o.colors[0]}">${o.names[0]} ${Math.round(t0.bossPct)}%</span> − <span style="color:${o.colors[1]}">${Math.round(t1.bossPct)}% ${o.names[1]}</span></span><span class="gap"></span>`
+    + `<span class="tabs">${order.map((t) => `<button data-team="${t}" class="${t === team ? 'on' : ''}">${tn[t]}</button>`).join('')}</span><span class="tabs"><button data-m="boss" class="${metric === 'boss' ? 'on' : ''}">大将ダメージ</button><button data-m="toku" class="${metric === 'toku' ? 'on' : ''}">徳</button></span><button class="x">閉じる</button></div>`
+    + `<div class="gr"></div>${tb}</div>`;
+  const gr = el.querySelector<HTMLElement>('.gr')!, rest = innerH - el.querySelector<HTMLElement>('.in')!.offsetHeight - 8; // グラフに使える高さ（端数の分 8px 残す）
+  const g0 = graph(100), h = Math.max(30, Math.min(150, (rest - (g0.H - 200)) / 2));
+  gr.innerHTML = graph(h).html;
   el.querySelector<HTMLElement>('.x')!.onclick = closeResult;
   el.querySelectorAll<HTMLElement>('.tabs button').forEach((b) => (b.onclick = () => { if (b.dataset.team) team = Number(b.dataset.team); if (b.dataset.m) metric = b.dataset.m as any; render(); }));
 }
