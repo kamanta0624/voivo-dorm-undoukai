@@ -1,12 +1,19 @@
 // 実況: サーバー・クライアント・音声生成スクリプトで共通の、台本の読み方（docs/commentary_spec.md）
 import SCRIPT from './commentary_script.json';
 import CHATTER from './commentary_chatter.json'; // 雑談（docs/commentary_chatter.md から npm run cm:vvproj が書き出す）
+import NIA from './commentary_nia.json'; // 琴詠ニアの台本（キー・パターンの数は No.7 と同じ。部品 parts と雑談は共通）
 import MAP from './map.json';
 import CHARS_JSON from './chars.json';
 import { CHARS, BOSS_CHAR } from './chars';
 import { CONFIG as C } from './config';
 
 export { SCRIPT, CHATTER };
+// 実況者（nia1）: サーバーは No.7 の台本でキーとパターンの添字を決め、クライアントは選んだ実況者の同じキー・添字のパターンを読む（台本のキーとパターンの数はそろえる）
+export type Voice = 'no7' | 'nia';
+export const VOICES: Record<Voice, { name: string; styleId: number; lines: Record<string, string[]>; file: string }> = {
+  no7: { name: 'No.7', styleId: SCRIPT.styleId, lines: SCRIPT.lines as Record<string, string[]>, file: 'cm' },
+  nia: { name: '琴詠ニア', styleId: NIA.styleId, lines: NIA.lines as Record<string, string[]>, file: 'nia' },
+};
 // 組の色 → チームの対応（陣営0＝あんこもん側＝だいだい組、陣営1＝ずんだもん側＝みどり組）
 export const TEAM_GUMI = ['daidai', 'midori'];
 // 組の色（台本の parts.team と同じ8色）: 英語名（決着の「〜 TEAM WIN」）と文字色
@@ -58,9 +65,9 @@ export const PARTICLES = ['の', 'が', 'を', 'に', 'と', 'は', 'も'];
 // パターンの文字列 → 部品（[A] など）と定型文の並び
 export const tokens = (pat: string) => pat.split(/(\[[^\]]+\])/).filter((x) => x !== '');
 // イベントキー → パターンの一覧（雑談は chat:<キャラ>。1本ずつ丸ごと1つの部品）
-export const patterns = (k: string): string[] => {
+export const patterns = (k: string, v: Voice = 'no7'): string[] => {
   if (k.startsWith('chat:')) return (CHATTER as Record<string, string[]>)[k.slice(5)] ?? [];
-  return (SCRIPT.lines as Record<string, string[]>)[k] ?? [];
+  return VOICES[v].lines[k] ?? [];
 };
 
 const P = SCRIPT.parts as any;
@@ -111,8 +118,8 @@ export function segments(pat: string): ({ name: string; particle: string } | { t
 }
 
 // セリフ → クリップの並び（読み上げ順）。字幕の名前類は実行時の定義（chars.json・chars.ts・config）を参照する。雑談は1本で1つのクリップ
-export function clips(s: Say): Clip[] {
-  const pat = patterns(s.k)[s.p];
+export function clips(s: Say, v: Voice = 'no7'): Clip[] {
+  const pat = patterns(s.k, v)[s.p];
   if (pat === undefined) return [];
   if (s.k.startsWith('chat:')) return [{ text: reading(pat), sub: subtitle(pat) }];
   const out: Clip[] = [];
@@ -137,10 +144,10 @@ export function clips(s: Say): Clip[] {
 }
 
 // 台本の全クリップの文言（音声生成用。同じ文言は1つ）。名前類は、台本に出てくる「名前＋助詞」の組み合わせもすべて
-export function allTexts(): string[] {
+export function allTexts(v: Voice = 'no7'): string[] {
   const set = new Set<string>();
   const add = (t: string) => { if (t) set.add(t); };
-  for (const k of Object.keys(SCRIPT.lines)) for (const pat of patterns(k)) for (const g of segments(pat)) {
+  for (const k of Object.keys(VOICES[v].lines)) for (const pat of patterns(k, v)) for (const g of segments(pat)) {
     if ('name' in g) for (const v of nameValues(g.name)) add(v + g.particle);
     else add(g.text);
   }

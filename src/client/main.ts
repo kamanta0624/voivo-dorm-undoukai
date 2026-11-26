@@ -13,7 +13,7 @@ import { Controls } from './input';
 import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
 import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
-import { GUMI, TEAM_GUMI } from '../shared/commentary';
+import { GUMI, TEAM_GUMI, VOICES } from '../shared/commentary';
 import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
@@ -149,7 +149,7 @@ css.textContent = ufCss(`
 #fx .prp .lv{flex:none;min-width:3.2em;text-align:center;font-weight:900;color:#ffe066}
 #fx .prp .end{margin-top:8px}
 #fx .prbtn{position:absolute;left:100%;top:50%;width:max(44px,calc(var(--z) * 22px));height:max(110px,calc(var(--z) * 55px));pointer-events:auto;box-sizing:border-box;border:1px solid #ffe066;border-left:0;border-radius:0 8px 8px 0;background:#000c;color:#ffe066;font:bold max(15px,calc(var(--z) * 8px)) sans-serif;writing-mode:vertical-rl;letter-spacing:.3em;cursor:pointer}
-#lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn{display:none}
+#lobby.practice #roster,#lobby.practice .grace,#lobby.practice #cmbtn,#lobby.practice #cvbtn{display:none}
 #fx .timer{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);background:#000a;color:#fff;font:bold calc(var(--z) * 13px) sans-serif;padding:0 .5em;border-radius:3px}
 #fx .bar{position:absolute;top:2.6%;width:31%;height:2.4%;background:#000b;outline:1px solid #000}
 #fx .bar.b0{left:1.2%}
@@ -338,7 +338,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #lobby .opts{display:flex;gap:calc(var(--z) * 4px);width:max-content}
 #lobby .opt{pointer-events:auto;cursor:pointer;font:bold calc(var(--z) * 10.5px) sans-serif;padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:999px;border:calc(var(--z) * 1px) solid #fffa;background:#ffffff26;color:#fff}
 #lobby .opt.off{color:#fff8}
-#lobby #cmbtn::before{content:'♪ '}#lobby #sidebtn::before{content:'⇄ '}
+#lobby #cmbtn::before,#lobby #cvbtn::before{content:'♪ '}#lobby #sidebtn::before{content:'⇄ '}
 #lobby #totitle{left:50%;top:3%;transform:translateX(-50%);transition:transform .35s;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:calc(var(--z) * 2px);background:#1e2f66;border:calc(var(--z) * 1px) solid #6f8fe0}
 #lobby #totitle::before{content:'◀ '}
 #lobby:not(.browse) #totitle{transform:translate(-50%,calc(-100% - var(--z) * 20px))} /* キャラを選んだ後は画面の外へ（立ち絵と被るため） */
@@ -559,7 +559,7 @@ class GameScene extends Phaser.Scene {
     // 待機画面（キャラ選択）: 背後に選んだキャラの立ち絵・名前・ロール・ステータス、下半分に選択バー、右上に味方の選択状況
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
-    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div class="rcol"><div id="roster"></div><div class="opts"><button id="cmbtn" class="opt"></button><button id="sidebtn" class="opt"></button></div></div>`
+    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div class="rcol"><div id="roster"></div><div class="opts"><button id="cmbtn" class="opt"></button><button id="sidebtn" class="opt"></button><button id="cvbtn" class="opt"></button></div></div>`
       + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="totitle" class="big">タイトルへ</button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
@@ -570,6 +570,10 @@ class GameScene extends Phaser.Scene {
     const sdBtn = document.getElementById('sidebtn')!, sdShow = () => { sdBtn.textContent = sideLeft ? '立ち絵 左' : '立ち絵 右'; };
     sdBtn.onclick = () => { sideLeft = !sideLeft; try { localStorage.setItem('sideLeft', sideLeft ? '1' : '0'); } catch {} sdShow(); this.fxFit = FX_FIT_FRAMES; };
     sdShow();
+    // 実況者の切り替え（No.7／琴詠ニア）。端末に保存（観戦でも同じ）
+    const cvBtn = document.getElementById('cvbtn')!, cvShow = () => { cvBtn.textContent = `実況 ${VOICES[commentary.voice].name}`; };
+    cvBtn.onclick = () => { commentary.setVoice(commentary.voice === 'no7' ? 'nia' : 'no7'); cvShow(); };
+    cvShow();
     // 選択バーは全員分を BAR_COPIES 回並べて左右をつなぐ（複製したカードも同じキャラ。data-k で扱う）
     lobby.querySelector('.cards')!.innerHTML = Array.from({ length: BAR_COPIES }, () => PICKABLE.map((k) => `<div class="card" data-k="${k}"><img src="${TACHIE(k, 'select')}"><div>${CHARS[k].name}</div></div>`).join('')).join('');
     // 選択バーのスクロール: 指・マウスで左右にドラッグ、ホイール（縦・横どちらも横送り）。ドラッグした時はカードを押した扱いにしない

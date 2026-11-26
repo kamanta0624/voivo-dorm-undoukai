@@ -2,6 +2,7 @@
 # クレジット（仮・確認中）
 ## 音声
 - VOICEVOX:No.7（実況）
+- VOICEVOX:琴詠ニア（実況）
 ## キャラクター（VOICEVOX）
 - VOICEVOX:満別花丸
 - VOICEVOX:WhiteCUL

@@ -2,22 +2,26 @@
 //   npm run cm:vvproj  雑談（docs/commentary_chatter.md）→ src/shared/commentary_chatter.json、台本（src/shared/commentary_script.json と雑談）→ tools/commentary.vvproj。文言が同じ項目は調声済みのクエリを残し、増えた・変わった項目だけクエリを作る。台本から消えた項目は削除
 //   （本人が VOICEVOX エディタで tools/commentary.vvproj を開いて調声し、上書き保存）
 //   （あわせて、エンジンが付けた読み（カナ）をセリフごとに docs/commentary_readings.md へ書き出す。読み違いは台本・雑談に {字幕|読み} で直す）
+//   実況者は引数で選ぶ（省略は No.7）: npm run cm:vvproj -- nia ／ npm run cm:audio -- nia → tools/commentary_nia.vvproj、public/commentary/nia.mp3・nia.json、docs/commentary_readings_nia.md（No.7 の出力には触らない）
 //   npm run cm:audio   tools/commentary.vvproj の各項目のクエリを合成（前後の無音0、文の途中の部品は最後の音を詰める）→ 前後の無音を削る → 1ファイルのスプライト public/commentary/cm.mp3 ＋ 表 cm.json
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SCRIPT, CHATTER, allTexts, nameDrift, patterns, segments, reading, subtitle } from '../src/shared/commentary';
+import { SCRIPT, CHATTER, VOICES, type Voice, allTexts, nameDrift, patterns, segments, reading, subtitle } from '../src/shared/commentary';
 
 const ENGINE = 'http://localhost:50021';
-const VVPROJ = 'tools/commentary.vvproj';
+const VOICE = (process.argv[3] ?? 'no7') as Voice;
+if (!VOICES[VOICE]) { console.error(`実況者が不明: ${VOICE}（${Object.keys(VOICES).join(' / ')}）`); process.exit(1); }
+const SUF = VOICE === 'no7' ? '' : `_${VOICE}`, FILE = VOICES[VOICE].file;
+const VVPROJ = `tools/commentary${SUF}.vvproj`;
 const OUT_DIR = 'public/commentary';
 const RATE = 24000, BITRATE = '32k'; // モノラル・低サンプルレート・低ビットレート（MP3 は iOS Safari を含む全対象ブラウザで再生できる）
 const MARK = 0.1, LEAD = 0.3, GAP = 0.05; // スプライト先頭の目印（クリック）の位置・先頭の長さ・部品の間の無音(秒)
 const TRIM_TH = 400, TRIM_PAD = 0.01; // 無音とみなす振幅（16bit）・削った後に残す余白(秒)
 const MID_LAST = 0.75; // 文の途中にしか出てこない部品は、最後の母音の長さをこの倍率に詰め、文末の言い方にしない
-const READINGS = 'docs/commentary_readings.md';
+const READINGS = `docs/commentary_readings${SUF}.md`;
 
 const get = async (path: string) => { const r = await fetch(ENGINE + path); if (!r.ok) throw new Error(`${path}: ${r.status}`); return r.json(); };
 const post = async (path: string, body?: any) => {
@@ -45,7 +49,7 @@ function midTexts() {
     return n === '[A]' || n === '[B]' || n === '[C]' ? [...y(P.char), ...y(P.assist)] : n === '[助っ人]' ? y(P.assist) : n === '[大将]' ? y(P.boss) : n === '[技]' ? y(P.skill) : n === '[組]' ? Object.values(P.team) as string[] : n === '[n分]' ? Object.values(P.min) as string[] : n === '[n人で]' ? Object.values(P.nin) as string[] : [];
   };
   const mid = new Set<string>(), fin = new Set<string>();
-  for (const k of Object.keys(SCRIPT.lines)) for (const pat of patterns(k)) {
+  for (const k of Object.keys(VOICES[VOICE].lines)) for (const pat of patterns(k, VOICE)) {
     const gs = segments(pat);
     gs.forEach((g, i) => { for (const t of 'name' in g ? vals(g.name).map((v) => v + g.particle) : [g.text]) (i < gs.length - 1 ? mid : fin).add(t); });
   }
@@ -80,7 +84,7 @@ function warnDrift() {
 async function vvproj() {
   warnDrift();
   chatter();
-  const styleId = SCRIPT.styleId;
+  const styleId = VOICES[VOICE].styleId;
   const speakers = await get('/speakers');
   const sp = speakers.find((s: any) => s.styles.some((x: any) => x.id === styleId));
   if (!sp) throw new Error(`スタイルID ${styleId} の話者がエンジンにいない`);
@@ -88,7 +92,7 @@ async function vvproj() {
   const old = existsSync(VVPROJ) ? JSON.parse(readFileSync(VVPROJ, 'utf8')) : null;
   const byText = new Map<string, { k: string; it: any }>(); // 文言 → 既存の項目（キーも残して git の差分を小さく）
   if (old) for (const k of old.talk.audioKeys) byText.set(old.talk.audioItems[k].text, { k, it: old.talk.audioItems[k] });
-  const texts = allTexts(), keys: string[] = [], items: Record<string, any> = {};
+  const texts = allTexts(VOICE), keys: string[] = [], items: Record<string, any> = {};
   let made = 0;
   for (const text of texts) {
     const prev = byText.get(text);
@@ -118,8 +122,8 @@ async function vvproj() {
 // セリフごとの読みの一覧（docs/commentary_readings.md）: 名前類は [A] などのまま、ほかはエンジンが付けたカナ
 function readings(byText: Map<string, string>) {
   const esc = (t: string) => t.replace(/\|/g, '\\|');
-  const out = ['# 実況の読み（自動生成。npm run cm:vvproj）', '', '読み違いは台本（src/shared/commentary_script.json）・雑談（docs/commentary_chatter.md）に {字幕|読み} で直す。名前類の読みは台本の parts の yomi', '', '| キー | 字幕 | 読み |', '|---|---|---|'];
-  for (const k of Object.keys(SCRIPT.lines)) for (const pat of patterns(k)) {
+  const out = [`# 実況の読み${VOICE === 'no7' ? '' : `（${VOICES[VOICE].name}）`}（自動生成。npm run cm:vvproj${VOICE === 'no7' ? '' : ` -- ${VOICE}`}）`, '', `読み違いは台本（src/shared/${VOICE === 'no7' ? 'commentary_script' : `commentary_${VOICE}`}.json）・雑談（docs/commentary_chatter.md）に {字幕|読み} で直す。名前類の読みは台本の parts の yomi`, '', '| キー | 字幕 | 読み |', '|---|---|---|'];
+  for (const k of Object.keys(VOICES[VOICE].lines)) for (const pat of patterns(k, VOICE)) {
     const r = segments(pat).map((g) => ('name' in g ? g.name + g.particle : byText.get(g.text) ?? `（未生成: ${g.text}）`)).join('');
     out.push(`| ${k} | ${esc(subtitle(pat))} | ${esc(r)} |`);
   }
@@ -146,7 +150,7 @@ function trim(s: Int16Array) {
 async function audio() {
   warnDrift();
   if (!existsSync(VVPROJ)) throw new Error(`${VVPROJ} がない。先に npm run cm:vvproj`);
-  const proj = JSON.parse(readFileSync(VVPROJ, 'utf8')), want = new Set(allTexts()), mids = midTexts();
+  const proj = JSON.parse(readFileSync(VVPROJ, 'utf8')), want = new Set(allTexts(VOICE)), mids = midTexts();
   const cache = join(tmpdir(), 'kiritan_cm_cache');
   mkdirSync(cache, { recursive: true });
   const parts: Int16Array[] = [], table: Record<string, [number, number]> = {};
@@ -174,10 +178,10 @@ async function audio() {
   for (const p of parts) { all.set(p, o); o += p.length; }
   writeFileSync(raw, Buffer.from(all.buffer));
   mkdirSync(OUT_DIR, { recursive: true });
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', String(RATE), '-ac', '1', '-i', raw, '-codec:a', 'libmp3lame', '-b:a', BITRATE, `${OUT_DIR}/cm.mp3`]);
-  writeFileSync(`${OUT_DIR}/cm.json`, JSON.stringify({ mark: MARK, clips: table }));
-  const size = statSync(`${OUT_DIR}/cm.mp3`).size + statSync(`${OUT_DIR}/cm.json`).size;
-  console.log(`${OUT_DIR}/cm.mp3 + cm.json: ${got.size}部品、${(pos / RATE).toFixed(1)}秒、合計 ${(size / 1024).toFixed(0)}KB`);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', String(RATE), '-ac', '1', '-i', raw, '-codec:a', 'libmp3lame', '-b:a', BITRATE, `${OUT_DIR}/${FILE}.mp3`]);
+  writeFileSync(`${OUT_DIR}/${FILE}.json`, JSON.stringify({ mark: MARK, clips: table }));
+  const size = statSync(`${OUT_DIR}/${FILE}.mp3`).size + statSync(`${OUT_DIR}/${FILE}.json`).size;
+  console.log(`${OUT_DIR}/${FILE}.mp3 + ${FILE}.json: ${got.size}部品、${(pos / RATE).toFixed(1)}秒、合計 ${(size / 1024).toFixed(0)}KB`);
 }
 
 const cmd = process.argv[2];
