@@ -61,9 +61,9 @@ const SIDE_BG = '#1a1a22'; // ゲーム画面の外（余白）の既定の色�
 // 余白: 対戦中は自キャラの立ち絵（既定は右、選択画面の切替で左）。入力の邪魔をしない
 const side = document.createElement('div');
 side.id = 'side';
-side.innerHTML = '<img alt=""><div class="pw"></div>';
+side.innerHTML = '<img alt="">';
 document.body.prepend(side);
-// パワーアップ中の演出（本人の画面だけ。pwfx1）: 立ち絵側の余白は立ち絵の上にオーラと光（強さ 1〜MAX で濃く・速く）、反対側の余白はちびキャラ・スチルの枠（素材待ち）
+// パワーアップ中の演出（本人の画面だけ。pwfx1）: 反対側の余白にちびキャラ・スチルの枠（素材待ち）。立ち絵側の余白のオーラと光は pwfx2 で消した（別の見た目に差し替える予定）
 // DOM は1回だけ作り、表示・強さはクラスの切り替えだけ。動きは CSS の transform・opacity のアニメーションだけ
 const side2 = document.createElement('div');
 side2.id = 'side2';
@@ -72,12 +72,6 @@ document.body.prepend(side2);
 // 反対側の余白の素材（ちびキャラ・スチル）。置き場所 public/assets/pwfx/<キャラのkey>.png。素材が届いたらキーを足す（ないキャラは枠と「素材待ち」）
 const PW_STILL: Record<string, string> = {};
 { const st = document.createElement('style'); st.textContent = ufCss(`body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}
-#side .pw{position:absolute;inset:0;opacity:0;transition:opacity .4s}
-#side .pw::before{content:'';position:absolute;left:-25%;right:-25%;top:0;bottom:0;background:radial-gradient(ellipse 50% 60% at 50% 65%,#ffe68ccc,#ff8cd280 45%,#0000 75%);animation:pwaura var(--pd,1.4s) ease-in-out infinite alternate}
-#side .pw::after{content:'';position:absolute;inset:0 0 -96px;background:radial-gradient(circle,#fff 0 1.5px,#0000 2.5px) 0 0/36px 48px,radial-gradient(circle,#ffe68c 0 1px,#0000 2px) 18px 24px/36px 48px;animation:pwrise var(--pd2,3s) linear infinite}
-#side.pw0 .pw{opacity:.35}#side.pw1 .pw{opacity:.55;--pd:1.2s;--pd2:2.4s}#side.pw2 .pw{opacity:.75;--pd:.9s;--pd2:1.8s}#side.pw3 .pw{opacity:1;--pd:.6s;--pd2:1.2s}
-@keyframes pwaura{from{transform:scale(.94);opacity:.6}to{transform:scale(1.06);opacity:1}}
-@keyframes pwrise{from{transform:translateY(0)}to{transform:translateY(-96px)}} /* 模様の周期（48px）の倍数だけ上へ流す（繰り返しの切れ目で跳ばない） */
 #side2{position:fixed;pointer-events:none;display:none;align-items:center;justify-content:center}
 #side2.on{display:flex}
 #side2 .still{width:80%;height:60%;max-width:240px;box-sizing:border-box;border:2px dashed #fff6;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff8;font:bold 13px sans-serif;background:center bottom/contain no-repeat}
@@ -1155,8 +1149,6 @@ class GameScene extends Phaser.Scene {
     const t = u ? Math.min(u.tier, C.POWER_TAGS.length - 1) : -1;
     if (t === this.pwTier) return;
     this.pwTier = t;
-    side.classList.remove('pw0', 'pw1', 'pw2', 'pw3');
-    if (t >= 0) side.classList.add(`pw${t}`);
     const on = t >= 0 && !!this.sideChar, still = side2.querySelector<HTMLElement>('.still')!, src = this.sideChar ? PW_STILL[this.sideChar] : undefined;
     side2.classList.toggle('on', on);
     if (on) { still.classList.toggle('img', !!src); still.style.backgroundImage = src ? `url(${src})` : ''; } // 素材は出す時に1回だけ読む
