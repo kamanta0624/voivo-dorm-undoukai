@@ -8,7 +8,7 @@ import NAMES from '../shared/player_names.json';
 
 declare const __BUILD__: string;
 declare const __GAME_PORT__: number;
-const TITLE = 'VOICE SQUAD';
+const TITLE = 'ブイブイブレイカーズ';
 const STATE_LABEL: Record<string, string> = { waiting: '待機中', full: '満員', playing: '対戦中' };
 
 // ビルドの識別子を画面の隅に常に出す（main.ts も使う）

@@ -1,4 +1,4 @@
-# VOICE SQUAD
+# ブイブイブレイカーズ（VV BREAKERS）
 
 ## クレジット
 

@@ -33,7 +33,7 @@ const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), �
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
 const TEAM_NAME = ['だいだい組', 'みどり組'];
-const TITLE = 'VOICE SQUAD';
+const TITLE = 'ブイブイブレイカーズ';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
 const CARD_W = 56, TACHIE_BROWSE_H = 80, BAR_COPIES = 3; // BAR_COPIES: 選択バーのループのために全員分を並べる回数
