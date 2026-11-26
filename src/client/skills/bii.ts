@@ -2,6 +2,7 @@
 import type Phaser from 'phaser';
 import type { ClientSkill } from './index';
 import { CONFIG as C } from '../../shared/config';
+import { uf } from '../uifont';
 
 const MARK_UP = (sc: number) => 42 * C.DOT_SCALE * sc * 0.85 + 16; // 予約の印の高さ（足元から、頭の上・HPバーの上）。sc: 対象の表示倍率（プレイヤー1、アシスト・大将2）
 const decoys = new Map<number, { im: Phaser.GameObjects.Image; seen: number }>(); // 残像の id → 表示中の画像
@@ -44,7 +45,7 @@ const skill: ClientSkill = {
           if (Math.floor(time / 80) % 2) g.fillStyle(0xffd040).fillCircle(x + 7.5, y - 9.5, 2).fillStyle(0xff6020).fillCircle(x + 7.5, y - 9.5, 1); // 火花
           const key = `${e.id}:${m.id}`;
           let c = counts.get(key);
-          if (!c) counts.set(key, (c = { tx: g.scene.add.text(x, y, '', { fontFamily: 'sans-serif', fontSize: '9px', fontStyle: 'bold', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setResolution(4).setDepth(21), seen: time }));
+          if (!c) counts.set(key, (c = { tx: g.scene.add.text(x, y, '', { fontFamily: 'sans-serif', fontSize: `${uf(9)}px`, fontStyle: 'bold', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setResolution(4).setDepth(21), seen: time }));
           c.seen = time;
           c.tx.setPosition(Math.round(x), Math.round(y)).setText(String(sec)).setColor(hot ? '#ff5050' : '#ffffff');
         }

@@ -14,7 +14,8 @@ import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
 import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
 import { GUMI, TEAM_GUMI } from '../shared/commentary';
-import { ModernFx } from './slot_modern_fx';
+import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
+import { uf, ufCss } from './uifont';
 import { powerText, assistText } from '../shared/slot_modern';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string };
@@ -69,7 +70,7 @@ side2.innerHTML = '<div class="still"><span>素材待ち</span></div>';
 document.body.prepend(side2);
 // 反対側の余白の素材（ちびキャラ・スチル）。置き場所 public/assets/pwfx/<キャラのkey>.png。素材が届いたらキーを足す（ないキャラは枠と「素材待ち」）
 const PW_STILL: Record<string, string> = {};
-{ const st = document.createElement('style'); st.textContent = `body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}
+{ const st = document.createElement('style'); st.textContent = ufCss(`body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}
 #side .pw{position:absolute;inset:0;opacity:0;transition:opacity .4s}
 #side .pw::before{content:'';position:absolute;left:-25%;right:-25%;top:0;bottom:0;background:radial-gradient(ellipse 50% 60% at 50% 65%,#ffe68ccc,#ff8cd280 45%,#0000 75%);animation:pwaura var(--pd,1.4s) ease-in-out infinite alternate}
 #side .pw::after{content:'';position:absolute;inset:0 0 -96px;background:radial-gradient(circle,#fff 0 1.5px,#0000 2.5px) 0 0/36px 48px,radial-gradient(circle,#ffe68c 0 1px,#0000 2px) 18px 24px/36px 48px;animation:pwrise var(--pd2,3s) linear infinite}
@@ -79,7 +80,7 @@ const PW_STILL: Record<string, string> = {};
 #side2{position:fixed;pointer-events:none;display:none;align-items:center;justify-content:center}
 #side2.on{display:flex}
 #side2 .still{width:80%;height:60%;max-width:240px;box-sizing:border-box;border:2px dashed #fff6;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff8;font:bold 13px sans-serif;background:center bottom/contain no-repeat}
-#side2 .still.img{border:0}#side2 .still.img span{display:none}`; document.head.append(st); }
+#side2 .still.img{border:0}#side2 .still.img span{display:none}`, (q) => q.includes('#side2')); document.head.append(st); }
 let sideLeft = false; // 立ち絵を左の余白に出す（端末に保存）
 // 立ち絵ごとの、絵の描かれている左右の範囲（画像の幅に対する割合）。読み込んだ時に1回だけ測る（画像は加工しない）
 const OPAQUE = new Map<string, [number, number]>();
@@ -128,7 +129,7 @@ fx.id = 'fx';
 fx.style.cssText = 'position:fixed;pointer-events:none;overflow:hidden';
 document.body.appendChild(fx);
 const css = document.createElement('style');
-css.textContent = `
+css.textContent = ufCss(`
 #fx .cut{position:absolute;left:0;right:0;bottom:0;height:62%;background:linear-gradient(transparent,#000a 30%,#000a 85%,transparent);animation:cutfade var(--d) linear forwards}
 #fx .cut img{position:absolute;bottom:0;height:100%}
 #fx .cut .me{left:${50 - C.KO_CUTIN_GAP / 2}%;animation:hop var(--d) linear forwards}
@@ -298,7 +299,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .mem .rs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:900 calc(var(--z) * 9px) sans-serif;text-shadow:0 0 2px #000,0 0 2px #000}
 #fx .ic{width:calc(var(--z) * 18px);height:calc(var(--z) * 18px);background:#000a no-repeat calc(var(--z) * -7px) calc(var(--z) * -3px)/calc(var(--z) * 32px) calc(var(--z) * 42px);image-rendering:pixelated;border:1px solid var(--c);border-radius:2px;flex:none}
 #fx .ic.dead{filter:grayscale(1) brightness(.35)}
-#fx .kills{position:absolute;top:24%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
+#fx .kills{position:absolute;top:27%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:1px}
 #fx .kills div{display:flex;align-items:center;gap:calc(var(--z) * 3px);background:#0008;padding:1px 4px;color:#fff;font:bold calc(var(--z) * 7px) sans-serif}
 #fx .kills .ic{width:calc(var(--z) * 14px);height:calc(var(--z) * 14px);background-position:calc(var(--z) * -9px) calc(var(--z) * -4px)}
 #fx .intro{position:absolute;inset:0;display:none;overflow:hidden}
@@ -309,7 +310,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .intro .stripe{position:absolute;left:0;right:0;top:30%;height:40%;background:linear-gradient(90deg,transparent,var(--c) 25%,var(--c) 75%,transparent);opacity:.35;animation:fadein .3s}
 #fx .intro .tc{position:absolute;bottom:0;left:8%;height:95%;animation:slidein .35s ease-out}
 #fx .intro .logo{position:absolute;right:7%;top:40%;font:900 calc(var(--z) * 30px) sans-serif;color:#fff;-webkit-text-stroke:calc(var(--z) * 1.2px) var(--c);text-shadow:0 0 calc(var(--z) * 6px) var(--c);transform:skewX(-8deg);animation:logoin .4s ease-out}
-#fx .banner{position:absolute;left:0;right:0;top:34%;text-align:center;display:none}
+#fx .banner{position:absolute;left:0;right:0;top:31%;text-align:center;display:none}
 #fx .banner b{display:inline-block;font:900 calc(var(--z) * 40px) sans-serif;color:var(--c);-webkit-text-stroke:calc(var(--z) * 1.5px) #000;text-shadow:0 0 10px #000;animation:pop .3s ease-out}
 #fx .banner small{display:block;font:bold calc(var(--z) * 10px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .back{position:absolute;left:50%;top:58%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 9px) sans-serif;padding:.3em 1.4em;border-radius:4px;border:2px solid #fff;background:#335;color:#fff;cursor:pointer;pointer-events:auto}
@@ -324,6 +325,8 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .scut span{display:block;font:bold calc(var(--z) * 9px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
 #fx .tk .rf{margin-left:.5em;color:#9fe8ff}
 #fx .tk .mh{zoom:calc(var(--z) * .85)}
+#fx .tk .mfx-row{display:flex;justify-content:center;align-items:baseline;gap:.4em;white-space:nowrap} /* 文字が長いと組の HUD の幅が広がる（隣の組と重ならない。今までの大当たり N連・モードの文字と同じ） */
+#fx .tk .mfx-row .mfx-label{position:static;transform:none}
 #fx .mfxl{position:absolute;left:0;top:0;width:${C.VIEW_W}px;height:${C.VIEW_H}px;zoom:var(--z);pointer-events:none} /* モダンのスロットの演出・お知らせ（論理解像度。slot_modern_fx） */
 #fx .fever{position:absolute;right:1.2%;top:18%;display:none;font:900 calc(var(--z) * 12px) sans-serif;color:#ffd700;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 4px) #f60;white-space:nowrap;animation:pop .3s ease-out}
 #fx .lbl.introlbl{font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .6px) #000}
@@ -344,8 +347,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #lobby #totitle::before{content:'◀ '}
 #lobby:not(.browse) #totitle{transform:translate(-50%,calc(-100% - var(--z) * 20px))} /* キャラを選んだ後は画面の外へ（立ち絵と被るため） */
 #fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
-`;
+`, (q) => q.includes('#fx') && !q.includes('#lobby')); // 戦闘画面（#fx）の文字だけ UI_FONT_SCALE（選択画面 #lobby は対象外）
 document.head.appendChild(css);
+{ const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = ufCss(MFX_CSS); document.head.append(st); } // スロットの演出の CSS（slot_modern_fx）を戦闘画面の文字の大きさで先に置く（ModernFx は同じ id があれば置かない。slot.html は元のまま）
 const down = document.createElement('div');
 down.className = 'down';
 down.innerHTML = '<img><div></div>';
@@ -882,9 +886,9 @@ class GameScene extends Phaser.Scene {
     k.refresh();
     // 強さの札（頭上）: 「1」「2」「3」「MAX」と「★」〜「★★★★」を1枚の絵にコマ分けして起動時に作る（頭上は Image のコマを切り替える: render_policy 3）
     // TAG_RES 倍で描いて 1/TAG_RES で表示する（この絵だけ線形補間）
-    const R = TAG_RES, font = `900 ${7 * R}px sans-serif`, labels = [...C.POWER_TAGS, ...C.ASSIST_TAGS], m0 = document.createElement('canvas').getContext('2d')!;
+    const R = TAG_RES, font = `900 ${uf(7) * R}px sans-serif`, labels = [...C.POWER_TAGS, ...C.ASSIST_TAGS], m0 = document.createElement('canvas').getContext('2d')!;
     m0.font = font;
-    const ws = labels.map((l) => Math.ceil(m0.measureText(l).width) + 4 * R), H = 9 * R;
+    const ws = labels.map((l) => Math.ceil(m0.measureText(l).width) + 4 * R), H = Math.ceil(uf(7) + 2) * R;
     const tt = this.textures.createCanvas('tags', ws.reduce((a, b) => a + b + 2, 0), H)!, tc = tt.context;
     let x = 0;
     labels.forEach((l, i) => {
@@ -1035,6 +1039,7 @@ class GameScene extends Phaser.Scene {
         const syms = C.SLOT_MODE === 'modern' ? C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]))
           : C.SLOT.syms.flatMap((x) => (x === 'boss' ? [BOSS_CHAR[team]] : x.startsWith('assist:') ? [ass[Number(x.slice(7))]] : cs[Number(x.slice(7))] ? [cs[Number(x.slice(7))]] : [])); // クラシック: プレイヤー＋アシスト＋7（大将）。いないプレイヤーの絵柄は外す（サーバーの slotSyms と同じ並び）
         const f = new ModernFx(el.querySelector<HTMLElement>('.mh')!, team === myTeam ? $('.mfxl') : document.createElement('div'), syms, cs, css16(TEAM_COLOR[team]));
+        { const row = document.createElement('div'); row.className = 'mfx-row'; f.modeEl.replaceWith(row); row.append(f.modeEl, f.label); } // リーチ！・当選！はリールの横ではなく保留の丸の下（「大当たり N連」と同じ行）。文字を大きくして隣の組のリールに隠れたため（font1）
         f.idle(performance.now());
         return f;
       });

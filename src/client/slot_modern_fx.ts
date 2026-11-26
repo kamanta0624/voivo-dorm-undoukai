@@ -11,7 +11,7 @@ const M = C.SLOT_MODERN, W = C.VIEW_W, H = C.VIEW_H;
 const DOT = (k: string, f = 'idle') => `assets/gen/dot/${k}/${f}.png`;
 export const HOLD_COLORS = ['#e8e8e8', '#3d8bff', '#3ccf5a', '#ff3b3b', 'conic-gradient(#f33,#fd3,#3f6,#3cf,#a3f,#f33)'];
 
-const CSS = `
+export const CSS = `
 .mfx-hud{display:flex;flex-direction:column;align-items:center;gap:3px;font:bold 7px sans-serif;color:#fff;text-shadow:0 0 2px #000}
 .mfx-sl{position:relative;display:flex;gap:1px;background:#1b1b28;border:2px solid var(--c);padding:1px;border-radius:3px}
 .mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
