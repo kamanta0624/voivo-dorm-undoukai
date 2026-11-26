@@ -19,7 +19,7 @@
 7. handoff_pwfx1.md　済 live-20261126-2（PC の画面内の演出は案のみ）
 8. handoff_lobby2.md　済 live-20261126-6（NG ワード判定は無い）
 9. handoff_react0.md　済（調査報告のみ。コード変更なし・タグなし。react1 は Chat 待ち）
-10. handoff_news1.md（タイトルの更新情報を日付＋要約1行に。以降の反映では要約の行も直す）
+10. handoff_news1.md　済 live-20261126-7（更新情報の画面にも要約の行を出す）
 11. handoff_botsim1.md（記録部を常時ON。人間の試合も Bot 戦も同じログ。リザルト画面の元データを兼ねる）
 12. handoff_font1.md（戦闘画面の文字を +20%。result1 の前：新しい画面が同じ文字の基準を使えるように）
 13. handoff_result1.md（botsim1 の後。試合結果画面）
@@ -27,3 +27,4 @@
 15. handoff_pwfx2.md
 16. handoff_nia1.md（台本は docs/handoff/nia_lines.json）
 17. handoff_botai1.md（botsim1 の後）
+18. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから）
