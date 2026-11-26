@@ -58,6 +58,7 @@ css.textContent = `
 #title .news{background:#0008;border-radius:6px;padding:8px 12px;font-size:13px;line-height:1.5}
 #title .news h3{margin:0 0 4px;font-size:14px;color:#ffe066}
 #title .news ul{margin:0;padding-left:1.2em}
+#title .news p{margin:0}
 #title .pop{position:fixed;inset:0;background:#000c;display:none;flex-direction:column;padding:16px;box-sizing:border-box}
 #title .pop .body{flex:1;overflow:auto;background:#222;border-radius:6px;padding:8px 16px;line-height:1.6;font-size:14px}
 #title .pop .body h2{color:#ffe066;font-size:17px;margin:12px 0 4px}
@@ -78,6 +79,7 @@ function md(text: string) {
     else if (line.startsWith('### ')) html += `<h3>${esc(line.slice(4))}</h3>`;
     else if (line.startsWith('## ')) html += `<h3>${esc(line.slice(3))}</h3>`;
     else if (line.startsWith('# ')) html += `<h2>${esc(line.slice(2))}</h2>`;
+    else if (line.startsWith('> ')) html += `<p>${esc(line.slice(2))}</p>`; // 更新情報の要約の行
     else if (line.trim() && !line.startsWith('<!--')) html += `<p>${esc(line)}</p>`;
   }
   return html + (ul ? '</ul>' : '');
@@ -118,7 +120,8 @@ function showTitle() {
   // 更新情報: 最新1件をタイトルに、全部は開いて読む（public/patchnotes.md、## で1件）。開いた画面では最新1件だけ展開し、過去の分は日付で畳む
   fetchText('patchnotes.md').then((t) => {
     const items = t.split(/^(?=## )/m).filter((x) => x.startsWith('## '));
-    if (items[0]) { $('.news').innerHTML = md(items[0]); $('.news').hidden = false; }
+    const sum = items[0]?.match(/^## (.*)\n> (.*)/); // 要約の行（見出しの直後の「> 」）があれば、タイトルには日付と要約だけ
+    if (items[0]) { $('.news').innerHTML = sum ? `<h3>${esc(sum[1].trim())}</h3><p>${esc(sum[2])}</p>` : md(items[0]); $('.news').hidden = false; }
     const fold = (x: string) => { const [h, ...b] = x.split('\n'); return `<details><summary>${esc(h.slice(3).trim())}</summary>${md(b.join('\n'))}</details>`; };
     $('.notes').onclick = () => open(items.map((x, i) => (i ? fold(x) : md(x))).join(''));
   });
