@@ -9,6 +9,7 @@ import { roomAt } from './commentary';
 const COMMIT = (() => { try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return null; } })();
 export const BOT_STATES = ['fight', 'flee', 'recall', 'eat', 'courier', 'item', 'gather', 'boss', 'raid', 'dead'] as const; // Bot の状態（botThink の分岐）。dead=撤退中
 const r1 = (n: number) => Math.round(n * 10) / 10;
+const r2 = (n: number) => Math.round(n * 100) / 100; // 徳の1秒ごと（1発 −0.06 などが 0.1 刻みだと丸めで合計がずれる）
 const add = (a: number[], i: number, v: number) => { while (a.length <= i) a.push(0); a[i] += v; };
 
 type CharRec = {
@@ -120,7 +121,7 @@ export class MatchRec {
       ...c, dmg: { char: r1(c.dmg.char), boss: r1(c.dmg.boss), courier: c.dmg.courier, wall: c.dmg.wall }, taken: { char: r1(c.taken.char), boss: r1(c.taken.boss), penalty: r1(c.taken.penalty) },
       tokuGain: r1(c.tokuGain), tokuLoss: r1(c.tokuLoss), bad: r1(c.bad), rage: r1(room.players.get(c.id)?.rage ?? 0), badNow: r1(room.players.get(c.id)?.bad ?? 0),
       states: Object.fromEntries(Object.entries(c.states).map(([k, v]) => [k, r1(v)])),
-      series: { bossDmg: c.series.bossDmg.map(r1), tokuGain: c.series.tokuGain.map(r1), tokuLoss: c.series.tokuLoss.map(r1) },
+      series: { bossDmg: c.series.bossDmg.map(r1), tokuGain: c.series.tokuGain.map(r2), tokuLoss: c.series.tokuLoss.map(r2) },
     }));
     const teams = [0, 1].map((t) => {
       const T = room.teams[t], b = room.bosses[t];

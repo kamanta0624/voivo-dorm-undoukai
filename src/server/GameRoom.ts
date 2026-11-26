@@ -199,6 +199,7 @@ export class GameRoom extends Room {
       if (p.inputs.length > C.NET_QUEUE_MAX) { p.inputs.shift(); if (this.measure && this.phase === 'playing') this.measure.client(client.sessionId).dropped++; }
     },
     // Q を押した: 押している間リコールを溜める
+    resultReq: (client: Client) => { const r = this.rec.summary(); if (this.phase === 'ended' && r) client.send('result', r); }, // 試合結果画面のデータ: 結果画面の間に入室・再接続した人は、受け取る準備ができてから求める
     qdown: (client: Client, m?: { seq?: number }) => {
       const p = this.players.get(this.owners.get(client.sessionId) ?? '');
       if (p && this.phase === 'playing' && p.alive && p.qAt === null) { p.qAt = p.recallAt = this.now; p.qSeq = Number.isFinite(m?.seq) ? m!.seq! : -Infinity; } // seq: 押す前に送った移動入力（まだ処理待ちの分で中断しない）
@@ -885,6 +886,7 @@ export class GameRoom extends Room {
     this.winner = winner;
     this.writeLog(kind);
     this.cm.end(winner, kind);
+    const sum = this.rec.summary(); if (sum) for (const c of this.clients) c.send('result', sum); // 試合結果画面のデータ（全員へ1回。結果画面の間に入った人には onJoin で送る）
     // 各陣営の全員を、自陣の大将が最後にいた部屋に集める（倒れていた人も戻す。撃破の演出中のアシストは消す）
     for (const p of [...this.players.values()]) if (p.assist && !p.alive) this.players.delete(p.id);
     for (const t of [0, 1]) {

@@ -89,6 +89,7 @@ export const CONFIG = {
   // 試合の記録部（src/server/matchlog.ts、handoff_botsim1）。bossBig: 大将への単発の大ダメージの印（大将の最大HPに対する割合、仮置き）。maxBytes: logs/ の合計の上限（超えたら書かずに警告、仮置き2GB）
   MATCHLOG: { bossBig: 0.05, maxBytes: 2 * 2 ** 30 },
   // 誰もいない時の Bot 戦（tools/botsim.ts）。intervalSec: 前回の開始からこの秒数が経つまで始めない（launchd は短い間隔で起こすだけ）。matches: 1回の本数。maxMin: 1回の上限（分）。値は仮置き
+  RESULT: { bucketSec: 60 }, // 試合結果画面（src/client/result.ts）の下半分の時間帯の幅（秒、仮置き）。割り切れない最後の列は端数
   BOTSIM: { intervalSec: 3600, matches: 20, maxMin: 30 },
   // 開始と終了の演出
   INTRO_SPEED,

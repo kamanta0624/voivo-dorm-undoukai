@@ -16,6 +16,7 @@ import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
 import { GUMI, TEAM_GUMI } from '../shared/commentary';
 import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
+import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
 
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string };
@@ -313,6 +314,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #fx .banner{position:absolute;left:0;right:0;top:31%;text-align:center;display:none}
 #fx .banner b{display:inline-block;font:900 calc(var(--z) * 40px) sans-serif;color:var(--c);-webkit-text-stroke:calc(var(--z) * 1.5px) #000;text-shadow:0 0 10px #000;animation:pop .3s ease-out}
 #fx .banner small{display:block;font:bold calc(var(--z) * 10px) sans-serif;color:#fff;text-shadow:0 0 4px #000,0 0 4px #000}
+#fx .rsbtn{position:absolute;left:50%;top:22%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 9px) sans-serif;padding:.3em 1.4em;border-radius:4px;border:2px solid #ffe066;background:#335;color:#fff;cursor:pointer;pointer-events:auto} /* 試合結果画面を開く（勝敗バナーの上。result.ts） */
 #fx .back{position:absolute;left:50%;top:58%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 9px) sans-serif;padding:.3em 1.4em;border-radius:4px;border:2px solid #fff;background:#335;color:#fff;cursor:pointer;pointer-events:auto}
 #fx .back:disabled{background:#555;cursor:default}
 #fx .tk{position:absolute;top:6.4%;left:50%;transform:translateX(-50%);display:flex;gap:calc(var(--z) * 8px)}
@@ -366,7 +368,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="rsbtn">リザルト</button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
@@ -478,6 +480,7 @@ class GameScene extends Phaser.Scene {
   brokenN = 0;
   homes: { x: number; y: number; w: number; h: number }[][] = [[], []]; // この試合の自宅（大将の部屋）
   homesKey = '';
+  result: any = null; // 試合結果画面のデータ（サーバーの 'result'。結果画面の間だけ持つ）
   prevPhase = ''; // 演出の切り替え検知用（直前のスナップショットの phase と残り時間）
   prevTimeLeft = Infinity;
   timed: { key: string; text: string; sub: string; color: string; until: number } | null = null; // 時間で消える大きな表示（GAME START・形勢・残り秒数）
@@ -623,6 +626,7 @@ class GameScene extends Phaser.Scene {
     }
     document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
     $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
+    $('.rsbtn').onclick = () => { const s = this.snap, mine = s?.players.find((p: any) => p.id === s.me); if (this.result && s) openResult(this.result, { myTeam: mine ? mine.team : null, title: s.winner === 2 ? '引き分け' : !mine ? `${TEAM_NAME[s.winner]}の勝ち` : s.winner === mine.team ? '勝利' : '敗北', colors: TEAM_COLOR.map(css16), names: TEAM_NAME, players: Object.fromEntries(s.roster.map((r: any) => [r.id, r.bot ? 'Bot' : r.name ?? ''])) }); };
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
     for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
     // 練習パネル: 操作はサーバーへ（pr）。表示は tick の practiceHud
@@ -706,6 +710,8 @@ class GameScene extends Phaser.Scene {
         if (mine) this.cutin(mine.char, k.victimChar, k.how);
       });
       room.onMessage('koed', (k: any) => (this.koedBy = { kc: k.kc, how: k.how }));
+      room.onMessage('result', (r: any) => (this.result = r)); // 試合結果画面のデータ（決着後に1回）
+      room.send('resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
     }
   }
 
@@ -1927,6 +1933,8 @@ class GameScene extends Phaser.Scene {
     const back = $('.back') as HTMLButtonElement;
     const backDisp = s.phase === 'ended' && mine ? 'block' : 'none';
     setCss(back, 'display', backDisp); setCss($('.totitle'), 'display', backDisp);
+    if (s.phase !== 'ended' && this.result) { this.result = null; if (resultOpen()) closeResult(); } // 次の試合へ進んだら捨てる
+    setCss($('.rsbtn'), 'display', s.phase === 'ended' && this.result ? 'block' : 'none');
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
     this.buffHud(s, mine, myTeam, sinceSnap);
