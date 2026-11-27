@@ -45,7 +45,7 @@ HP・攻撃・移動・視界の実数は各キャラの `stat` に直接書く�
 | `mochiko` | ファンネル6機を出す。敵を囲んで射撃。攻撃対象になり壊される | ― | ― | `funnel`（ユニット扱い、HPあり） | ents `funnel`、fx `funnel`（発動時の展開） |
 | `aru` | タメ→決めた方向へ突進。壁を壊し、触れた敵に1回ずつダメージ。壊せない壁では止まらず、体は壁に沿って滑る（正面なら dur まで留まる） | `afterMove`、`ended` | `charge`（lock・still・noAttack・cancel）、`rush`（lock・noAttack・invincible・noPush・cancel） | ― | status `charge`（警告帯・白点滅）・`rush`（渦）、`frame`（煙） |
 | `bii` | 一定時間加速・通常攻撃なし。一定間隔で残像（おとり）を置く。触れた敵（大将含む。中心間 敵の半径＋touch）に予約、終了時に予約があればポーズ→予約の全員へダメージ。途中で倒されたら不発。予約はビィ1人ずつ別 | `afterMove`（Bot が敵へ寄る） | `overload`（speed・noAttack・cancel）、`overloadPose`（lock・still・noAttack・cancel） | `overload`（対象外、進行と予約を持つ。予約の対象id・半径を `v` で送る。印の位置はクライアントが対象の描画位置から引く）、`biiDecoy`（ユニット扱い、HP1、視界外は送らない） | status `overload`（足元の輪）・`overloadPose`（コマ `banzai`）、ents `biiDecoy`（ビィのドットの残像。画像を `frame` で片付け）・`overload`（予約の照準）、色 `boom` |
-| `ierutan` | 範囲内の味方と自分をアップグレード（通常攻撃の間隔×0.8、アシストは間隔そのまま）＋毎秒回復 | ― | `upgrade`（cd・regen）を味方に付ける | ― | status `upgrade` の目印（足元の輪・上へ流れる矢印）、fx `upgrade`（広がる二重の輪・放射線） |
+| `ierutan` | 長方形の範囲（横400×縦300、体の中心が中心）の味方と自分をアップグレード（通常攻撃の間隔×0.8、アシストは間隔そのまま）＋毎秒回復 | ― | `upgrade`（cd・regen）を味方に付ける | ― | status `upgrade` の目印（足元の輪・上へ流れる矢印）、fx `upgrade`（広がる二重の長方形・放射線）。技が使える間は本人の画面に範囲の長方形 |
 | `zunko` | 発射時の照準の対象1体を追う矢（弾速900、旋回は毎秒120°まで、対象を失ったら直進、寿命0.6秒）。当たった敵をずんだ餅に（減速・技不可・与ダメ×0.5） | ― | `mochi`（speed・noSkill・atk）を敵に付ける | ―（矢は共通の弾。誘導は弾の `steer`） | status `mochi`（餅の姿、技ボタンに「餅」）、shots `arrow`（大きな矢・光の粒の尾。向きは進行方向） |
 | `kiritan` | 1回目でロックオン、2回目でロックした全員へホーミング弾を3斉射（総数12発を人数で分ける）。目標が倒れた弾は直進に切り替わる。CTは発射後から | `tick`（ロック付与・斉射の進行）。`use` が false を返してCTを自前で入れる | `lockon`（cancel） | `missile`（対象外、弾道3種） | status `lockon`（照準マーク）、ents `missile` |
 | `himari` | 発動で透明化。透明化中の Space で鎌（特大ダメージ。ディフェンス以外は一撃）、当てたら攻撃方向へ跳ぶ | `attack`（Spaceの上書き）、`afterMove`・`ended`（跳ぶ）、`tick` | `cloak`（hidden・fragile・noAuto）、`leap`（lock・noAttack・cancel） | ― | status `cloak`（コマ `eyes`、足元・HPを出さない）・`leap`（コマ `idle`）、色 `scythe`、追加コマ `eyes` |
@@ -96,7 +96,7 @@ HP・攻撃・移動・視界の実数は各キャラの `stat` に直接書く�
 | `mochiko` | もち子 | 通常 / ガッツポーズ / 恐怖 | もち子 | 02 | ― |
 | `aru` | 猫使アル | 直立 / 悪だくみ / 恐怖 | 猫使アル（固有差分あり） | 02 | ― |
 | `bii` | 猫使ビィ | 直立 / 攻撃 / なき | 猫使ビィ（固有差分あり） | 02 | ― |
-| `ierutan` | あいえるたん | 通常 / いかり / なき | あいえるたん | 02 | ― |
+| `ierutan` | あいえるたん | 通常 / いかり / 恐怖 | あいえるたん | 02 | ― |
 | `zunko` | 東北ずん子 | 制服 / 制服 / なし | 東北ずん子 | 02 | ― |
 | `kiritan` | きりたん | 通常 / 煽り / なし | 東北きりたん | 01 | ― |
 | `himari` | 冥鳴ひまりv2 | 直立 / 怒り / ショック | 冥鳴ひまり | 02 | `eyes`（目レイヤー `*eye_R04` だけ） |
@@ -122,3 +122,4 @@ koed「なし」は選択画面の絵をグレー化してずり落とす。
 - 2026-11-23：壊せない壁の近くでも撃てる（wallskill1）。花丸パンチは芯（半径15、`core`）が壊せない壁に触れたときだけ消える。アルの突撃は壊せない壁で止まらず、体は壁に沿って滑り dur まで続く。壊せない壁の判定は GameRoom.ts の `unbreakable`（hanamaru・aru）
 - 2026-11-23：そらのチャージを技ボタンのゲージと％で見せる（sora3）。本人の画面だけ。30秒の総ダメージ＝100%（0〜5秒は比例、以降は総ダメージ比で100%超えあり）。補間 `solarAt` を `src/shared/solar.ts` へ移しサーバーと共通（sora）
 - 2026-11-26：あいえるたんの通常攻撃を中距離の弾に（ierutan1）。射程150（WhiteCUL と同じ）、間隔・威力は近接のまま、弾は既存の bullet（弾速600）。一覧の WhiteCUL の通常攻撃をクナイ（中距離、射程150）に直す（ierutan・whitecul）
+- 2026-11-27：あいえるたんのアップグレードの範囲を円（半径150）から長方形（横400×縦300、向きは画面に固定）に。撃破された時の立ち絵を選択画面と同じ衣装の「恐怖」に（ierutan2）（ierutan）

@@ -7,7 +7,7 @@
   "mochiko": { "name": "もち子", "dir": "もち子", "select": "通常", "ko": "ガッツポーズ", "koed": "恐怖", "bg": "#26282e" },
   "aru": { "name": "猫使アル", "dir": "猫使アル", "select": "直立", "ko": "悪だくみ", "koed": "恐怖", "bg": "#3a1418" },
   "bii": { "name": "猫使ビィ", "dir": "猫使ビィ", "select": "直立", "ko": "攻撃", "koed": "なき", "bg": "#142a44" },
-  "ierutan": { "name": "あいえるたん", "dir": "あいえるたん", "select": "通常", "ko": "いかり", "koed": "なき", "bg": "#3a2a14" },
+  "ierutan": { "name": "あいえるたん", "dir": "あいえるたん", "select": "通常", "ko": "いかり", "koed": "恐怖", "bg": "#3a2a14" },
   "zunko": { "name": "東北ずん子", "dir": "東北ずん子", "select": "制服", "ko": "制服", "koed": null, "bg": "#1e3424" },
   "kiritan": { "name": "東北きりたん", "dir": "きりたん", "select": "通常", "ko": "煽り", "koed": null, "bg": "#3a2420" },
   "himari": { "name": "冥鳴ひまり", "dir": "冥鳴ひまりv2", "select": "直立", "ko": "怒り", "koed": "ショック", "bg": "#2e2438" },

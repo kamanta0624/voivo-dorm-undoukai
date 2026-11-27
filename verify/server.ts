@@ -309,6 +309,13 @@ console.log('--- 技の変更（ierutan のアップグレード）・きりた�
   const want = [C.ATTACK_COOLDOWN_MELEE * S.cd, C.ATTACK_COOLDOWN_RANGED * S.cd, C.ATTACK_COOLDOWN_MELEE * S.cd, C.ATTACK_COOLDOWN_MELEE];
   ok(`アップグレード中: 味方の近接 ${want[0]}秒・遠距離 ${want[1]}秒・パワーアップ中 ${want[2]}秒（各0.8倍）、アシストは ${want[3]}秒のまま（効果は付く: ${!!as.st.upgrade}）`,
     [mel, rng, ult, as].every((q: any) => !!q.st.upgrade) && b1.every((v, i) => Math.abs(v - want[i]) < 1e-9) && g.every((v, i) => Math.abs(v - want[i]) < 1e-9) && b0[3] === b1[3], { b0, b1, g });
+  { // 範囲は体の中心を中心とする長方形（横 w・縦 h。ierutan2）: 角の近く（横190・縦140）は入り、横210は外
+    const y = mk('ierutan', 'metan'), A = y.A; delete A.st.test;
+    const at = (id: string, dx: number, dy: number) => { y.r.addPlayer(id, 0, false); const q = y.r.players.get(id); Object.assign(q, { char: 'hanamaru', alive: true, x: A.x + dx, y: A.y + dy }); q.st.test = NOAUTO(); return q; };
+    const inC = at('c1', 190, 140), outX = at('c2', 210, 0), outY = at('c3', 0, 160);
+    y.r.skill('a');
+    ok(`アップグレードの範囲は横${S.w}×縦${S.h}の長方形: 横190・縦140 は入り、横210・縦160 は外`, !!inC.st.upgrade && !outX.st.upgrade && !outY.st.upgrade, { w: S.w, h: S.h, inC: !!inC.st.upgrade, outX: !!outX.st.upgrade, outY: !!outY.st.upgrade });
+  }
   ok('アップグレード中も味方の移動は変わらない', [mel, rng, ult].every((q: any) => { const s0 = z.r.speedOf(q); const u = q.st.upgrade; delete q.st.upgrade; const s1 = z.r.speedOf(q); q.st.upgrade = u; return s0 === s1; }));
   const k = mk('kiritan', 'metan'); k.A.aim = 'nearest'; delete k.A.st.test;
   ok('きりたん: 足が遅い（136px/秒。旧 mult.speed 0.8 を焼き込み）', k.r.speedOf(k.A) === 136);
@@ -2041,12 +2048,12 @@ console.log('--- 自分中心の範囲は体の中心（tune2）');
 {
   const up = bodyUp(), upA = bodyUp(C.ASSIST.scale);
   ok(`体の中心は足元から ${up.toFixed(1)}px 上（ドットの高さ42 × (0.85−0.5) × DOT_SCALE）、アシスト・大将は2倍`, Math.abs(up - 42 * 0.35 * C.DOT_SCALE) < 1e-9 && Math.abs(upA - up * C.ASSIST.scale) < 1e-9);
-  // あいえるたん: 輪の中心＝体の中心。円の縁ちょうど（体の中心どうしの距離＝r）の味方は対象、r を少し超えたら対象外。アシスト（2倍）も体の中心で測る
+  // あいえるたん: 範囲の中心＝体の中心。長方形の縁ちょうど（体の中心どうしの横の差＝w/2・縦の差＝h/2）の味方は対象、少し超えたら対象外。アシスト（2倍）も体の中心で測る（ierutan2 で円→長方形）
   const S = CHARS.ierutan.skill, z = mk('ierutan'); z.r.fx = [];
   const ally = (id: string, x: number, y: number, assist = false) => { z.r.addPlayer(id, 0, false); const q = z.r.players.get(id); Object.assign(q, { char: assist ? 'aoyama' : 'sayo', alive: true, x, y, assist }); q.st.test = NOAUTO(); return q; };
-  const cy = 900 - up, e1 = ally('e1', 1552 + S.r, 900), e2 = ally('e2', 1552 - S.r - 0.5, 900), a1 = ally('a1', 1552, cy - S.r + upA - 1, true), a2 = ally('a2', 1552, 900 + S.r - 1 + upA - up, true);
+  const cy = 900 - up, e1 = ally('e1', 1552 + S.w / 2, 900), e2 = ally('e2', 1552 - S.w / 2 - 0.5, 900), a1 = ally('a1', 1552, cy - S.h / 2 + upA - 1, true), a2 = ally('a2', 1552, 900 + S.h / 2 - 1 + upA - up, true);
   z.r.skill('a'); const f = z.r.fx.find((x: any) => x.color === 'upgrade');
-  ok('あいえるたんのアップグレード: 輪の中心は体の中心。縁ちょうどの味方は対象、縁の外は対象外（アシストも体の中心どうしで測る: 足元では内でも体で外なら対象外、その逆は対象）', f && f.x === 1552 && Math.abs(f.y - cy) < 1e-9 && !!e1.st.upgrade && !e2.st.upgrade && !a1.st.upgrade && !!a2.st.upgrade, { f: f && [f.x, f.y], e1: !!e1.st.upgrade, e2: !!e2.st.upgrade, a1: !!a1.st.upgrade, a2: !!a2.st.upgrade });
+  ok('あいえるたんのアップグレード: 範囲の中心は体の中心。長方形の縁ちょうどの味方は対象、縁の外は対象外（アシストも体の中心どうしで測る: 足元では内でも体で外なら対象外、その逆は対象）', f && f.x === 1552 && Math.abs(f.y - cy) < 1e-9 && !!e1.st.upgrade && !e2.st.upgrade && !a1.st.upgrade && !!a2.st.upgrade, { f: f && [f.x, f.y], e1: !!e1.st.upgrade, e2: !!e2.st.upgrade, a1: !!a1.st.upgrade, a2: !!a2.st.upgrade });
   // 小夜の舞: 大将（2倍）も体の中心で測る。輪は体の中心
   const sy = mk('sayo'); sy.r.fx = []; const R = CHARS.sayo.skill.r, b = sy.r.bosses[1], bu = bodyUp(2);
   Object.assign(b, { x: 1552, y: 900 - up + bu + R + C.BOSS_RADIUS - 1 }); const bh = b.hp; sy.r.skill('a'); sy.r.now += 0.01; sy.r.updatePlayers(0.05);
