@@ -2148,7 +2148,7 @@ console.log('--- 九州そら（ソーラーキャノン）');
   const held = !bh.r.bosses[1].moving && bh.r.warns.length === 0 && bh.r.bosses[1].dmgAtBase >= C.BOSS_MOVE_THRESHOLD;
   run(bh, 1); bh.r.hitThing(bh.A, { k: 'boss', o: bh.r.bosses[1], x: 0, y: 0, r: 0 }, 1);
   ok('ビームが当たっている間は大将の拠点移動（予告・無敵）が起きず、照射後のダメージで通常どおり始まる', held && bh.r.bosses[1].moving, { held });
-  // 最大チャージ: 試合開始から撃たずに溜め（開始の CT 5秒の後から溜まる）、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、試合終了までに大将へ bossMax（1200）が入りきる（照射秒が残っていない時は当たりを残り時間に詰める）
+  // 最大チャージ: 試合開始から撃たずに溜め（開始の CT 5秒の後から溜まる）、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、どれも試合終了までに大将へ bossMax（1200）以上が入りきり、遅く撃つほど多い（285秒より先も伸び続ける。sora4。照射秒が残っていない時は当たりを残り時間に詰める）
   const far = { x: 72, y: 376 }; // svcA_R の大将から、外周の壁に遮られない一番遠い床（約2600px。マップの外接の対角線は約3700px）
   const res = [290, 295, 298].map((T) => {
     const z = mk('sora'); z.r.setBossRooms(['svcA', 'svcB', 'svcC']); const b = z.r.bosses[1]; Object.assign(b, { base: 0, ...z.r.bases[1][0] });
@@ -2157,7 +2157,8 @@ console.log('--- 九州そら（ソーラーキャノン）');
     let got = 0; for (let i = 0; i < 200 && z.r.phase === 'playing'; i++) { z.r.tick(0.05, false); if (z.r.now <= C.MATCH_TIME + 1e-9) got = hp0 - b.hp; }
     return { T, charge: +charge.toFixed(2), got: Math.round(got), base: b.base, warned: z.r.warns.length, dist: Math.round(Math.hypot(b.x - far.x, b.y - far.y)) };
   });
-  ok(`最大チャージ: 試合開始から撃たずに溜め、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、どれも試合終了（${C.MATCH_TIME}秒）までに大将へ${S.bossMax}入りきる（大将はワープしない）`, res.every((q) => q.charge >= M - 1e-6 && Math.abs(q.got - S.bossMax) <= 10 && q.base === 0 && q.warned === 0), res);
+  const want = (c: number) => Math.round(solarAt(c, 1, true) * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT); // 撃った時のチャージの大将への総ダメージ（全倍率の後）
+  ok(`最大チャージ: 試合開始から撃たずに溜め、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、どれも試合終了（${C.MATCH_TIME}秒）までに大将へ${S.bossMax}以上が入りきり、遅く撃つほど多い（大将はワープしない）`, res.every((q) => q.charge >= M - 1e-6 && q.got >= S.bossMax - 10 && Math.abs(q.got - want(q.charge)) <= 10 && q.base === 0 && q.warned === 0) && res[0].got < res[1].got && res[1].got < res[2].got, res.map((q) => ({ ...q, want: want(q.charge) })));
   ok(`最大チャージの大将への合計は全倍率の後で${S.bossMax}（プレイヤーへは${K[K.length - 1][1]}）`, Math.abs(solarAt(M, 1, true) * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT - S.bossMax) < 1e-9 && solarAt(M, 1) === K[K.length - 1][1]);
   // Bot: チャージ botMin 秒以上で、ビームの線上に敵か大将がいれば撃つ
   const bt = mk('sora', 'metan'); bt.A.bot = true; Object.assign(bt.B, { x: 1552 + 200, y: 900 }); bt.A.sk.charge = S.botMin - 1; const low = bt.r.botSkillUseful(bt.A);

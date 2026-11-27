@@ -10,7 +10,9 @@ export function solarAt(charge: number, col: number, boss = false) {
   const v = (i: number) => (boss && col === 1 && i === K.length - 1 ? BOSS_LAST : K[i][col]);
   if (charge <= K[0][0]) return v(0);
   for (let i = 1; i < K.length; i++) if (charge <= K[i][0]) return v(i - 1) + ((v(i) - v(i - 1)) * (charge - K[i - 1][0])) / (K[i][0] - K[i - 1][0]);
-  return v(K.length - 1);
+  const n = K.length - 1;
+  if (col !== 1) return v(n);
+  return v(n) + (((v(n) - v(n - 1)) / (K[n][0] - K[n - 1][0])) * S.grow * (charge - K[n][0])); // 総ダメージは最後の区間の伸び方で伸び続ける（sora4）
 }
 
 // 技ボタンの％（整数に丸める前）: keys の3行目（25秒）の総ダメージを100%。5秒以降は総ダメージ÷その総ダメージ、0〜5秒は0%から5秒の％まで秒数に比例
