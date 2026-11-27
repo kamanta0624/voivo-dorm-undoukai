@@ -75,7 +75,7 @@
 31. handoff_botai4.md（そら砲。0章の報告で止めて聞く。反映なし）　済（反映なし・タグなし。報告 docs/botai4_report.md。soracannon は rush に負け越し・一度も撃てず。マクロとしては打ち切り、そら砲は人が狙う技として残す）
 32. teaser　保留（プレイヤーボイス実装後に撮り直し。03-wall の試し撮りは verify/evidence/teaser/ に残す）
 32b. handoff_pvoice1.md（プレイヤーボイスの台本。0章の場面の一覧で止めて聞く → 台本を CSV で出して本人のレビューで止める。コード変更なし・反映なし）　夜間：下書きまで（docs/voice/player_voice_draft.csv。場面の案と台本は本人のレビュー待ち。NIGHT_1128.md）
-33. handoff_tidy1.md（権利の一覧・「仮置き」の棚卸し。調査だけ・コード変更なし。2枚を出して止める。ついなちゃん・後鬼の規約と素材の有無も）
+33. handoff_tidy1.md（権利の一覧・「仮置き」の棚卸し。調査だけ・コード変更なし。2枚を出して止める。ついなちゃん・後鬼の規約と素材の有無も）　夜間：2枚を出した（docs/rights.md・docs/kari_list.md。ライセンス・仮置きの確定は本人の返事待ち。NIGHT_1128.md）
 34. handoff_sec1.md（受信の検証・例外で落ちない・e2e 部屋の封鎖・入力の予算制・127.0.0.1 待ち受け。反映前に本人が1試合）
 35. handoff_refac1.md（GameRoom から snapshot・lagcomp・e2e フック。挙動は変えない・golden 一致）
 36. handoff_refac2.md（GameRoom から slot・bot・lobby。挙動は変えない・golden 一致）
