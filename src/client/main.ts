@@ -349,6 +349,9 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 `, (q) => q.includes('#fx') && !q.includes('#lobby')); // 戦闘画面（#fx）の文字だけ UI_FONT_SCALE（選択画面 #lobby は対象外）
 document.head.appendChild(css);
 { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = ufCss(MFX_CSS); document.head.append(st); } // スロットの演出の CSS（slot_modern_fx）を戦闘画面の文字の大きさで先に置く（ModernFx は同じ id があれば置かない。slot.html は元のまま）
+const mapEl = document.createElement('div'); // マップに付く DOM（札・頭上の一時表示）の層。#fx の最初に置き、HUD などほかの表示より必ず後ろにする
+mapEl.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
+fx.appendChild(mapEl);
 const down = document.createElement('div');
 down.className = 'down';
 down.innerHTML = '<img><div></div>';
@@ -1417,7 +1420,7 @@ class GameScene extends Phaser.Scene {
     el.className = `pop ${cls}`;
     el.textContent = text;
     el.style.setProperty('--d', `${C.POPUP_MS}ms`);
-    fx.appendChild(el);
+    mapEl.appendChild(el);
     this.pops.push({ el, x, y, until: performance.now() + C.POPUP_MS });
   }
 
@@ -1444,7 +1447,7 @@ class GameScene extends Phaser.Scene {
     if (!el) {
       el = document.createElement('div');
       el.className = `lbl ${cls}`;
-      fx.appendChild(el);
+      mapEl.appendChild(el);
       this.labels.set(key, el);
     }
     if (el.textContent !== text) el.textContent = text;
