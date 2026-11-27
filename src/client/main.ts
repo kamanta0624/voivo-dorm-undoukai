@@ -19,7 +19,7 @@ import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
 
-type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | null)[]; parts: number[] }; // 余白の立ち絵の反応（react1。chars.json の react）
+type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | string[] | null)[]; parts: number[] }; // tap の配列は同じ部位を触るたびに順番に替わる // 余白の立ち絵の反応（react1。chars.json の react）
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string; react?: React };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
@@ -1165,10 +1165,10 @@ class GameScene extends Phaser.Scene {
   // 余白の表示: 対戦中は自キャラの色と立ち絵（既定は右の余白、ゲーム画面側に寄せて下揃え。はみ出す分は画面の端側で切る）。それ以外は既定の色だけ
   sideChar: string | null = null;
   sideSel = ''; // 余白の立ち絵の通常の絵（select）の URL
-  reactTimer = 0; reactJoyAt = -Infinity; reactKoBy = new Map<string, number>(); // 反応: 通常の絵に戻すタイマー、最後に「喜ぶ」を出した時刻、この試合で倒された相手（id → 回数）
+  reactTimer = 0; reactJoyAt = -Infinity; reactKoBy = new Map<string, number>(); reactTapN = [0, 0, 0, 0]; // 反応: 通常の絵に戻すタイマー、最後に「喜ぶ」を出した時刻、この試合で倒された相手（id → 回数）
   // 余白の立ち絵の反応（react1）: 出来事・タップの部位（0〜3）に割り当てた差分に、REACT.ms の間だけ差し替える。差分がなければ何もしない（false）
   react(ev: 'kill' | 'sad' | 'relief' | 'surprise' | 'angry' | 'joy' | number) {
-    const k = this.sideChar, R = k ? CHARS[k].react : undefined, name = R ? (typeof ev === 'number' ? R.tap[ev] : R[ev]) : null;
+    const k = this.sideChar, R = k ? CHARS[k].react : undefined, t = R ? (typeof ev === 'number' ? R.tap[ev] : R[ev]) : null, name = Array.isArray(t) ? t[this.reactTapN[ev as number]++ % t.length] : t;
     if (!k || !R || !name) return false;
     side.querySelector('img')!.src = TACHIE(k, `r${R.diffs.indexOf(name)}`);
     clearTimeout(this.reactTimer);
@@ -1202,7 +1202,7 @@ class GameScene extends Phaser.Scene {
       this.sideChar = k;
       document.body.style.background = (k && CHARS[k]?.bg) || SIDE_BG;
       side.style.display = k ? 'block' : 'none';
-      clearTimeout(this.reactTimer); this.reactTimer = 0;
+      clearTimeout(this.reactTimer); this.reactTimer = 0; this.reactTapN = [0, 0, 0, 0];
       if (k) {
         const im = side.querySelector('img')!; im.onload = () => { if (im.src === this.sideSel) { measureOpaque(im); this.sideFit(); } }; im.src = TACHIE(k, 'select'); this.sideSel = im.src;
         for (const i of CHARS[k].react?.diffs.keys() ?? []) new Image().src = TACHIE(k, `r${i}`); // 反応の差分を先に読む（自キャラの分だけ）
