@@ -31,5 +31,5 @@
 19. handoff_botai1.md　済（反映なし・タグなし。報告 docs/botai_report.md）
 20. handoff_tune8.md　保留（実装しない。評価と案の表は docs/tune8_eval.md、計測は verify/tune8_measure.ts）
 21. handoff_botai2.md　済（反映なし・タグなし。報告 docs/botai2_report.md）
-22. handoff_botai3.md（本番の Bot は今のまま）
+22. handoff_botai3.md　済（反映なし・タグなし。報告 docs/botai3_report.md。rush に勝ち越すマクロは無し）
 23. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから）
