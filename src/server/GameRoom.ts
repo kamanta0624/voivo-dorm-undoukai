@@ -58,7 +58,8 @@ export type Player = {
   rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
-  bot: boolean; role: 'gather' | 'raid'; path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
+  bot: boolean; role: 'gather' | 'raid' | 'guard'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
+  path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
   viewT?: number; // 人間: 最後に処理した入力の描画時刻（クライアントの画面のサーバー時刻 elapsed。近接AAの巻き戻し判定）
@@ -109,6 +110,7 @@ export const isUnit = (t: Thing) => t.k === 'p' || t.k === 'boss' || (t.k === 'e
 export class GameRoom extends Room {
   static logFile = ''; // 試合ログの出力先（JSON Lines、空なら書かない）。src/server/index.ts で設定
   static matchlogDir = ''; static matchlogSource: 'human' | 'bot' = 'human'; static matchSeed: number | null = null; // 試合の記録部の書き出し先（空なら書かない）・source・乱数の種（Bot 戦だけ。tools/botsim.ts）
+  macros: string[] = ['std', 'std']; // チームのマクロ（CONFIG.BOT_MACROS。本番は std。tools/botai.ts が試合の前に変える）
   rec = new MatchRec(); // 試合の記録部（常時ON。要約は rec.summary()）
   maxClients = C.MAX_CLIENTS;
   static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
@@ -652,7 +654,8 @@ export class GameRoom extends Room {
         const b = this.addPlayer(`bot${++this.botSeq}`, t, true);
         if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
       }
-      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = i % 2 === 0 ? 'gather' : 'raid'));
+      const mc = this.macros[t]; // マクロの役割の割り振り（std は今の交互）
+      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : mc === 'guard' ? (i % 2 === 0 ? 'gather' : 'guard') : i % 2 === 0 ? 'gather' : 'raid'));
     }
     for (const p of this.players.values()) p.hp = this.maxHp(p); // キャラ確定後にロールのHPを反映
     // 開始演出: 各陣営を開始した部屋（study）に横並びにする
@@ -1961,6 +1964,7 @@ export class GameRoom extends Room {
 
   botThink(p: Player, obs: Rect[]) {
     if (p.assist) return this.assistThink(p, obs);
+    const ph = p.phys ? C.BOT_PHYS[p.phys] : undefined; // フィジカル（中は undefined＝今の値）
     const dist = (o: Pt) => Math.hypot(o.x - p.x, o.y - p.y);
     // 近い順。同じくらい近い候補はランダムに選ぶ。詰まった目的地（penalty）は避ける（全部避けるべきなら避けない）
     const avoid = (key: string) => (p.penalty.get(key) ?? 0) > this.now;
@@ -1970,22 +1974,28 @@ export class GameRoom extends Room {
       return list[0]?.x;
     };
     const go = (to: Pt, key: string) => { p.goal = key; this.botGoto(p, to, obs); };
-    const foes = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && dist(e) <= C.BOT_AGGRO_RANGE && this.visibleTo(p.team, e.x, e.y, obs));
+    let foes = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && dist(e) <= (ph?.aggro ?? C.BOT_AGGRO_RANGE) && this.visibleTo(p.team, e.x, e.y, obs));
+    if (ph?.react) { // 反応の遅い Bot: 敵が見えてから react 秒たつまで気付かない（移動・経路はいつもどおり）
+      const seen = (p.seenAt ??= new Map()), ids = new Set(foes.map((e) => e.id));
+      for (const k of [...seen.keys()]) if (!ids.has(k)) seen.delete(k);
+      for (const e of foes) if (!seen.has(e.id)) seen.set(e.id, this.now);
+      foes = foes.filter((e) => this.now - seen.get(e.id)! >= ph.react);
+    }
     // リコール: HPが低いとき（給湯室にいるときは使わない）。脅威あり（近くに見える敵／直近の被弾）の間は始めず、溜め中なら中断。給湯室に着いたら、HPが満タンになるまでご飯を食べる
-    const low = !this.atBase(p) && p.hp < this.maxHp(p) * C.BOT_RECALL_HP, threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
+    const low = !this.atBase(p) && p.hp < this.maxHp(p) * (ph?.recallHp ?? C.BOT_RECALL_HP), threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
     if (threat) { if (p.recallAt !== null) this.cancelRecall(p); }
     else if (low && p.recallAt === null && this.now >= p.recallBanUntil) p.recallAt = this.now;
     if (p.recallAt !== null) { this.rec.bot(p, 'recall'); this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
     if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
     // 0. 技: CTが明けていて範囲内に対象がいれば使う
-    if (this.phase === 'playing' && this.now >= p.skillReadyAt && !this.effect(p, 'noSkill') && !(this.practice && p.id === 'foe' && this.foeMode !== 'bot') && this.botSkillUseful(p)) this.skill(p.id); // 練習の攻撃なしは技も使わない
+    if (this.phase === 'playing' && this.now >= p.skillReadyAt + (ph?.skillDelay ?? 0) && !this.effect(p, 'noSkill') && !(this.practice && p.id === 'foe' && this.foeMode !== 'bot') && this.botSkillUseful(p)) this.skill(p.id); // 練習の攻撃なしは技も使わない
     // 1. 近くの敵を攻撃（指名手配中の敵を優先）
     const wanted = foes.find((e) => e.id === this.teams[1 - p.team].wanted);
-    const enemy = wanted ?? best(foes, (e) => `p:${e.id}`);
+    const enemy = wanted ?? (ph?.focusLow ? [...foes].sort((u, v) => u.hp / this.maxHp(u) - v.hp / this.maxHp(v))[0] : best(foes, (e) => `p:${e.id}`));
     this.botStuck(p, !!enemy || !!p.tgt);
     // 低HPで脅威あり: 狙う敵の残りHPが自分以下なら攻撃、それ以外（見える敵がいない被弾を含む）は自陣の給湯室へ逃亡（射程内の敵には通常攻撃が自動で出る）。決定は BOT_FLEE_COMMIT 秒維持
     if (low && threat) {
-      if (this.now >= p.lowUntil) { p.lowFight = !!enemy && enemy.hp <= p.hp * C.BOT_FLEE_RATIO; p.lowUntil = this.now + C.BOT_FLEE_COMMIT; }
+      if (this.now >= p.lowUntil) { p.lowFight = !!enemy && enemy.hp <= p.hp * (ph?.fleeRatio ?? C.BOT_FLEE_RATIO); p.lowUntil = this.now + C.BOT_FLEE_COMMIT; }
       if (!p.lowFight || !enemy) { const r = C.RECALL_ROOMS[p.team]; this.rec.bot(p, 'flee'); return go({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, 'flee'); }
     }
     if (enemy) { this.rec.bot(p, 'fight'); return this.botFight(p, enemy, C.PLAYER_RADIUS, obs); }
@@ -2001,7 +2011,14 @@ export class GameRoom extends Room {
     const box = best(this.items.filter((i) => i.kind.startsWith('box_') && this.visibleTo(p.team, i.x, i.y, obs)), (i) => `item:${i.id}`);
     if (box) { this.rec.bot(p, 'item'); return go(box, `item:${box.id}`); }
     // 4. 役割: 資材集め（一番近い資材）か、敵陣の見回り
-    if (p.role === 'gather') {
+    if (p.role === 'guard') { // マクロ guard: 自陣の大将のそばで待つ（近づいた敵は上の「近くの敵を攻撃」で迎え撃つ）
+      const own = this.bosses[p.team];
+      this.rec.bot(p, 'guard');
+      if (dist(own) > C.BOSS_RADIUS * 3) return go(own, 'guard');
+      return this.setInput(p.id, 0, 0);
+    }
+    const alive = (t: number) => [...this.players.values()].filter((q) => q.team === t && q.alive && !q.assist).length;
+    if (p.role === 'gather' || (this.macros[p.team] === 'adv' && alive(p.team) <= alive(1 - p.team))) { // マクロ adv: 人数有利でない間は攻め役も資材集め
       this.rec.bot(p, 'gather');
       const m = best(this.materials, (m) => `mat:${m.id}`);
       return m ? go(m, `mat:${m.id}`) : go({ x: C.MAP_W / 2, y: C.MAP_H / 2 }, 'center');

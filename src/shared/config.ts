@@ -315,6 +315,15 @@ export const CONFIG = {
   RESPAWN_MAX: 15,
 
   BOT_AGGRO_RANGE: 250, // 自陣営の視界内かつこの距離以内の敵を攻撃
+  // Bot のフィジカル（操作の上手さ。botai1）。中＝今の Bot（BOT_RECALL_HP などの値のまま。ここには強・弱の差だけ書く）。本番・練習の Bot は中。値は仮置き。引き際（recallHp・fleeRatio）は戦略寄りなので中と同じ（botai1 の2回目で、引き際を変えると強弱が逆転したため）
+  // react: 敵が見えてから気付くまでの秒数（0＝すぐ）、recallHp: 帰還を始めるHP割合、fleeRatio: 低HPで戦うか逃げるかの比、aggro: 敵に向かう距離、skillDelay: 技の CT が明けてから使うまでの遅れ(秒)、focusLow: 見えている敵のうち残りHP割合の低い方を狙う
+  BOT_PHYS: {
+    strong: { react: 0, recallHp: 0.3, fleeRatio: 1.0, aggro: 250, skillDelay: 0, focusLow: true },
+    weak: { react: 0.35, recallHp: 0.3, fleeRatio: 1.0, aggro: 200, skillDelay: 1, focusLow: false },
+  } as Record<string, { react: number; recallHp: number; fleeRatio: number; aggro: number; skillDelay: number; focusLow: boolean }>,
+  // チームのマクロ（botai1）。std＝今の割り振り（交互に gather・raid）。本番・練習は std
+  // rush: 全員で敵陣（大将）へ、farm: 全員で資材集め、guard: 半分は自陣の大将のそばで守る（残りは資材集め）、adv: std と同じ割り振りで、攻め役は自陣の生存人数が敵より多い時だけ攻める（それ以外は資材集め）
+  BOT_MACROS: ['std', 'rush', 'farm', 'guard', 'adv'] as const,
   BOT_REPATH: 0.5, // 経路の再計算間隔(秒)
   GRID_CELL: 16, // A* のマス目サイズ
   E2E_FIGHT_SECONDS: 60, // e2e: 試合1の残り時間の戦闘を打ち切る秒数（その後フックで試合終了へ）

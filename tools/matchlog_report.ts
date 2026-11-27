@@ -1,6 +1,6 @@
 // 試合の記録（logs/matchlog/*.jsonl）の集計 → 1枚の HTML（依存なし、ローカルで開ける）。handoff_botsim1
 // 実行: npx tsx tools/matchlog_report.ts [入力フォルダ（既定 logs/matchlog）] [出力（既定 <入力>/report.html）]
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import NAMES from '../src/shared/chars.json';
 
@@ -34,7 +34,8 @@ function agg(ms: any[]) {
   const slots = ms.flatMap((m) => m.spins.filter((s: any) => s.out !== 'miss').map((s: any) => [s.t, s.team, s.out === 'pen' ? 'pen' : s.sym?.kind ?? '?']));
   return { n, win, kinds, chars, toku: [0, 1].map((t) => band(ms.map((m) => m.series.toku), t)), boss: [0, 1].map((t) => band(ms.map((m) => m.series.bossPct), t)), slots, mixed: new Set(ms.map((m) => m.source)).size > 1 };
 }
-const data = { all: agg(all), human: agg(all.filter((m) => m.source === 'human')), bot: agg(all.filter((m) => m.source === 'bot')), made: new Date().toISOString(), files: DIR };
+const BOTAI = 'logs/botai/compare.json'; // botai1 の比較（npx tsx tools/botai_report.ts が作る）。あれば HTML の最後に表とグラフ
+const data = { botai: existsSync(BOTAI) ? JSON.parse(readFileSync(BOTAI, 'utf8')) : null, all: agg(all), human: agg(all.filter((m) => m.source === 'human')), bot: agg(all.filter((m) => m.source === 'bot')), made: new Date().toISOString(), files: DIR };
 
 const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>試合ログの集計</title>
 <style>
@@ -50,7 +51,7 @@ svg{width:100%;height:auto;background:var(--card);border-radius:6px}svg text{fil
 </style></head><body>
 <h1>試合ログの集計</h1><p class="mute">作成 ${data.made}・入力 ${data.files}</p>
 <div class="tabs"><button data-k="all">全体</button><button data-k="human">人間のみ</button><button data-k="bot">Bot のみ</button></div>
-<div id="out"></div>
+<div id="out"></div><div id="botai"></div>
 <script>
 const D=${JSON.stringify(data)};
 const FEW=10, pct=(x)=>(x*100).toFixed(0)+'%', esc=(s)=>String(s).replace(/[&<>]/g,(c)=>'&#'+c.charCodeAt(0)+';');
@@ -92,6 +93,14 @@ function show(k){
   o.innerHTML=h;
 }
 document.querySelectorAll('.tabs button').forEach((b)=>b.onclick=()=>show(b.dataset.k));
+function ci(rows){ // 勝率と 95%区間の横棒（50% に縦線）
+  const W=1000,R=22,L=250,x=(v)=>L+(W-L-60)*v;let s='<svg viewBox="0 0 '+W+' '+(rows.length*R+24)+'">';
+  s+='<line x1="'+x(.5)+'" x2="'+x(.5)+'" y1="0" y2="'+(rows.length*R+6)+'" stroke="var(--mute)" stroke-dasharray="3 3"/>';
+  rows.forEach((r,i)=>{const y=i*R+14;s+='<text x="4" y="'+(y+4)+'">'+esc(r.l)+'（'+r.n+'）</text><line x1="'+x(r.ci[0])+'" x2="'+x(r.ci[1])+'" y1="'+y+'" y2="'+y+'" stroke="var(--t1)" stroke-width="6" opacity=".5"/><circle cx="'+x(r.rate)+'" cy="'+y+'" r="5" fill="var(--t0)"/><text x="'+(x(r.ci[1])+6)+'" y="'+(y+4)+'">'+pct(r.rate)+'</text>';});
+  for(const v of [0,.25,.5,.75,1]) s+='<text x="'+x(v)+'" y="'+(rows.length*R+20)+'" text-anchor="middle">'+pct(v)+'</text>';
+  return s+'</svg>';
+}
+if(D.botai){const B=D.botai;document.getElementById('botai').innerHTML='<h2>Bot の強さ（フィジカル）・マクロの比較（'+B.n+'試合、logs/botai）</h2><p class="mute">点＝左側の勝率、帯＝95%区間。帯が 50% の線をまたぐものは差が分からない</p>'+ci(B.rows.map((r)=>({l:r.a+' vs '+r.b,n:r.n,rate:r.rate,ci:r.ci})))+'<h2>マクロ（中どうし）の総合勝率</h2>'+ci(B.macros.map((r)=>({l:r.m,n:r.n,rate:r.rate,ci:r.ci})));}
 show('all');
 </script></body></html>`;
 writeFileSync(OUT, html);
