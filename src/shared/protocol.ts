@@ -82,5 +82,5 @@ export type Snapshot = {
   couriers: { id: number; team: number; x: number; y: number; box: unknown }[];
   warns: { id: number; team: number; x: number; y: number; r: number; left: number; boss: boolean }[];
   shots: { id: number; kind: string; team: number; x: number; y: number; vx: number; vy: number }[];
-  fx: unknown[]; broken: unknown[]; cracks?: unknown[]; bossRooms: unknown; reveal?: true;
+  fx: any[]; broken: unknown[]; cracks?: number[][]; bossRooms: unknown; reveal?: true; // fx: 技ごとに中身が違う（描画は client/skills の FX_VIEW）
 };

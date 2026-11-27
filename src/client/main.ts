@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
-import { Room, CloseCode } from '@colyseus/sdk';
+import { Room } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, seeRects, seeThrough, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls, aaRange } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
@@ -19,6 +19,7 @@ import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
 import { sendC2S, type C2S } from '../shared/protocol';
+import { connect, sendInputs } from './net';
 
 type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | string[] | null)[]; parts: number[] }; // tap の配列は同じ部位を触るたびに順番に替わる // 余白の立ち絵の反応（react1。chars.json の react）
 type Tachie = { fit?: 'full' | 'knee'; cm?: number; top?: number; foot?: number; base?: number; knee?: number; crate?: number[] }; // 選択画面・余白の立ち絵の出し方（chars.json の tachie。tachie2）
@@ -27,9 +28,9 @@ const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !=
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
 const DOT_KEYS = [...Object.keys(CHARS), COURIER_CHAR, ...Object.keys(C.ASSIST.units)];
-const charName = (k: string) => CHARS[k]?.name ?? C.ASSIST.units[k]?.name ?? k; // アシストは chars.json にいない
+export const charName = (k: string) => CHARS[k]?.name ?? C.ASSIST.units[k]?.name ?? k; // アシストは chars.json にいない
 const DOT = (key: string, frame = 'idle') => `assets/gen/dot/${key}/${frame}.png`;
-const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動ける場面（カウント中と終了後は部屋の中だけ）
+export const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動ける場面（カウント中と終了後は部屋の中だけ）
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const css16 = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.png`;
@@ -46,7 +47,7 @@ function tachieFit(k: string, Hp: number) {
 const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), ずんだもん軍(緑)
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
-const TEAM_NAME = ['だいだい組', 'みどり組'];
+export const TEAM_NAME = ['だいだい組', 'みどり組'];
 const TITLE = 'ブイブイブレイカーズ';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
@@ -63,9 +64,9 @@ const BUFF: Record<string, [string, boolean]> = {
   cloak: ['透明化', true], drill: [DEFS.metan.skill.name, true], lockon: ['ロックオン', true], rush: [DEFS.aru.skill.name, true], solar: [DEFS.sora.skill.name, true],
   mochi: ['ずんだ餅', false], pen_slow: ['移動速度低下（罰）', false], pen_weak: ['攻撃力低下（罰）', false],
 };
-const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
+export const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 // 当たった時の演出（通常攻撃の汗、自分以外の斬撃、大将の弾などの爆発）: 弾・他キャラと同じ時刻で出す。自分の斬撃は自キャラ（今の位置）に合わせてすぐ出す
-const HIT_FX_KIND = (f: any, me: string) => f.kind === 'sweat' || (f.kind === 'slash' && f.who !== me) || (f.kind === 'aura' && f.color === 'dash');
+export const HIT_FX_KIND = (f: any, me: string | null) => f.kind === 'sweat' || (f.kind === 'slash' && f.who !== me) || (f.kind === 'aura' && f.color === 'dash');
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const MM_TOP = 86; // ミニマップの上端（論理座標）。右上の顔パネル（みどり組の側）の下
@@ -402,7 +403,7 @@ hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
 <div class="r end"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div><button class="prbtn">練習</button></div>`);
 const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
-const commentary = new Commentary(fx);
+export const commentary = new Commentary(fx);
 commentary.load();
 // スマホ（指で操作する端末）: タッチUIを出し、ブラウザのスクロール・拡大・長押しメニュー・選択を止める
 const TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -417,7 +418,7 @@ rotate.id = 'rotate';
 rotate.textContent = '横にして遊んでね';
 document.body.appendChild(rotate);
 
-class GameScene extends Phaser.Scene {
+export class GameScene extends Phaser.Scene {
   room!: Room;
   snap: any = null;
   snapAt = 0; // スナップショットを受信した時刻(ms)
@@ -665,88 +666,7 @@ class GameScene extends Phaser.Scene {
       if (b.classList.contains('pback')) { pr({ op: 'back' }); prw.classList.remove('open'); }
     };
 
-    // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
-    const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
-    const room: Room = (window as any).__room;
-    {
-      this.room = room;
-      (window as any).room = room; // 検証用
-      sessionStorage.setItem(tokenKey, room.reconnectionToken);
-      if ((window as any).__rejoin) this.ctl.sendAim();
-      // 通信の再接続（自動）。戻ったら照準モードを送り直す。再接続できなければ入り直す
-      room.onReconnect(() => { sessionStorage.setItem(tokenKey, room.reconnectionToken); this.ctl.sendAim(); });
-      // 切れたら再読み込み（保存した合言葉で戻る）。キック・BAN（reason）と「タイトルへ」はタイトル画面へ
-      room.onLeave((code: number, reason?: string) => {
-        if (code !== CloseCode.CONSENTED) return location.reload();
-        sessionStorage.removeItem(tokenKey);
-        if (reason === 'kick' || reason === 'ban') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : '部屋から外されました');
-        if (reason === 'kick' || reason === 'ban' || this.toTitle) location.reload();
-      });
-      addEventListener('pagehide', () => { this.finishMeasure(); if (this.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) { this.hiddenAt = performance.now(); return; }
-        if (room.connection.isOpen && performance.now() - this.hiddenAt >= C.RESUME_RECONNECT_SEC * 1000) room.connection.close(CloseCode.MAY_TRY_RECONNECT); // 止まっていた接続を張り直す
-      });
-      room.onMessage('netPong', (m: any) => {
-        if (this.measure && !this.measureSent && m.id === this.measureId && m.at === this.pingPending) {
-          this.measure.rtt.add(performance.now() - m.at); this.pingPending = null;
-        }
-      });
-      room.onMessage('netFinish', (m: any) => { if (m.id === this.measureId) this.finishMeasure(); });
-      room.onMessage('s', (s: any) => {
-        if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== this.measureId) {
-          this.measureId = s.netMeasure; this.measure = new ClientMeasure(); this.measureSent = false; this.measureFrameAt = null;
-          this.pingAt = -Infinity; this.pingPending = null;
-        }
-        if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
-        this.snap = s;
-        this.snapAt = performance.now();
-        if ((s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me)?.char ?? this.sideChar : null) !== this.sideChar) this.sideFit(); // 余白の立ち絵・色（自キャラが変わった時だけ）
-        if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
-        this.sortieVoice(s); // 出撃セリフ（本人の端末だけ）
-        this.powerFx(s); // パワーアップ中の余白の演出
-        if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
-        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id })), ...s.shots.map((sh: any) => ({ x: sh.x, y: sh.y, id: 'shot:' + sh.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
-        for (const sh of s.shots) this.shotData.set(sh.id, { ...sh, seen: s.t }); // 弾の種類・向き（描く時刻の位置は interp から）
-        for (const [id, d] of this.shotData) if (d.seen < s.t - 2) this.shotData.delete(id); // 2秒前から届いていない弾を片付ける（描く時刻はそれより新しい）
-        if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
-        const m = s.players.find((p: any) => p.id === s.me);
-        if (m) {
-          if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
-          else this.pred.reconcile(m.x, m.y, m.ack, m.spd, this.obstacles(s, m));
-        }
-        if (s.phase === 'waiting' && this.reactKoBy.size) this.reactKoBy.clear(); // 立ち絵の反応の「同じ相手」は試合ごとに数える
-        for (const f of s.fx ?? []) this.fxQueue.push(HIT_FX_KIND(f, s.me) ? { ...f, at: s.t } : f); // 当たった時の演出（汗・他人の斬撃・爆発）は弾・他キャラと同じ時刻（NET_INTERP_DELAY 前）で出す
-        (window as any).snap = s;
-      });
-      room.onMessage('notice', (m: any) => this.notify(m.text));
-      room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
-      room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
-      room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
-      room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 召喚の通知（両陣営）
-      room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier, m.char));
-      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 両陣営
-      room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
-      room.onMessage('mslot', (m: any) => this.mslotEv(m));
-      room.onMessage('mslotWin', (m: any) => this.mslotWin(m));
-      room.onMessage('mpenalty', (m: any) => this.mslotToast(m.team, `ペナルティ（${m.n === 1 ? '転落' : '引き戻し失敗'}）\n全員にダメージ・攻撃ダウン・速度ダウン`, true));
-      room.onMessage('ko', (k: any) => {
-        const mine = this.snap?.players.find((p: any) => p.id === this.snap.me);
-        if (mine) this.cutin(mine.char, k.victimChar, k.how);
-        this.react('kill');
-      });
-      room.onMessage('koed', (k: any) => {
-        this.koedBy = { kc: k.kc, how: k.how };
-        // 立ち絵の反応: 同じ相手に2回目以降→怒る、出会い頭（倒した相手が最初に当てた時に見えていなかった・交戦の始まりから REACT.surpriseSec 秒以内）→驚く、それ以外→悲しむ。差分のない出来事は飛ばして次へ
-        const n = k.kid ? (this.reactKoBy.get(k.kid) ?? 0) + 1 : 0;
-        if (k.kid) this.reactKoBy.set(k.kid, n);
-        if (!(n >= 2 && this.react('angry')) && !((k.unseen || (k.sec !== null && k.sec <= C.REACT.surpriseSec)) && this.react('surprise'))) this.react('sad');
-      });
-      room.onMessage('recalled', (m: any) => { if (m.r <= C.REACT.relief) this.react('relief'); }); // 残りHPが少ない状態で帰還
-      room.onMessage('bossHit', () => { const t = performance.now(); if (t - this.reactJoyAt >= C.REACT.joyEvery * 1000 && this.react('joy')) this.reactJoyAt = t; }); // 大将に当てた（REACT.joyEvery 秒に1回まで）
-      room.onMessage('result', (r: any) => (this.result = r)); // 試合結果画面のデータ（決着後に1回）
-      sendC2S(room, 'resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
-    }
+    connect(this); // 接続後の受信（net.ts。refac3）
   }
 
   // ミニマップの下絵を塗る
@@ -1639,26 +1559,7 @@ class GameScene extends Phaser.Scene {
     if (!s) return;
     const dt = dtMs / 1000;
     const now = performance.now();
-    this.interp.measure = s.phase === 'playing' && !this.measureSent ? this.measure : null;
-    if (this.interp.measure) {
-      this.interp.measure.beginFrame(this.measureFrameAt === null ? null : now - this.measureFrameAt);
-      this.measureFrameAt = now;
-      if (now - this.pingAt >= 1000 && (this.pingPending === null || now - this.pingPending > 10000)) {
-        this.pingAt = this.pingPending = now;
-        sendC2S(this.room, 'netPing', { id: this.measureId, at: now });
-      }
-    }
-    const k = this.keys;
-    const { dx, dy } = this.ctl.move({ up: k.W.isDown, down: k.S.isDown, left: k.A.isDown, right: k.D.isDown });
-    if (dx || dy) this.face = Math.atan2(dy, dx);
-    // 入力は NET_STEP ごとに番号を付けて送り、同時に自キャラを予測で動かす
-    const me0 = s.players.find((p: any) => p.id === s.me);
-    this.acc = Math.min(this.acc + dtMs, 250);
-    while (this.acc >= C.NET_STEP * 1000) {
-      this.acc -= C.NET_STEP * 1000;
-      const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
-      sendC2S(this.room, 'input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
-    }
+    const { dx, dy } = sendInputs(this, s, dtMs, now); // 計測の ping・入力の送信と予測（net.ts。refac3）
     this.practice = !!s.practice;
     if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
