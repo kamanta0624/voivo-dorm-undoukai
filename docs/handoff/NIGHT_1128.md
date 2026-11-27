@@ -1,4 +1,4 @@
-夜間：36 まで済み。本人の返事が要るもの 10 件
+夜間：37 まで済み。本人の返事が要るもの 11 件
 
 # 夜間の報告（2026-11-28）
 
@@ -103,6 +103,23 @@
   - 型と道具を使うため GameRoom の pick・SlotTarget を export にした
   - onCreate は中身を残した（部屋の作成と tick の開始で、待機の処理でないため）。soracannon（scSora・scUpdate・scThink）は引き継ぎ書の一覧に無いので GameRoom に残した
 - 本人に要る返事：なし
+
+## 37 refac3（main.ts から net・hud を切り出し、update() を段に分ける）
+- 済んだこと（night-1128。段ごとにコミット）：
+  - 1段目 d5cc2e5：src/client/net.ts（118行）。接続後の再接続・切断の扱いと全 onMessage（connect）、計測の ping・入力の送信と予測（sendInputs）。's' の受信に protocol.ts の Snapshot の型
+  - 2段目 4acc96e：src/client/hud.ts（188行）。rosterHud・buffHud・tokuHud・modernHud・killLog・banner・notify・popup・cutin・staging・practiceHud
+  - 3段目 6831c71：update() を upInput・upWalls・upSelf・upUnits・upCamera・upFx・upShots・upGround・upVision・upHud に分けた（処理の順番は同じ）
+  - main.ts は 2124行 → 1914行、update() は 481行 → 25行
+- 確かめた基準と結果：
+  - スクショの前後比較：再生の仕掛けを作った（使い捨て。コミットしていない）。本物のサーバーにつないだ1回目の記録で、届いたフレームと操作を「何コマ目か」と一緒に保存する。比べる時はサーバーにつながず、同じコマに同じフレームを渡し、時計（Playwright の clock）と乱数を固定してコマ送りする。記録は2本：(1) e2e の部屋で待機→選択→開幕→戦闘→スロット当選4回→他キャラのパワーアップ→被撃破のカットイン→復帰→時間切れ→結果、(2) タイトル→練習→自分のパワーアップ→相手を撃破（キルログ）。PC（1920×1080）とスマホ（852×393・DPR3）で、30コマごとと名前付きの場面を撮った（1回 143枚＋45枚）
+  - 結果：記録(1)は PC・スマホとも、3つの段のどの後も WebGL の描画数・転送量が基準と全コマで一致した。スクショの差は2〜7枚で、どれも光る枠・浮く数字（DOM の CSS アニメーション。実時間で動くので同じコードでも再生ごとに揺れる）か数ピクセル。記録(2)は、タイトルからゲームへ移る所で描画数が1回分ぶれ、それが後まで残る（同じコードで2回再生しても起きる）。見た目は同じだった
+  - ?perf=1 の代わりに WebGL の描画数・転送量を数えた：増えていない（記録(1)で一致）
+  - typecheck・test:server（netfix の既存の失敗を除く）・e2e 全体1回 → 通った
+- 自分で決めた点：
+  - net.ts・hud.ts が使う main.ts の道具（GameScene・$・setCss・TEAM_NAME など）を export にした。net.ts からも呼ぶ notify・killLog・cutin・banner は GameScene に1行の委譲を残した
+  - Snapshot の型で fx は any[]（技ごとに中身が違う）。HIT_FX_KIND の me の型を string | null にした（型だけ）
+  - 段の分け方は引き継ぎ書の8つに、カメラと地面を足して10にした
+- 本人に要る返事：開発版で1試合（PC）と iPhone 実機で1試合（引き継ぎ書の「反映の前」）
 
 ## 朝の確認の手順
 （夜間の作業が進んだら書き足す）
