@@ -325,8 +325,9 @@ export const CONFIG = {
   // チームのマクロ（botai1・botai2）。名前は「土台+層」（例 'rush+uae'）。土台 std＝今の割り振り（交互に資材集め・攻め）、rush＝全員攻め、farm＝全員資材集め。本番・練習は std（層なし）
   // botai3: steal＝std の割り振りで、資材役はコバコの資材と敵陣の裏側の資材を優先、counter＝全員で自陣の大将のそばに構え、敵が BOT_COUNTER.trigger 人以上撤退中になったら全員で攻め続ける（味方が全滅したら構えに戻る）、split＝2人は counter・2人は攻め
   // 層: u＝パワーアップ中は攻め、a＝味方のアシストに同行（近い Bot から escort 人）、e＝残り endSec 秒で大将HP%がリードしていたら全員で守り、w＝味方の誰かが撤退中の間は帰還・逃げをやめて攻め切る（そろって撤退する）
-  BOT_MACROS: ['std', 'rush', 'farm', 'steal', 'counter', 'split'] as const,
-  BOT_COUNTER: { trigger: 2 }, // counter の逆襲に入る敵の撤退中の人数（仮置き）
+  BOT_MACROS: ['std', 'rush', 'farm', 'steal', 'counter', 'split', 'soracannon'] as const,
+  BOT_COUNTER: { trigger: 2 },
+  BOT_SORA: { recallHp: 0.7, prep: 15, spotStep: 32, spotNear: 12, scoutStop: 260 }, // マクロ soracannon（botai4。実験用、本番は使わない）: recallHp=そら役が帰還を始めるHP割合、prep=発射の準備を始める残り秒、spotStep=撃つ場所を探す格子(px)、spotNear=撃つ場所に着いたとみなす距離、scoutStop=偵察役が敵の大将の手前で止まる距離。値は仮置き // counter の逆襲に入る敵の撤退中の人数（仮置き）
   BOT_LAYER: { endSec: 60, escort: 2, escortNear: 80, escortFight: 200, assistWait: 200, defendR: 300 }, // escortNear: 同行役がアシストのそばとみなす距離、escortFight: アシストのこの距離以内の敵と戦う、assistWait: 同行役が全員この距離より遠い間はアシストが待つ、defendR: 守りで迎え撃つ自陣の大将からの距離。値は仮置き
   BOT_REPATH: 0.5, // 経路の再計算間隔(秒)
   GRID_CELL: 16, // A* のマス目サイズ

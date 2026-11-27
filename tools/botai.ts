@@ -18,7 +18,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Side = { phys: string; macro: string };
 const S = (phys: string, macro: string): Side => ({ phys, macro });
 // 全部を今の本番（中・std）と戦わせる（総当たりはしない。本人）。物理はすべて中
-const VS: [string, string][] = PLANNAME === 'botai3' // [自分, 相手]。botai3: 対 rush と 対 std（handoff_botai3）
+const VS: [string, string][] = PLANNAME === 'botai4' // [自分, 相手]。botai4: soracannon 対 rush・rush+w・std・steal、基準のそら入り std（std+s）対 rush、じゃんけん（counter 対 rush・std、rush 対 std。各 JANKEN 試合）
+  ? [['soracannon', 'rush'], ['soracannon', 'rush+w'], ['soracannon', 'std'], ['soracannon', 'steal'], ['std+s', 'rush'], ['counter', 'rush'], ['counter', 'std'], ['rush', 'std']]
+  : PLANNAME === 'botai3' // botai3: 対 rush と 対 std（handoff_botai3）
   ? [...['steal', 'counter', 'counter+w', 'split', 'rush+w', 'std', 'farm'].map((m): [string, string] => [m, 'rush']), ...['steal', 'counter', 'counter+w', 'split', 'rush+w'].map((m): [string, string] => [m, 'std'])]
   : ['std+uae', 'rush', 'rush+uae', 'farm', 'farm+uae', 'std+u', 'std+a', 'std+e'].map((m): [string, string] => [m, 'std']);
 const PLAN: [string, Side, Side][] = VS.map(([m, o]): [string, Side, Side] => [`${m} vs ${o}`, S('mid', m), S('mid', o)]);
@@ -56,6 +58,11 @@ async function match(seed: number, t0: Side, t1: Side): Promise<boolean> {
     r.macros = [t0.macro, t1.macro];
     r.startMatch();
     for (const p of r.players.values()) { const ph = (p.team ? t1 : t0).phys; if (ph !== 'mid') p.phys = ph; }
+    // botai4: soracannon と std+s（そら入りの std）の陣営に九州そらがいなければ、1人を九州そらに替える（実験のスクリプトだけ）
+    for (const [t, sd] of [t0, t1].entries()) if (sd.macro.startsWith('soracannon') || sd.macro.split('+')[1]?.includes('s')) {
+      const team = [...r.players.values()].filter((q: any) => q.team === t && !q.assist);
+      if (!team.some((q: any) => q.char === 'sora')) { const q = team[0]; q.char = 'sora'; q.sk = {}; q.st = {}; q.hp = r.maxHp(q); }
+    }
     let checkAt = performance.now() + 2000;
     while (r.phase !== 'ended') {
       r.tick(DT, false);
@@ -88,7 +95,10 @@ if (why) { log(`始めない: ${why}`); process.exit(0); }
 const have = done();
 const wilson = (w: number, n: number) => { const z = 1.96, p = w / n, d = 1 + (z * z) / n, c = p + (z * z) / (2 * n), h = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n)); return [(c - h) / d, (c + h) / d]; };
 // --extend: 出力済みの結果で 95%区間が 50% をまたぐ組だけ、試合数を 2倍に
+const JANKEN = 100; // botai4: じゃんけんの3組の試合数（20試合ルールより優先）
+const janken = (a: Side, b: Side) => PLANNAME === 'botai4' && ['counter|rush', 'counter|std', 'rush|std'].includes(`${a.macro}|${b.macro}`);
 const target = (a: Side, b: Side) => {
+  if (janken(a, b)) return JANKEN;
   if (!EXTEND) return N;
   let w = 0, n = 0;
   for (const l of existsSync(DIR) ? readdirSync(DIR).filter((f) => f.endsWith('.jsonl')).flatMap((f) => readFileSync(`${DIR}/${f}`, 'utf8').split('\n').filter((x) => x.trim())) : []) {

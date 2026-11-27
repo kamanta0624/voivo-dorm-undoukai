@@ -14,6 +14,7 @@ import { ServerMeasure, clientReport, LIMITS } from '../shared/netmeasure';
 import * as OG from './outgame';
 import { ModernSlot, dress, pick as pickW, type Ev as MEv, type Pay } from '../shared/slot_modern';
 import { MatchRec } from './matchlog';
+import { solarAt } from '../shared/solar';
 
 const T = C.TILE;
 // 強さの倍率の表（POWER_MULT・ULT_HP_MULT）の添字 tier の値。表の最後（Lv4）を超えた Lv4+N は Lv4 の値から +lvStep ずつ（handoff_slot3。クラシックは超えない）
@@ -59,7 +60,7 @@ export type Player = {
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
   engage: { at: number; seen: Map<string, boolean> } | null; // 交戦（react1）: 最初に当てられた時刻と、当てた相手ごとの「最初に当てた時に自陣営から見えていたか」。REACT.engageGap 秒被弾しなければ次の交戦
-  bot: boolean; role: 'gather' | 'raid' | 'counter'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
+  bot: boolean; role: 'gather' | 'raid' | 'counter' | 'guard'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
@@ -113,7 +114,8 @@ export class GameRoom extends Room {
   static matchlogDir = ''; static matchlogSource: 'human' | 'bot' = 'human'; static matchSeed: number | null = null; // 試合の記録部の書き出し先（空なら書かない）・source・乱数の種（Bot 戦だけ。tools/botsim.ts）
   macros: string[] = ['std', 'std']; // チームのマクロ（CONFIG.BOT_MACROS・BOT_LAYER。本番は std。tools/botai.ts が試合の前に変える）
   endDefend = [false, false]; // マクロの層 e で終盤の守りに入ったか（記録用）
-  counterMode = ['hold', 'hold']; counterN = [0, 0]; counterBoss = [0, 0]; // マクロ counter・split: 構え(hold)／逆襲(attack)、逆襲に入った回数と逆襲中の大将ダメージ（記録用）
+  counterMode = ['hold', 'hold']; counterN = [0, 0]; counterBoss = [0, 0];
+  sc: ({ abort: boolean; fired: boolean; charge: number | null; foeHp: number | null; dmg: number; deaths: number; noSpot: boolean; foeLib: boolean; koAt: number } | null)[] = [null, null]; // マクロ soracannon（botai4）の状態と記録: abort=作戦をやめて std へ、fired=発射した、charge・foeHp=発射時のチャージと敵の大将の残りHP、dmg=そら砲の大将ダメージ、deaths=そら役の撤退回数、noSpot=撃つ場所が無かった、foeLib=敵の大将が library にいた // マクロ counter・split: 構え(hold)／逆襲(attack)、逆襲に入った回数と逆襲中の大将ダメージ（記録用）
   rec = new MatchRec(); // 試合の記録部（常時ON。要約は rec.summary()）
   maxClients = C.MAX_CLIENTS;
   static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
@@ -658,8 +660,9 @@ export class GameRoom extends Room {
         if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
       }
       const mc = this.macros[t].split('+')[0]; // マクロの土台の役割の割り振り（std は今の交互）
-      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : mc === 'counter' ? 'counter' : mc === 'split' ? (i % 2 === 0 ? 'counter' : 'raid') : i % 2 === 0 ? 'gather' : 'raid'));
+      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'soracannon' ? 'guard' : mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : mc === 'counter' ? 'counter' : mc === 'split' ? (i % 2 === 0 ? 'counter' : 'raid') : i % 2 === 0 ? 'gather' : 'raid'));
       this.endDefend[t] = false; this.counterMode[t] = 'hold'; this.counterN[t] = 0; this.counterBoss[t] = 0;
+      this.sc[t] = mc === 'soracannon' ? { abort: false, fired: false, charge: null, foeHp: null, dmg: 0, deaths: 0, noSpot: false, foeLib: false, koAt: -1 } : null;
     }
     for (const p of this.players.values()) p.hp = this.maxHp(p); // キャラ確定後にロールのHPを反映
     // 開始演出: 各陣営を開始した部屋（study）に横並びにする
@@ -1497,6 +1500,7 @@ export class GameRoom extends Room {
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
     this.cm.bossDmgBy(p, dmg);
+    const sc = this.sc[p.team]; if (sc && p.char === 'sora' && p.st.solar) sc.dmg += dmg; // 記録用（そら砲の大将ダメージ。botai4）
     if (!p.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === p.id) c.send('bossHit'); // 当てた本人へ（立ち絵の反応。画面側で間引く。react1）
     if (boss.hp <= 0) return this.startFinale(1 - boss.team, 'boss', p); // 止めを刺したキャラ（大将は大将を攻撃しない）
     this.cm.bossHit(boss);
@@ -2006,6 +2010,7 @@ export class GameRoom extends Room {
       if (this.counterMode[t] === 'hold' && dead(1 - t) >= C.BOT_COUNTER.trigger) { this.counterMode[t] = 'attack'; this.counterN[t]++; }
       else if (this.counterMode[t] === 'attack' && dead(t) === n(t)) this.counterMode[t] = 'hold';
     }
+    for (const t of [0, 1]) this.scUpdate(t);
     for (const p of this.players.values()) if (p.bot && p.alive && !(this.practice && p.id === 'foe' && this.foeMode === 'stand')) this.botThink(p, obs); // 練習の棒立ちは考えない（動かない）
   }
 
@@ -2034,6 +2039,7 @@ export class GameRoom extends Room {
 
   botThink(p: Player, obs: Rect[]) {
     if (p.assist) return this.assistThink(p, obs);
+    if (this.sc[p.team] && !this.sc[p.team]!.abort && this.scThink(p, obs)) return; // マクロ soracannon（botai4）
     const ph = p.phys ? C.BOT_PHYS[p.phys] : undefined; // フィジカル（中は undefined＝今の値）
     const dist = (o: Pt) => Math.hypot(o.x - p.x, o.y - p.y);
     // 近い順。同じくらい近い候補はランダムに選ぶ。詰まった目的地（penalty）は避ける（全部避けるべきなら避けない）
@@ -2086,6 +2092,7 @@ export class GameRoom extends Room {
     // マクロの層（botai2。層のない std は今の役割のまま）: e 終盤リードで守り ＞ u パワーアップ中は攻め ＞ a アシストに同行 ＞ 土台の役割
     let role: string = p.role;
     if (role === 'counter') role = this.counterMode[p.team] === 'attack' ? 'raid' : 'guard'; // counter: 構えは守り、逆襲は攻め
+    if (this.sc[p.team]?.abort) role = [...this.players.values()].filter((q) => q.team === p.team && !q.assist).indexOf(p) % 2 === 0 ? 'gather' : 'raid'; // soracannon をやめた後は std の役割
     if (allIn) role = 'raid';
     else if (fl) {
       const pct = (t: number) => this.bosses[t].hp / C.BOSS_HP;
@@ -2130,6 +2137,82 @@ export class GameRoom extends Room {
     const b = bs[p.raidBase];
     if (SKILLS[p.char]?.botMove?.(this, p, b, obs)) return;
     go(b, `room:${p.raidBase}`);
+  }
+
+  // ---- マクロ soracannon（botai4。実験用。本番の Bot は使わない） ----
+  // そら役: その陣営で最初の九州そら（人間を除く）
+  scSora(t: number) { return [...this.players.values()].find((q) => q.team === t && q.bot && !q.assist && q.char === 'sora'); }
+  // そら役が撤退した時、残り時間でチャージが keys の最後から2番目の秒数（265）を超えられなければ作戦をやめる。撤退の回数を数える
+  scUpdate(t: number) {
+    const sc = this.sc[t], s = this.scSora(t);
+    if (!sc || !s || s.alive || this.phase !== 'playing') return;
+    if (s.koAt !== sc.koAt) { sc.koAt = s.koAt; sc.deaths++; } // 撤退の回数（作戦をやめた後も数える）
+    if (sc.abort) return;
+    const K = CHARS.sora.skill.keys as number[][], left = this.timeLeft - Math.max(0, s.respawnAt - this.now) - CHARS.sora.skill.ct;
+    if (!sc.fired && left < K[K.length - 2][0]) { sc.abort = true; delete s.st.scHold; }
+  }
+  // 撃つ場所: 自陣側（中立・敵陣へは出ない）の床の格子のうち、そこから敵の大将までのビームが外周の壁に当たらない所（敵の大将の位置ごとに一度だけ求める）
+  static scSpots = new Map<string, Pt[]>();
+  scSpots(t: number, boss: Pt) {
+    const key = `${t}|${Math.round(boss.x)}|${Math.round(boss.y)}`, S = C.BOT_SORA, T = MAP.tileSize, hw = (CHARS.sora.skill.w as number) / 2, tl = MAP.tiles as string[];
+    let out = GameRoom.scSpots.get(key);
+    if (out) return out;
+    out = [];
+    const clear = (a: Pt) => { const len = Math.hypot(boss.x - a.x, boss.y - a.y), ux = (boss.x - a.x) / len, uy = (boss.y - a.y) / len; for (let s = 0; s <= len; s += 4) { const x = a.x + ux * s, y = a.y + uy * s; for (let ty = Math.floor((y - hw) / T); ty <= Math.floor((y + hw) / T); ty++) for (let tx = Math.floor((x - hw) / T); tx <= Math.floor((x + hw) / T); tx++) if (tl[ty]?.[tx] === '#' && PERIMETER[ty]?.[tx]) return false; } return true; };
+    for (let y = S.spotStep / 2; y < C.MAP_H; y += S.spotStep) for (let x = S.spotStep / 2; x < C.MAP_W; x += S.spotStep) {
+      if (t === 0 ? x >= C.MAP_W / 2 : x <= C.MAP_W / 2) continue; // 自陣側だけ
+      const tx = Math.floor(x / T), ty = Math.floor(y / T);
+      if ([-1, 0, 1].some((d) => tl[ty + d]?.[tx] !== '.' || tl[ty]?.[tx + d] !== '.')) continue; // 床（まわり1マスも床）
+      if (clear({ x, y })) out.push({ x, y });
+    }
+    GameRoom.scSpots.set(key, out);
+    return out;
+  }
+  // soracannon の Bot の考え。扱ったら true（扱わない＝ふつうの流れ。守り役は p.role の guard）
+  scThink(p: Player, obs: Rect[]) {
+    const t = p.team, sc = this.sc[t]!, S = C.BOT_SORA, sora = this.scSora(t), boss = this.bosses[1 - t];
+    const go = (to: Pt, key: string) => { p.goal = key; this.botGoto(p, to, obs); };
+    const dist = (o: Pt) => Math.hypot(o.x - p.x, o.y - p.y);
+    if (p !== sora) { // 偵察役: 発射の準備の間（残り prep 秒）、そら役以外で最初の Bot が敵の大将を視界に入れに行く（大将は攻撃しない）
+      const scout = [...this.players.values()].find((q) => q.team === t && q.bot && !q.assist && q !== sora && q.alive);
+      if (!sora || sc.fired || this.timeLeft > S.prep || p !== scout) { delete p.st.scScout; return false; }
+      p.st.scScout ??= { until: Infinity, noAuto: true }; // 敵の大将（予告中＝無敵を含む）を撃たないよう、通常攻撃をしない
+      this.rec.bot(p, 'raid');
+      if (dist(boss) > S.scoutStop) go(boss, 'scout'); else this.setInput(p.id, 0, 0);
+      return true;
+    }
+    p.st.scHold ??= { until: Infinity, noAuto: true }; // そら役は通常攻撃をしない（悪行を溜めない）
+    const K = CHARS.sora.skill.keys as number[][], c = p.sk.charge ?? 0;
+    const want = !sc.fired && (c >= K[K.length - 1][0] || boss.hp <= solarAt(c, 1, true) * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT);
+    const foes = [...this.players.values()].filter((e) => e.team !== t && e.alive && !this.effect(e, 'hidden') && dist(e) <= C.BOT_AGGRO_RANGE && this.visibleTo(t, e.x, e.y, obs));
+    const room = C.RECALL_ROOMS[t], safe = { x: room.x + room.w / 2, y: room.y + room.h / 2 };
+    if (want) { // 発射: 撃つ場所へ向かい、着いたら（敵の大将が予告中でなく、CT が明けていれば）敵の大将へ撃つ
+      const spots = this.scSpots(t, boss);
+      if (!spots.length) { sc.noSpot = true; sc.foeLib ||= roomKindAt(Math.floor(boss.x / MAP.tileSize), Math.floor(boss.y / MAP.tileSize)) === 'library'; }
+      else {
+        const spot = spots.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+        this.rec.bot(p, 'raid');
+        if (dist(spot) > S.spotNear) { go(spot, 'scspot'); return true; }
+        this.setInput(p.id, 0, 0);
+        if (!boss.moving && this.now >= p.skillReadyAt && p.recallAt === null) {
+          p.skillA = Math.atan2(boss.y - p.y, boss.x - p.x); this.skill(p.id); p.skillA = undefined;
+          if (p.st.solar) { sc.fired = true; sc.charge = c; sc.foeHp = boss.hp; }
+        }
+        return true;
+      }
+    }
+    // ふだん: 敵が見えたら戦わずに給湯室へ。HP が recallHp 未満で脅威がなければ帰還。それ以外は自陣側の裏側の部屋の資材を拾う
+    const threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
+    if (threat) { if (p.recallAt !== null) this.cancelRecall(p); this.rec.bot(p, 'flee'); go(safe, 'flee'); return true; }
+    if (!this.atBase(p) && p.hp < this.maxHp(p) * S.recallHp && p.recallAt === null && this.now >= p.recallBanUntil) p.recallAt = this.now;
+    if (p.recallAt !== null) { this.rec.bot(p, 'recall'); this.setInput(p.id, 0, 0); return true; }
+    if (p.eating && (p.hp >= this.maxHp(p) || !this.atBase(p))) p.eating = false;
+    if (p.eating) { const f = this.items.find((i) => i.kind === 'heal' && inRect(i.x, i.y, room)); if (f) { this.rec.bot(p, 'eat'); go(f, `item:${f.id}`); return true; } }
+    const own = (x: number) => (t === 0 ? x < C.MAP_W / 2 : x > C.MAP_W / 2), mats = this.materials.filter((m) => m.hi && own(m.x));
+    this.rec.bot(p, 'gather');
+    const m = mats.length ? mats.reduce((a, b) => (dist(b) < dist(a) ? b : a)) : null;
+    if (m) go(m, `mat:${m.id}`); else go(safe, 'flee');
+    return true;
   }
 
   // アシスト: 敵大将へ経路探索で前進し、着いたら攻撃する（途中の敵は射程内ならオートアタック、前進は止めない）

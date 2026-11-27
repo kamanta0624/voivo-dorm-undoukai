@@ -130,7 +130,7 @@ export class MatchRec {
     }));
     const teams = [0, 1].map((t) => {
       const T = room.teams[t], b = room.bosses[t];
-      return { macro: room.macros?.[t] ?? 'std', endDefend: !!room.endDefend?.[t], counterN: room.counterN?.[t] ?? 0, counterBoss: r1(room.counterBoss?.[t] ?? 0), mats: { big: 0, backOwn: 0, backEnemy: 0, front: 0, ...this.mats[t] }, toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
+      return { macro: room.macros?.[t] ?? 'std', sc: room.sc?.[t] ? { ...room.sc[t], dmg: r1(room.sc[t].dmg) } : undefined, endDefend: !!room.endDefend?.[t], counterN: room.counterN?.[t] ?? 0, counterBoss: r1(room.counterBoss?.[t] ?? 0), mats: { big: 0, backOwn: 0, backEnemy: 0, front: 0, ...this.mats[t] }, toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
     });
     this.result = {
       v: 1, source, start: new Date(this.startedAt).toISOString(), seed: this.seed, commit: COMMIT, slotMode: C.SLOT_MODE,
