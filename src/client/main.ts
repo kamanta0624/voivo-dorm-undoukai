@@ -20,7 +20,8 @@ import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
 
 type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | string[] | null)[]; parts: number[] }; // tap の配列は同じ部位を触るたびに順番に替わる // 余白の立ち絵の反応（react1。chars.json の react）
-type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string; react?: React };
+type Tachie = { fit?: 'full' | 'knee'; cm?: number; top?: number; foot?: number; base?: number; knee?: number; crate?: number[] }; // 選択画面・余白の立ち絵の出し方（chars.json の tachie。tachie2）
+type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string; react?: React; tachie?: Tachie };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
@@ -31,6 +32,15 @@ const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動け�
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const css16 = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.png`;
+const CRATE = 'assets/crate/crate.png'; // 低身長組の足元の木箱（ニコニ・コモンズ nc298408）
+// 選択画面・余白の立ち絵の大きさと位置（枠の高さ Hp に対する px）: h=絵の高さ、top=絵の上端（枠の上端から）、crate=木箱（left は絵の左端から）。身長に比例（tachie2）
+function tachieFit(k: string, Hp: number) {
+  const t = CHARS[k]?.tachie;
+  if (!t || t.fit === 'full' || t.top === undefined) return { h: Hp, top: 0, crate: null };
+  if (t.fit === 'knee') { const h = Hp / ((t.knee! - t.top) / 100); return { h, top: (-t.top / 100) * h, crate: null }; }
+  const h = ((Hp / C.TACHIE_MAX_CM) * t.cm!) / ((t.foot! - t.top) / 100), top = Hp - (t.base! / 100) * h, c = t.crate;
+  return { h, top, crate: c ? { left: (c[0] / 100) * h, top: top + (c[1] / 100) * h, size: (c[2] / 100) * h } : null };
+}
 
 const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), ずんだもん軍(緑)
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
@@ -39,7 +49,7 @@ const TEAM_NAME = ['だいだい組', 'みどり組'];
 const TITLE = 'ブイブイブレイカーズ';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
-const CARD_W = 56, TACHIE_BROWSE_H = 80, BAR_COPIES = 3; // BAR_COPIES: 選択バーのループのために全員分を並べる回数
+const CARD_W = 56, BAR_COPIES = 3; // BAR_COPIES: 選択バーのループのために全員分を並べる回数
 const LOBBY_COLOR = { stat: '#ffe066', melee: '#ff7a3c', shot: '#3cb4ff', empty: '#ffffff26', ok: '#66ff99', pending: '#bbbbbb' };
 const PICK_SEND_MS = 200; // 待機画面: 表示キャラの切り替えをサーバーへ送る間隔の下限（カーソルを動かすたびに送らない）
 const ROLE_LABEL: Record<string, string> = { balance: 'バランス', attacker: 'アタッカー', speed: 'スピード', defense: 'ディフェンス', support: 'サポート' };
@@ -64,7 +74,7 @@ const SIDE_BG = '#1a1a22'; // ゲーム画面の外（余白）の既定の色�
 // 余白: 対戦中は自キャラの立ち絵（既定は右、選択画面の切替で左）。入力の邪魔をしない
 const side = document.createElement('div');
 side.id = 'side';
-side.innerHTML = '<img alt="">';
+side.innerHTML = '<img alt=""><img class="crate" alt="">'; // 2枚目: 低身長組の足元の木箱（立ち絵より後ろ。tachie2）
 document.body.prepend(side);
 // パワーアップ中の演出（本人の画面だけ。pwfx1）: 反対側の余白にちびキャラ・スチルの枠（素材待ち）。立ち絵側の余白のオーラと光は pwfx2 で消した（別の見た目に差し替える予定）
 // DOM は1回だけ作り、表示・強さはクラスの切り替えだけ。動きは CSS の transform・opacity のアニメーションだけ
@@ -74,7 +84,7 @@ side2.innerHTML = '<div class="still"><span>素材待ち</span></div>';
 document.body.prepend(side2);
 // 反対側の余白の素材（ちびキャラ・スチル）。置き場所 public/assets/pwfx/<キャラのkey>.png。素材が届いたらキーを足す（ないキャラは枠と「素材待ち」）
 const PW_STILL: Record<string, string> = {};
-{ const st = document.createElement('style'); st.textContent = ufCss(`body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;bottom:0;height:100%}
+{ const st = document.createElement('style'); st.textContent = ufCss(`body{background:${SIDE_BG}}#side{position:fixed;overflow:hidden;pointer-events:none;display:none}#side img{position:absolute;z-index:1}#side img.crate{z-index:0;display:none}
 #side2{position:fixed;pointer-events:none;display:none;align-items:center;justify-content:center}
 #side2.on{display:flex}
 #side2 .still{width:80%;height:60%;max-width:240px;box-sizing:border-box;border:2px dashed #fff6;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff8;font:bold 13px sans-serif;background:center bottom/contain no-repeat}
@@ -176,8 +186,8 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby .pwa{position:absolute;left:50%;transform:translateX(-50%);top:6px;z-index:3;height:18px;display:flex;align-items:center;gap:6px;background:#ffe066;color:#000;font:bold 11px sans-serif;padding:0 2px 0 8px;border-radius:3px}
 #lobby .pwa button{border:0;background:none;font:bold 14px/1 sans-serif;padding:0 6px;color:#000}
 #fx #lobby{position:absolute;inset:0;display:none;overflow:clip;pointer-events:auto;background:radial-gradient(ellipse at 70% 40%,#3a2f5a,#111 70%);color:#fff;font:calc(var(--z) * 6.5px) sans-serif}
-#lobby .tachie{position:absolute;bottom:0;right:50%;transform:translateX(50%);height:${TACHIE_BROWSE_H}%;pointer-events:none;transition:height .35s}
-#lobby:not(.browse) .tachie{height:100%}
+#lobby .tachie{position:absolute;right:50%;transform:translateX(50%);pointer-events:none} /* 大きさ・位置は身長で決まる（tachieFit）。選択の操作では変えない */
+#lobby .crate{position:absolute;pointer-events:none;display:none}
 #lobby .ttl{position:absolute;left:2%;top:2%;font:900 calc(var(--z) * 12px) sans-serif;color:#ffe066;-webkit-text-stroke:calc(var(--z) * .5px) #000;text-shadow:0 0 calc(var(--z) * 3px) #000}
 #lobby .info{position:absolute;left:2%;top:11%;background:#000a;border-radius:calc(var(--z) * 3px);padding:calc(var(--z) * 3px) calc(var(--z) * 5px)}
 #lobby .info .nm{font:900 calc(var(--z) * 11px) sans-serif}
@@ -342,9 +352,10 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 #lobby .opt{pointer-events:auto;cursor:pointer;font:bold calc(var(--z) * 10.5px) sans-serif;padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:999px;border:calc(var(--z) * 1px) solid #fffa;background:#ffffff26;color:#fff}
 #lobby .opt.off{color:#fff8}
 #lobby #cmbtn::before,#lobby #cvbtn::before{content:'♪ '}#lobby #sidebtn::before{content:'⇄ '}
-#lobby #totitle{left:50%;top:3%;transform:translateX(-50%);transition:transform .35s;font-size:calc(var(--z) * 10.5px);padding:calc(var(--z) * 3px) calc(var(--z) * 9px);min-height:44px;border-radius:calc(var(--z) * 2px);background:#1e2f66;border:calc(var(--z) * 1px) solid #6f8fe0}
+#lobby #totitle{left:2%;top:calc(2% + var(--z) * 17px);transition:transform .35s;font-size:calc(var(--z) * 10.5px);padding:0 calc(var(--z) * 9px);height:max(44px, var(--z) * 20px);box-sizing:border-box;border-radius:calc(var(--z) * 2px);background:#1e2f66;border:calc(var(--z) * 1px) solid #6f8fe0}
 #lobby #totitle::before{content:'◀ '}
-#lobby:not(.browse) #totitle{transform:translate(-50%,calc(-100% - var(--z) * 20px))} /* キャラを選んだ後は画面の外へ（立ち絵と被るため） */
+#lobby:not(.browse) #totitle{transform:translateY(calc(-100% - var(--z) * 40px))} /* キャラを選んだ後は画面の外へ（立ち絵と被るため） */
+#lobby.browse .info{top:calc(2% + var(--z) * 17px + max(44px, var(--z) * 20px) + var(--z) * 2px)} /* 選んでいる間は「タイトルへ」（左上のゲーム名の下）の下へ。立ち絵の頭と被らないように（tachie2） */
 #fx .totitle{position:absolute;left:50%;top:66%;transform:translateX(-50%);display:none;font:bold calc(var(--z) * 7px) sans-serif;padding:.3em 1.2em;border-radius:4px;border:1px solid #fff8;background:#000a;color:#fff;cursor:pointer;pointer-events:auto}
 `, (q) => q.includes('#fx') && !q.includes('#lobby')); // 戦闘画面（#fx）の文字だけ UI_FONT_SCALE（選択画面 #lobby は対象外）
 document.head.appendChild(css);
@@ -568,7 +579,7 @@ class GameScene extends Phaser.Scene {
     // 待機画面（キャラ選択）: 背後に選んだキャラの立ち絵・名前・ロール・ステータス、下半分に選択バー、右上に味方の選択状況
     const lobby = document.createElement('div');
     lobby.id = 'lobby';
-    lobby.innerHTML = `<img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div class="rcol"><div id="roster"></div><div class="opts"><button id="cmbtn" class="opt"></button><button id="sidebtn" class="opt"></button><button id="cvbtn" class="opt"></button></div></div>`
+    lobby.innerHTML = `<img class="crate"><img class="tachie"><div class="ttl">${TITLE}</div><div class="info"><div class="nm"></div><div class="role"></div><div class="stats"></div><div class="sk"></div></div><div class="rcol"><div id="roster"></div><div class="opts"><button id="cmbtn" class="opt"></button><button id="sidebtn" class="opt"></button><button id="cvbtn" class="opt"></button></div></div>`
       + '<div class="selbar"><div class="cards"></div></div><button id="okbtn" class="big">OK?</button><button id="backsel" class="big">↩️</button><div class="grace"></div><button id="totitle" class="big">タイトルへ</button>';
     fx.appendChild(lobby);
     // 実況のオン・オフ（キャラ選択画面だけ。音声と字幕をまとめて切る。端末に保存）
@@ -1221,8 +1232,12 @@ class GameScene extends Phaser.Scene {
     const s2 = side2.style; // 反対側の余白（左右入れ替えに付いていく）
     s2.top = `${b.top}px`; s2.height = `${b.height}px`; s2.left = sideLeft ? `${b.right}px` : '0'; s2.width = `${sideLeft ? Math.max(0, innerWidth - b.right) : Math.max(0, b.left)}px`;
     // 絵の描かれている部分（透明でない範囲）の左右の中心を、余白の左右の中心に合わせる。反応の差分も通常の絵で測った値を使う（差し替えで横に跳ばない）。はみ出す分は両側を切る（高さ・下揃えはそのまま）
-    const el = side.querySelector('img')!, o = OPAQUE.get(this.sideSel), dw = el.naturalHeight ? (el.naturalWidth * b.height) / el.naturalHeight : 0;
-    im.left = `${w / 2 - (o ? (o[0] + o[1]) / 2 : 0.5) * dw}px`;
+    // 大きさと高さは身長で決まる（tachieFit。tachie2）。低身長組は足元の木箱を絵の後ろに置く
+    const el = side.querySelector('img')!, o = OPAQUE.get(this.sideSel), f = tachieFit(k, b.height), dw = el.naturalHeight ? (el.naturalWidth * f.h) / el.naturalHeight : 0, left = w / 2 - (o ? (o[0] + o[1]) / 2 : 0.5) * dw;
+    im.left = `${left}px`; im.height = `${f.h}px`; im.top = `${f.top}px`;
+    const cr = side.querySelector<HTMLImageElement>('img.crate')!;
+    setCss(cr, 'display', f.crate ? 'block' : 'none');
+    if (f.crate) { if (!cr.src.endsWith(CRATE)) cr.src = CRATE; Object.assign(cr.style, { left: `${left + f.crate.left}px`, top: `${f.crate.top}px`, width: `${f.crate.size}px` }); }
   }
 
   // 先読み: 戦闘画面で DOM に出す画像を、出撃の秒数の間に読み込んでデコードしておく（同じ画像は1回だけ）
@@ -1507,6 +1522,15 @@ class GameScene extends Phaser.Scene {
     if (P.foe && document.activeElement !== sel && sel.value !== P.foe) sel.value = P.foe;
   }
 
+  // 選択画面の立ち絵: 身長に比例した大きさと位置、低身長組は足元の木箱（tachieFit。リサイズの後にも合わせ直す）
+  lobbyTachieFit() {
+    const lobby = document.getElementById('lobby'), k = lobby?.dataset.k;
+    if (!lobby || !k) return;
+    const ti = lobby.querySelector<HTMLImageElement>('.tachie')!, cr = lobby.querySelector<HTMLImageElement>('.crate')!, Hp = lobby.clientHeight, f = tachieFit(k, Hp);
+    ti.style.height = `${f.h}px`; ti.style.top = `${f.top}px`;
+    setCss(cr, 'display', f.crate ? 'block' : 'none');
+    if (f.crate && ti.naturalHeight) { const w = (ti.naturalWidth * f.h) / ti.naturalHeight; if (!cr.src) cr.src = CRATE; Object.assign(cr.style, { left: `${lobby.clientWidth / 2 - w / 2 + f.crate.left}px`, top: `${f.crate.top}px`, width: `${f.crate.size}px` }); }
+  }
   lobbyRender() {
     const lobby = document.getElementById('lobby')!, k = this.selChar;
     lobby.className = this.selMode + (this.practice ? ' practice' : '');
@@ -1515,7 +1539,7 @@ class GameScene extends Phaser.Scene {
     lobby.querySelectorAll<HTMLElement>('.card').forEach((el) => el.classList.toggle('mine', el.dataset.k === k)); // 枠の強調は表示中のキャラ
     if (!k || lobby.dataset.k === k) return;
     lobby.dataset.k = k;
-    lobby.querySelector<HTMLImageElement>('.tachie')!.src = TACHIE(k, 'select');
+    const ti = lobby.querySelector<HTMLImageElement>('.tachie')!; ti.onload = () => this.lobbyTachieFit(); ti.src = TACHIE(k, 'select');
     lobby.querySelector('.nm')!.textContent = CHARS[k].name;
     const role = DEFS[k].role;
     lobby.querySelector('.role')!.textContent = `ロール: ${role ? ROLE_LABEL[role] : 'なし'}`;
@@ -1604,6 +1628,7 @@ class GameScene extends Phaser.Scene {
       r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
       r.setProperty('--z', String(this.game.scale.zoom));
       this.sideFit(b);
+      this.lobbyTachieFit(); // 選択画面の立ち絵も枠の大きさに合わせ直す
     }
     const s = this.snap;
     if (!s) return;

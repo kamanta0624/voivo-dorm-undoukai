@@ -9,3 +9,5 @@ public/assets/mapchip/
 public/assets/rules/
 # スロットの効果音（元素材は assets_local/）
 public/assets/se/
+# 低身長組の立ち絵の木箱（元素材は assets_local/）
+public/assets/crate/

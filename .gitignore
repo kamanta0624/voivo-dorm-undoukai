@@ -11,6 +11,8 @@ public/assets/mapchip/
 public/assets/rules/
 # スロットの効果音（ニコニ・コモンズ nc498075・nc356453。assets_local/ から加工せずコピー。tools/deploy.sh が公開側へ写す）
 public/assets/se/
+# 低身長組の立ち絵の木箱（ニコニ・コモンズ nc298408。assets_local/ から加工せずコピー: public/assets/crate/crate.png。tools/deploy.sh が公開側へ写す）
+public/assets/crate/
 verify/evidence/
 .env
 .env.*
