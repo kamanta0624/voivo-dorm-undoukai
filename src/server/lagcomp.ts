@@ -29,7 +29,24 @@ export function recordHist(room: GameRoom) {
 // 巻き戻す時刻: 人間（アシスト・Bot 以外）で、描画時刻があれば。上限 NET_REWIND_MAX
 export function lagT(room: GameRoom, p: Player): number | null {
   if (p.bot || p.assist || p.viewT === undefined) return null;
-  return Math.min(room.elapsed, Math.max(p.viewT, room.elapsed - C.NET_REWIND_MAX));
+  const lim = Math.min(C.NET_REWIND_MAX, Math.max(0, ...(p.rtts ?? [])) + C.NET_INTERP_DELAY + C.NET_REWIND_SLACK); // 申告の描画時刻を、測った往復の遅延から決まる分までに抑える（sync1。測れていなければ往復 0 とみなす）
+  return Math.min(room.elapsed, Math.max(p.viewT, room.elapsed - lim));
+}
+
+// 往復の遅延の計測（sync1）: 人間のクライアントへ毎秒 'rp' を送り、返ってきた 'rq' までの時間を測る。返事の無い計測は次に送る時に捨てる
+export function rttPing(room: GameRoom) {
+  const now = room.rttClock();
+  for (const c of room.clients) {
+    const p = room.players.get(room.owners.get(c.sessionId) ?? '');
+    if (!p || p.bot || (p.rttNext ?? 0) > now) continue;
+    p.rttN = (p.rttN ?? 0) + 1; p.rttAt = now; p.rttNext = now + 1000;
+    c.send('rp', { n: p.rttN });
+  }
+}
+export function rttPong(room: GameRoom, p: Player, n: number) {
+  if (p.rttN !== n || p.rttAt == null) return;
+  (p.rtts ??= []).push((room.rttClock() - p.rttAt) / 1000); p.rttAt = null;
+  if (p.rtts.length > C.NET_RTT_KEEP) p.rtts.shift();
 }
 
 // 相手の位置を時刻 T に戻した写し（記録の間は線形補間。記録のない相手・場の物は今の位置）。o は本物なのでダメージはそのまま入る

@@ -137,7 +137,7 @@ export function payout(room: GameRoom, team: number, t: SlotTarget, tier: number
   const m0 = room.maxHp(a);
   if (tier > a.tier) {
     a.tier = tier; a.hp += room.maxHp(a) - m0;
-    for (const c of room.clients) c.send('assistUp', { char: a.char, tier: a.tier, team }); // 両陣営に通知
+    for (const c of room.clients) c.send('assistUp', { char: a.char, tier: a.tier, team, at: room.elapsed }); // 両陣営に通知
     room.cm.assistUp(a);
   } else a.hp = Math.min(m0, a.hp + m0 * C.SLOT.assistHeal);
   room.addFx(a, 'aura', { r: 40, color: 'assist' });

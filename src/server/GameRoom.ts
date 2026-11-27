@@ -71,6 +71,7 @@ export type Player = {
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
+  rtts?: number[]; rttN?: number; rttAt?: number | null; rttNext?: number; // 人間: サーバーが測った往復の遅延（秒、直近 NET_RTT_KEEP 回）・送った計測の番号と時刻・次に送る時刻（sync1。lagcomp.ts）
   viewT?: number; // 人間: 最後に処理した入力の描画時刻（クライアントの画面のサーバー時刻 elapsed。近接AAの巻き戻し判定）
   skillReadyAt: number; st: Record<string, Status>; sk: Record<string, any>; // st: 状態（key → 期限と効果）、sk: 技処理の持ち物（server/skills が使う）
   assist: boolean; tier: number; ult: Ult | null; // assist: アシストユニット（復活しない）、tier: アシストの強さ（POWER_* の添字）
@@ -425,6 +426,7 @@ export class GameRoom extends Room {
       this.lastTick = start;
     }
     this.tickGame(dt, send);
+    if (send) lag.rttPing(this); // 往復の遅延の計測（sync1）
     if (start !== null) measure!.tick.add(performance.now() - start);
   }
 
@@ -788,7 +790,7 @@ export class GameRoom extends Room {
       const a = cur[0];
       a.tier = Math.min(C.ASSIST_TAGS.length - 1, a.tier + 1);
       a.hp = this.maxHp(a);
-      for (const c of this.clients) c.send('assistUp', { char: a.char, tier: a.tier, team }); // 両陣営に通知
+      for (const c of this.clients) c.send('assistUp', { char: a.char, tier: a.tier, team, at: this.elapsed }); // 両陣営に通知。at: スナップショットの t と同じ時計（クライアントは補間の時刻がここに来てから出す。sync1）
       this.addFx(a, 'aura', { r: 40, color: 'assist' });
       this.cm.assistUp(a);
       return a;
@@ -800,7 +802,7 @@ export class GameRoom extends Room {
     Object.assign(a, pushOut(a.x, a.y, C.PLAYER_RADIUS, this.obstacles()));
     this.noteJump(`p:${a.id}`, before, a, true);
     a.hp = this.maxHp(a);
-    for (const c of this.clients) c.send('assist', { char, tier, team }); // 両陣営に通知
+    for (const c of this.clients) c.send('assist', { char, tier, team, at: this.elapsed }); // 両陣営に通知（at は sync1）
     this.addFx(a, 'aura', { r: 40, color: 'assist' });
     this.cm.assistIn(a, quiet);
     return a;
@@ -980,6 +982,7 @@ export class GameRoom extends Room {
 
   recordHist() { return lag.recordHist(this); } // 中身は lagcomp.ts（refac1）
 
+  rttClock = () => performance.now(); // 往復の遅延の計測の時計（ms。検証で差し替える）
   lagT(p: Player): number | null { return lag.lagT(this, p); } // 中身は lagcomp.ts（refac1）
 
   rewound(things: Thing[], T: number): Thing[] { return lag.rewound(this, things, T); } // 中身は lagcomp.ts（refac1）
@@ -1110,10 +1113,10 @@ export class GameRoom extends Room {
     this.cancelStatuses(v); // KOで消える状態（タメ中に倒されたら突撃は不発。CTは消費済み）
     const killer = attacker ? this.players.get(attacker) : undefined;
     this.rec.ko(this, v, killer);
-    if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char, how }); // KOカットイン用（アシストは立ち絵がないので出さない）
+    if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char, how, at: this.elapsed }); // KOカットイン用（アシストは立ち絵がないので出さない）
     // 倒された本人へ: 誰に（kc: キャラ。大将は大将のキャラ、罰は null）何で倒されたか
     for (const c of this.clients) if (this.owners.get(c.sessionId) === v.id) c.send('koed', { kc: killer?.char ?? (raw ? null : BOSS_CHAR[1 - v.team]), kt: killer?.team ?? 1 - v.team, how, kid: killer?.id ?? null, unseen: !!killer && v.engage?.seen.get(killer.id) === false, sec: v.engage ? this.now - v.engage.at : null }); // kid: 倒した人、unseen: 倒した人が最初に当てた時に見えていなかった、sec: 交戦の始まりから倒されるまで（react1）
-    for (const c of this.clients) c.send('kill', { kc: killer?.char ?? null, kt: killer?.team ?? 1 - v.team, vc: v.char, vt: v.team }); // キルログ用（kc なし＝大将の反撃）
+    for (const c of this.clients) c.send('kill', { kc: killer?.char ?? null, kt: killer?.team ?? 1 - v.team, vc: v.char, vt: v.team, at: this.elapsed }); // キルログ用（kc なし＝大将の反撃）
     this.cm.kill(v, killer, how, raw);
     if (killer) killer.rage += C.RAGE_KILL;
     // 徳: 相手をKOすると下がる。指名手配中の相手なら上がる（アシストを倒したときは数えない）
@@ -1140,7 +1143,7 @@ export class GameRoom extends Room {
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
     this.cm.bossDmgBy(p, dmg);
     const sc = this.sc[p.team]; if (sc && p.char === 'sora' && p.st.solar) sc.dmg += dmg; // 記録用（そら砲の大将ダメージ。botai4）
-    if (!p.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === p.id) c.send('bossHit'); // 当てた本人へ（立ち絵の反応。画面側で間引く。react1）
+    if (!p.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === p.id) c.send('bossHit', { at: this.elapsed }); // 当てた本人へ（立ち絵の反応。画面側で間引く。react1）
     if (boss.hp <= 0) return this.startFinale(1 - boss.team, 'boss', p); // 止めを刺したキャラ（大将は大将を攻撃しない）
     this.cm.bossHit(boss);
     if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD && this.now >= boss.holdUntil) {

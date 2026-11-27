@@ -2,6 +2,7 @@
 export type C2S = {
   netPing: { id: number; at: number };
   netReport: { id: number; value: unknown };
+  rq: { n: number }; // 往復の遅延の計測の返事（sync1）
   input: { seq: number; dx: number; dy: number; rt?: number };
   resultReq: void;
   qdown: { seq?: number } | void;
@@ -29,6 +30,7 @@ const none = () => true; // 中身を使わないメッセージ（何が来て�
 export const CHECK: { [K in keyof C2S]: (m: unknown) => boolean } = {
   netPing: (m) => obj(m) && fin(m.id) && fin(m.at),
   netReport: (m) => obj(m) && fin(m.id),
+  rq: (m) => obj(m) && fin(m.n),
   input: (m) => obj(m) && fin(m.seq) && fin(m.dx) && fin(m.dy) && Math.abs(m.dx) <= 1 && Math.abs(m.dy) <= 1 && optFin(m.rt), // dx・dy は -1〜1（スティックも正規化して送る）
   resultReq: none,
   qdown: (m) => m === undefined || (obj(m) && optFin(m.seq)),

@@ -2083,7 +2083,10 @@ console.log('--- 近接AAの巻き戻し判定（lagcomp1）');
   const on = chase(true), off = chase(false), bot = chase(true, false);
   ok(`追いかけ（攻撃側281・相手187px/秒、今の距離 ${on.gapNow}px ＞ 届く距離 ${on.reach}px）: 画面の時刻（${C.NET_INTERP_DELAY}＋0.05秒前）まで巻き戻すと当たり、巻き戻さないと当たらない。Bot は巻き戻さない`, on.hit && !off.hit && !bot.hit && on.gapNow > on.reach, { on, off, bot });
   // 上限: 画面の時刻が NET_REWIND_MAX より古くても、その上限までしか戻さない
-  const z = mk('sayo', 'metan'); z.r.elapsed = 5; z.A.viewT = 1; ok(`巻き戻しは最大${C.NET_REWIND_MAX}秒`, Math.abs(z.r.lagT(z.A)! - (5 - C.NET_REWIND_MAX)) < 1e-9);
+  const z = mk('sayo', 'metan'); z.r.elapsed = 5; z.A.viewT = 1; z.A.rtts = [0.2]; ok(`巻き戻しは最大${C.NET_REWIND_MAX}秒`, Math.abs(z.r.lagT(z.A)! - (5 - C.NET_REWIND_MAX)) < 1e-9);
+  // sync1: サーバーが測った往復の遅延＋NET_INTERP_DELAY＋NET_REWIND_SLACK までしか戻さない（測れていなければ往復 0）
+  z.A.rtts = [0.01, 0.02]; const lim1 = 5 - z.r.lagT(z.A)!; z.A.rtts = []; const lim0 = 5 - z.r.lagT(z.A)!;
+  ok('巻き戻しは、測った往復の遅延（直近の最大）＋補間の遅延＋許容まで（測れていなければ往復 0）', Math.abs(lim1 - (0.02 + C.NET_INTERP_DELAY + C.NET_REWIND_SLACK)) < 1e-9 && Math.abs(lim0 - (C.NET_INTERP_DELAY + C.NET_REWIND_SLACK)) < 1e-9, { lim1, lim0 });
   // 自分の斬撃は who を付けて送る（クライアントが画面の自キャラの位置に描く）
   const w = mk('sayo', 'metan'); w.r.fx = []; w.A.cooldownUntil = 0; w.r.attack('a', 0); const sl = w.r.fx.find((x: any) => x.kind === 'slash');
   ok('斬撃のエフェクトに攻撃した人の id を付ける（自分の斬撃は画面の自キャラの位置に描く）', sl?.who === 'a');
@@ -2769,6 +2772,19 @@ console.log('--- 受信の検証・入力の予算・e2e 部屋の封鎖（sec1�
   let rejected = false; try { const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 'x' }); } catch { rejected = true; }
   if (saved !== undefined) process.env.E2E_HOOKS = saved;
   ok('E2E_HOOKS なしでは e2e の部屋（options.e2e）を作れない', rejected);
+}
+
+console.log('--- 単発の出来事の時刻（sync1）');
+{
+  // 撃破の ko・kill の at が、倒れた絵が載る最初のスナップショットの t と同じ（クライアントは補間の時刻が at に来てから出す）
+  const z = mk('sayo', 'metan'); const log: [string, any][] = [];
+  z.r.clients.push({ sessionId: 'own', send: (t: string, m: any) => log.push([t, m]) }, { sessionId: 'spec', send: (t: string, m: any) => log.push(['spec:' + t, m]) });
+  z.r.owners.set('own', 'a'); Object.assign(z.B, { x: 1600, y: 900 });
+  z.r.tick(0.05); log.length = 0;
+  z.r.damagePlayer(z.B, 1e9, 'a'); z.r.sendSnapshots();
+  const ko = log.find(([t]) => t === 'ko')?.[1], kill = log.find(([t]) => t === 'kill')?.[1], snap = log.find(([t]) => t === 'spec:s')?.[1];
+  const dead = snap?.players.find((p: any) => p.id === 'b');
+  ok('ko・kill の at が、倒れた絵が載る最初のスナップショットの t と同じ', ko && kill && snap && ko.at === snap.t && kill.at === snap.t && dead && !dead.alive, { ko: ko?.at, kill: kill?.at, t: snap?.t, alive: dead?.alive });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
