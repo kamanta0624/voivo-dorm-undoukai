@@ -52,3 +52,35 @@ export const checkE2e = (m: unknown) => m === undefined || obj(m);
 export function sendC2S<K extends keyof C2S>(room: { send(type: string, m?: unknown): void }, type: K, ...m: C2S[K] extends void ? [] | [C2S[K]] : [C2S[K]]) {
   room.send(type, m[0]);
 }
+
+// サーバー → クライアントのスナップショット（'s'。refac1）。サーバー側の組み立て（server/snapshot.ts）に付ける。クライアントの受け取り側は refac3 で使う
+type View = 'all' | 'focus' | 0 | 1;
+type HoldView = number[]; // [色, 先バレ, 高確率]
+export type SnapPlayer = {
+  id: string; team: number; char: string; bot: boolean; x: number; y: number; hp: number; alive: boolean; rage: number; bad: number;
+  face: number; stunned: boolean; cd: number; respawnIn: number; ko: number | null;
+  ack: number; cage: unknown; maxHp: number; spd: number; aim: string; tgt: string | null; skillCd: number;
+  skA?: number; skR?: number; skRe?: boolean; // 技の矢印（本人だけ）
+  st: Record<string, unknown>; lock: boolean; still: boolean; recall: number | null;
+  assist: boolean; tier: number; ult: { form: string; tier: number; left: number | null } | null;
+  boost: boolean; slow: boolean; weak: boolean; cdMax: number;
+};
+export type Snapshot = {
+  practice?: { mode: string; lv: number[]; foe: string | null };
+  e2eFists?: number;
+  spec?: { view: View | null; focus: unknown; abandon: number | null };
+  netMeasure: number; me: string | null; t: number;
+  roster: { id: string; team: number; bot: boolean; char: string; alive: boolean; ok: boolean; name?: string; ult: number | null }[];
+  buffs: Record<string, number> | null; introMess?: unknown; back: { n: number; total: number } | null; finale: unknown;
+  lobbyLeft: number | null; sortie: number | null; phase: string; phaseLeft: number; timeLeft: number; winner: number | null;
+  teams: { toku: number; wanted: string | null; reflect: unknown; bossHpRatio: number; m: { mode: string; backLeft: number; holds: HoldView[]; cur: HoldView | null; lv: unknown } | { kind: string; holds: HoldView[]; cur: HoldView | null; chain: number } }[];
+  wanted: { id: string; team: number; x: number; y: number }[];
+  players: SnapPlayer[];
+  bosses: { team: number; x: number; y: number; hp: number; base: number }[];
+  materials: { id: number; x: number; y: number; hi: boolean; big: boolean }[]; items: unknown[];
+  ents: { id: number; kind: string; team: number; x: number; y: number; r: unknown; body: unknown; hp: unknown; a: unknown; v: unknown }[];
+  couriers: { id: number; team: number; x: number; y: number; box: unknown }[];
+  warns: { id: number; team: number; x: number; y: number; r: number; left: number; boss: boolean }[];
+  shots: { id: number; kind: string; team: number; x: number; y: number; vx: number; vy: number }[];
+  fx: unknown[]; broken: unknown[]; cracks?: unknown[]; bossRooms: unknown; reveal?: true;
+};

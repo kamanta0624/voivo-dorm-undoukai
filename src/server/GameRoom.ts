@@ -16,6 +16,8 @@ import { ModernSlot, dress, pick as pickW, type Ev as MEv, type Pay } from '../s
 import { MatchRec } from './matchlog';
 import { solarAt } from '../shared/solar';
 import { bindMessages } from './messages';
+import * as snap from './snapshot';
+import * as lag from './lagcomp';
 
 const T = C.TILE;
 // 強さの倍率の表（POWER_MULT・ULT_HP_MULT）の添字 tier の値。表の最後（Lv4）を超えた Lv4+N は Lv4 の値から +lvStep ずつ（handoff_slot3。クラシックは超えない）
@@ -86,9 +88,9 @@ export type Player = {
 };
 type Courier = { id: number; team: number; x: number; y: number; hp: number; path: Pt[]; pathAt: number; wp: number; dir: number; box: string }; // ブイブイ・コバコ（中立 team=-1）。wp: 巡回経路の次の地点、dir: 往復の向き（+1 / -1）、box: 持っている荷物（ult / assist）
 export type Boss = { team: number; base: number; x: number; y: number; hp: number; dmgAtBase: number; target: string | null; cooldownUntil: number; moved: boolean; moving: boolean; shotAt: number; holdUntil: number }; // moved: 1回でも拠点移動した（第2形態）、moving: 移動の予告中（無敵）、shotAt: 第2形態の次の弾の時刻、holdUntil: この時刻までは拠点移動を始めない（技が止める）
-type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; top: number; payoutAt: number | null; holdUntil: number; holds: CHold[]; cur: CHold | null; reachSent: boolean }; // start: 回転の開始時刻、reels: この回転の結果（リールの絵柄の番号 1〜。-1=罰の絵柄）、pen: 罰の出目、chain: 当選のカットインの段（1＝大当たり、2〜＝チャンスアップ）、tier: 今の段のレベル、top: チャンスアップで決まった最後のレベル、payoutAt: 次の段の時刻（払い出し中だけ）。holds: 保留（先頭が次の回転）、cur: 今の回転の保留、reachSent: リーチ・全回転の演出を送った
+export type Slot = { start: number; reels: number[]; win: boolean; pen: boolean; chain: number; tier: number; top: number; payoutAt: number | null; holdUntil: number; holds: CHold[]; cur: CHold | null; reachSent: boolean }; // start: 回転の開始時刻、reels: この回転の結果（リールの絵柄の番号 1〜。-1=罰の絵柄）、pen: 罰の出目、chain: 当選のカットインの段（1＝大当たり、2〜＝チャンスアップ）、tier: 今の段のレベル、top: チャンスアップで決まった最後のレベル、payoutAt: 次の段の時刻（払い出し中だけ）。holds: 保留（先頭が次の回転）、cur: 今の回転の保留、reachSent: リーチ・全回転の演出を送った
 type SlotTarget = { kind: 'ult'; id: string } | { kind: 'assist'; char: string } | { kind: 'seven' }; // 当選の払い出しの対象（そろった絵柄）: プレイヤー1人のパワーアップ、アシスト、7（プレイヤー全員のレベルアップ）
-type CHold = { outcome: 'win' | 'miss' | 'pen'; color: number; saki: string[]; act: string | null; target: SlotTarget | null; reels: number[] }; // クラシックの保留: 積んだ時点の徳で当否と対象を決め、見た目（色・演出）はモダンの選択率（handoff_tune5）。saki: 先バレを見せるプレイヤーの id（handoff_slot4）。reels は回転を始めるときに決める
+export type CHold = { outcome: 'win' | 'miss' | 'pen'; color: number; saki: string[]; act: string | null; target: SlotTarget | null; reels: number[] }; // クラシックの保留: 積んだ時点の徳で当否と対象を決め、見た目（色・演出）はモダンの選択率（handoff_tune5）。saki: 先バレを見せるプレイヤーの id（handoff_slot4）。reels は回転を始めるときに決める
 // 決着演出: kind=boss（大将撃破）／timeout（時間切れ）、stage=今の段（FINALE の順）、t=段の経過(実秒)、boss=倒された大将の位置、killer=止めを刺したキャラ（アシストは assist）
 type Finale = { kind: 'boss' | 'timeout'; winner: number; stage: 'slow' | 'boss' | 'killer' | 'timeup' | 'win'; t: number; boss: { team: number; x: number; y: number } | null; killer: { id: string; char: string; team: number; assist: boolean; x: number; y: number } | null };
 type Team = { toku: number; wanted: string | null; slot: Slot; m: ModernSlot | null; powerTier: number }; // toku: 徳、wanted: 指名手配中のプレイヤーid。m: モダンのスロット（SLOT_MODE が modern のとき）、powerTier: モダンのパワーアップの陣営のレベル（POWER_* の添字。Lv4 以降は 3+N）
@@ -1120,63 +1122,18 @@ export class GameRoom extends Room {
 
   jumps = new Map<string, { t: number; before: Pt; after: Pt; born: boolean }[]>();
 
-  noteJump(id: string, before: Pt, after: Pt, born = false) {
-    if (this.phase !== 'playing' || (!born && before.x === after.x && before.y === after.y)) return;
-    this.contactTick?.jumped.add(id);
-    const events = this.jumps.get(id) ?? [];
-    events.push({ t: this.elapsed, before: { x: before.x, y: before.y }, after: { x: after.x, y: after.y }, born });
-    this.jumps.set(id, events);
-  }
+  noteJump(id: string, before: Pt, after: Pt, born = false) { return lag.noteJump(this, id, before, after, born); } // 中身は lagcomp.ts（refac1）
 
   relocate(id: string, object: Pt, to: Pt) {
     this.noteJump(id, object, to);
     Object.assign(object, to);
   }
 
-  recordHist() {
-    for (const [id, events] of this.jumps) {
-      const kept = events.filter((e) => e.t >= this.elapsed - C.NET_REWIND_MAX - 0.2);
-      if (kept.length) this.jumps.set(id, kept); else this.jumps.delete(id);
-    }
-    const pos = new Map<string, Pt>();
-    for (const p of this.players.values()) pos.set(`p:${p.id}`, { x: p.x, y: p.y });
-    for (const b of this.bosses) pos.set(`boss:${b.team}`, { x: b.x, y: b.y });
-    for (const c of this.couriers) pos.set(`c:${c.id}`, { x: c.x, y: c.y });
-    const last = this.hist[this.hist.length - 1];
-    if (last && last.t === this.elapsed) last.pos = pos; else this.hist.push({ t: this.elapsed, pos });
-    while (this.hist.length > 2 && this.hist[1].t < this.elapsed - C.NET_REWIND_MAX - 0.2) this.hist.shift();
-  }
+  recordHist() { return lag.recordHist(this); } // 中身は lagcomp.ts（refac1）
 
-  // 巻き戻す時刻: 人間（アシスト・Bot 以外）で、描画時刻があれば。上限 NET_REWIND_MAX
-  lagT(p: Player): number | null {
-    if (p.bot || p.assist || p.viewT === undefined) return null;
-    return Math.min(this.elapsed, Math.max(p.viewT, this.elapsed - C.NET_REWIND_MAX));
-  }
+  lagT(p: Player): number | null { return lag.lagT(this, p); } // 中身は lagcomp.ts（refac1）
 
-  // 相手の位置を時刻 T に戻した写し（記録の間は線形補間。記録のない相手・場の物は今の位置）。o は本物なのでダメージはそのまま入る
-  rewound(things: Thing[], T: number): Thing[] {
-    const h = this.hist;
-    let i = h.length - 1;
-    while (i > 0 && h[i - 1].t >= T) i--;
-    const b = h[i], a = i > 0 ? h[i - 1] : b;
-    return things.filter((t) => !(this.jumps.get(thingId(t)) ?? []).some((e) => e.born && T < e.t)).map((t) => {
-      if (t.k === 'e') return t; // 場の物は従来どおり現在位置（位置履歴を持たない）
-      if (h.length && T > h[h.length - 1].t) return t;
-      const id = thingId(t), pa = a?.pos.get(id), pb = b?.pos.get(id);
-      if (pb && T === b.t) return { ...t, x: pb.x, y: pb.y } as Thing;
-      const events = (this.jumps.get(id) ?? []).filter((e) => e.t >= (a?.t ?? -Infinity) && e.t <= (T >= (b?.t ?? 0) ? this.elapsed : (b?.t ?? this.elapsed)));
-      const next = events.find((e) => T < e.t), prev = events.filter((e) => e.t <= T).at(-1);
-      if (next || prev) {
-        const left = prev ? { t: prev.t, p: prev.after } : { t: a?.t ?? next!.t, p: pa ?? next!.before };
-        const right = next ? { t: next.t, p: next.before } : { t: Math.max(b?.t ?? this.elapsed, left.t), p: pb ?? prev!.after };
-        const k = right.t > left.t ? Math.max(0, Math.min(1, (T - left.t) / (right.t - left.t))) : 0;
-        return { ...t, x: left.p.x + (right.p.x - left.p.x) * k, y: left.p.y + (right.p.y - left.p.y) * k } as Thing;
-      }
-      if (!pa || !pb || T > b.t) return t;
-      const k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1;
-      return { ...t, x: pa.x + (pb.x - pa.x) * k, y: pa.y + (pb.y - pa.y) * k } as Thing;
-    });
-  }
+  rewound(things: Thing[], T: number): Thing[] { return lag.rewound(this, things, T); } // 中身は lagcomp.ts（refac1）
 
   // その対象への通常攻撃が近接になるか（ウルトの近接の変身を含む）
   meleeAt(p: Player, t: Thing) {
@@ -1772,11 +1729,7 @@ export class GameRoom extends Room {
     this.skill(id, a);
   }
 
-  // 技の矢印（本人にだけ送る）: skA=矢印の向き（タメ中は今の向き、ほかは自動照準）、skR=矢印の長さ（技の射程。L があればそれ）、skRe=タメ中で向きを変えられる
-  arrowView(p: Player) {
-    const ar = SKILLS[p.char]?.arrow?.(this, p);
-    return ar ? { skA: ar.a ?? this.skillAim(p, ar.R), skR: ar.L ?? ar.R, skRe: ar.a !== undefined } : {};
-  }
+  arrowView(p: Player) { return snap.arrowView(this, p); } // 中身は snapshot.ts（refac1）
 
   // 移動入力: 人間は最後に届いた入力（tickの境目で入力が空になっても途切れない）、Bot は今の移動方向
   moveIntent(p: Player): [number, number] {
@@ -2113,81 +2066,11 @@ export class GameRoom extends Room {
     return { n: list.filter((p) => p.bot || this.backVotes.has(p.id)).length, total: list.length };
   }
 
-  // スナップショットで送る状態: 有効な状態の key → 描画用の値（なければ true）
-  statusView(p: Player) {
-    const out: Record<string, any> = {};
-    for (const k in p.st) if (this.now < p.st[k].until) out[k] = p.st[k].view?.() ?? true;
-    return out;
-  }
+  statusView(p: Player) { return snap.statusView(this, p); } // 中身は snapshot.ts（refac1）
 
-  // モダンのスロットの表示用（当否は送らない）: モード・引き戻しの残り・保留（色・先バレ・高確率）・回転中の保留・レベル（Lv.4+N の表示）
-  // クラシックの保留の表示（色・先バレ）。先バレは見る人（me）が対象の保留だけ。cur: 回っている保留（払い出し・罰の表示中はなし）、chain: 払い出し中のカットインの段
-  classicView(sl: Slot, me?: string) {
-    const h = (x: CHold) => [x.color, me && x.saki.includes(me) ? 1 : 0, 0];
-    return { kind: 'classic', holds: sl.holds.map(h), cur: sl.cur && sl.payoutAt === null && !sl.holdUntil ? h(sl.cur) : null, chain: sl.payoutAt !== null ? sl.chain : 0 };
-  }
+  classicView(sl: Slot, me?: string) { return snap.classicView(this, sl, me); } // 中身は snapshot.ts（refac1）
 
-  modernView(m: ModernSlot) {
-    const h = (x: { color: number; saki: boolean; high: boolean }) => [x.color, x.saki ? 1 : 0, x.high ? 1 : 0];
-    return { mode: m.mode, backLeft: m.backLeft, holds: m.holds.map(h), cur: m.cur ? h(m.cur.hold) : null, lv: m.lv };
-  }
 
-  // 自キャラのバフ／デバフ欄: 時間制限つきの状態の残り秒数（状態 key → 秒）。スロットの罰の減速・攻撃力低下は pen_slow・pen_weak、アシストの加速は boost。終わりのない状態（溜め中など）は含めない
-  buffView(p: Player) {
-    const out: Record<string, number> = {};
-    for (const k in p.st) { const u = p.st[k].until; if (Number.isFinite(u) && this.now < u) out[k] = u - this.now; }
-    if (this.now < p.slowUntil) out.pen_slow = p.slowUntil - this.now;
-    if (this.now < p.weakUntil) out.pen_weak = p.weakUntil - this.now;
-    if (this.now < p.boostUntil) out.boost = p.boostUntil - this.now;
-    return out;
-  }
 
-  sendSnapshots() {
-    const obs = this.seeWalls; // 敵の表示は視界の壁（透過壁を通す）
-    const vis = [0, 1].map((team) => ({
-      players: [...this.players.values()].filter((p) => p.team === team || ((p.alive || this.dying(p)) && this.bodySeen(team, { k: 'p', o: p, x: p.x, y: p.y, r: C.PLAYER_RADIUS }, obs))), // 体の一部でも見えれば送る（hitbox1） // 撃破の演出中の敵も視界内なら送る
-      bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.bodySeen(team, { k: 'boss', o: b, x: b.x, y: b.y, r: C.BOSS_RADIUS }, obs)), // 開幕中は敵大将も映す
-      ents: this.ents.filter((e) => e.team === team || !ENTS[e.kind].fog || this.visibleTo(team, e.x, e.y, obs)),
-      shots: this.shots.filter((s) => s.team === team || this.visibleTo(team, s.x, s.y + (s.up ?? 0), obs)), // 弾は真下の床の位置で
-      fx: this.fx.filter((f) => f.team === team || this.visibleTo(team, f.x, f.y, obs)), // 視界内なら他プレイヤーの技も見える
-      warns: this.warns.filter((w) => w.team === team || this.visibleTo(team, w.x, w.y, obs)),
-    }));
-    const wanted = this.teams.map((t) => this.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
-    const all = { players: [...this.players.values()], bosses: this.bosses, ents: this.ents, shots: this.shots, fx: this.fx, warns: this.warns };
-    const roster = [...this.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name, ult: p.ult && !p.ult.pending ? p.ult.tier : null })); // ult: パワーアップ中の強さ（一覧の札。両陣営に送る）
-    for (const client of this.clients) {
-      const me = this.players.get(this.owners.get(client.sessionId) ?? '');
-      const cn = this.crackSent.get(client.sessionId) ?? 0, cracks = cn < this.crackLog.length ? this.crackLog.slice(cn) : null; // 壁の段階（小破・中破）は変わった分だけ
-      this.crackSent.set(client.sessionId, this.crackLog.length);
-      const sv = me ? null : this.specView.get(client.sessionId) ?? 'all'; // 観戦者の視点
-      const v = me && !this.reveal.has(client.sessionId) && this.phase !== 'finale' ? vis[me.team] : (sv === 0 || sv === 1) && this.phase !== 'finale' ? vis[sv] : all; // 観戦者（組の視界以外）・決着演出中はフォグなし（全員に倒された大将・止めのキャラを映す）
-      const myTeam = me ? me.team : 0;
-      const pr = this.practice ? { mode: this.foeMode, lv: [me?.ult?.tier ?? -1, this.players.get('foe')?.ult?.tier ?? -1], foe: this.players.get('foe')?.char ?? null } : null; // 練習パネルの表示（相手は視界外でも）
-      client.send('s', {
-        ...(pr ? { practice: pr } : {}),
-        ...(process.env.E2E_HOOKS && me ? { e2eFists: this.e2eFists.get(me.id) ?? 0 } : {}),
-        ...(me ? {} : { spec: { view: sv, focus: this.cm.focus, abandon: this.abandonLeft === null ? null : Math.ceil(this.abandonLeft) } }), // 観戦者: 視点・実況のフォーカス・打ち切りまでの秒数
-        netMeasure: this.measure ? this.measureId : 0, me: me?.id ?? null, t: this.elapsed, roster, buffs: me ? this.buffView(me) : null, ...(this.phase === 'intro' ? { introMess: this.introMess } : {}), back: this.phase === 'ended' ? this.backCount() : null, finale: this.finale, lobbyLeft: this.lobbyLeft, sortie: this.sortieLeft, phase: this.phase, phaseLeft: this.phaseLeft, timeLeft: this.timeLeft, winner: this.winner,
-        teams: this.teams.map((t, i) => ({ toku: t.toku, wanted: t.wanted, reflect: this.reflecting(i), bossHpRatio: this.bosses[i].hp / C.BOSS_HP, m: t.m ? this.modernView(t.m) : this.classicView(t.slot, me?.id) })),
-        wanted: wanted, // 指名手配中のキャラの位置（敵の視界外でもミニマップに出す）
-        players: v.players.map((p) => ({
-          id: p.id, team: p.team, char: p.char, bot: p.bot, x: p.x, y: p.y, hp: p.hp, alive: p.alive, rage: p.rage, bad: p.bad,
-          face: p.face, stunned: this.now < p.stunUntil, cd: Math.max(0, p.cooldownUntil - this.now),
-          respawnIn: p.alive ? 0 : p.respawnAt - this.now, ko: p.alive ? null : this.now - p.koAt, // ko: 撃破からの秒数（演出用）
-          ack: p.ack, cage: this.cageOf(p), maxHp: this.maxHp(p), spd: this.speedOf(p), aim: p.aim, tgt: p.tgt ? thingId(p.tgt) : null, skillCd: Math.max(0, p.skillReadyAt - this.now), ...(p === me ? this.arrowView(p) : {}),
-          st: this.statusView(p), lock: this.effect(p, 'lock'), still: this.stillLock(p),
-          recall: p.recallAt === null ? null : (this.now - p.recallAt) / C.RECALL_HOLD,
-          assist: p.assist, tier: p.tier, ult: p.ult ? { form: p.ult.form, tier: p.ult.tier, left: p.ult.pending ? null : p.ult.until - this.now } : null,
-          boost: this.now < p.boostUntil, slow: this.now < p.slowUntil, weak: this.now < p.weakUntil, cdMax: this.atkCooldown(p),
-        })),
-        bosses: v.bosses.map((b) => ({ team: b.team, x: b.x, y: b.y, hp: b.hp, base: b.base })),
-        materials: this.materials.map((m) => ({ id: m.id, x: m.x, y: m.y, hi: m.hi, big: !!m.big })), items: this.items,
-        ents: v.ents.map((e) => ({ id: e.id, kind: e.kind, team: e.team, x: e.x, y: e.y, r: e.r, body: e.body, hp: e.hp, a: e.a, v: e.v })), // v: 技処理が渡す描画用の値
-        couriers: this.couriers.map((c) => ({ id: c.id, team: c.team, x: c.x, y: c.y, box: c.box })), // コバコは両陣営に見せる（ミニマップ）
-        warns: v.warns.map((w) => ({ id: w.id, team: w.team, x: w.x, y: w.y, r: w.r, left: w.at - this.now, boss: !!w.boss })),
-        shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),
-        fx: v.fx, broken: this.broken, ...(cracks ? { cracks } : {}), bossRooms: this.bossRooms, ...(this.reveal.has(client.sessionId) ? { reveal: true } : {}),
-      });
-    }
-  }
+  sendSnapshots() { return snap.sendSnapshots(this); } // 中身は snapshot.ts（refac1）
 }
