@@ -6,7 +6,7 @@ import { CONFIG as C, roomLayout, roomKindAt, slotRate, penaltyRate, chanceRate,
 import { slotSpecHtml } from '../tools/render_rules_slot';
 import { CHARS, PICKABLE, E2E_BOTS, visionRadius, eyeRadius, moveWalls, charAtk, aaMode, aaRange, charStats, STAT_STEPS } from '../src/shared/chars';
 import { solarAt } from '../src/server/skills/sora';
-import { solarPct } from '../src/shared/solar';
+import { solarPct, solarDelay } from '../src/shared/solar';
 import { SKILLS, ENTS } from '../src/server/skills';
 import { circleRect, circleBody, moveBody, lineOfSight, inDashShape } from '../src/shared/geom';
 import { stepPlayer } from '../src/shared/netcode';
@@ -224,7 +224,7 @@ console.log('--- オートアタック（射程・CT・移動中・照準モー�
   ok('CTが明けたら次を自動で撃つ', r0.B.hp < h1);
   // 照準: 近い敵c（HP多め）、遠い敵b（HP少なめ）、大将も射程内
   const t = mk('sayo', 'metan'); t.r.addPlayer('c', 1, false); const Cc = t.r.players.get('c');
-  Object.assign(Cc, { x: 1530, y: 900, hp: 120, alive: true, char: 'metan' }); Object.assign(t.B, { x: 1592, y: 900, hp: 30 }); Object.assign(t.r.bosses[1], { x: 1552, y: 950 });
+  Object.assign(Cc, { x: 1530, y: 900, hp: 120, alive: true, char: 'metan' }); Object.assign(t.B, { x: 1592, y: 900, hp: 30 }); Object.assign(t.r.bosses[1], { x: 1552, y: 1000 }); // 大将の体の箱（hitbox1）が自キャラに重ならない位置
   const sel = (mode: string) => { t.A.aim = mode; t.r.updatePlayers(0); return t.A.tgt ? (t.A.tgt.k === 'boss' ? 'boss' : t.A.tgt.o.id) : null; };
   const got = { nearest: sel('nearest'), lowhp: sel('lowhp'), boss: sel('boss'), courier: sel('courier') };
   ok('照準モード: 一番近い敵/一番HPが低い敵/大将優先/コバコ（コバコがいなければ一番近い敵）', got.nearest === 'c' && got.lowhp === 'b' && got.boss === 'boss' && got.courier === 'c', got);
@@ -621,9 +621,9 @@ console.log('--- Botだけの試合・視界外の敵を送らない（e2e の�
       const team = r.players.get(r.owners.get(id)).team, s = last[id];
       const eyes = [...[...r.players.values()].filter((p: any) => p.team === team).map((p: any) => ({ x: p.x, y: p.y, r: eyeRadius(p.char, p.alive ? null : r.now - p.koAt, p.assist) })).filter((e: any) => e.r > 0), { ...r.bosses[team], r: visionRadius() }]; // 倒されたキャラは大爆発の後に縮む視界を持つ
       for (const u of [...r.players.values()].filter((p: any) => p.team !== team && (p.alive || r.dying(p)))) {
-        const ds = eyes.map((e: any) => ({ d: Math.hypot(e.x - u.x, e.y - u.y), r: e.r }));
-        if (ds.some((x) => Math.abs(x.d - x.r) < 1)) continue; // 視界の境目ちょうどは除く
-        const vis = eyes.some((e: any, k: number) => ds[k].d <= ds[k].r && lineOfSight(e.x, e.y, u.x, u.y, obs));
+        const pts = r.bodyPts({ k: 'p', o: u, x: u.x, y: u.y, r: C.PLAYER_RADIUS }); // 体の箱（壁で切った後）の足元・中心・頭・中心の高さの左右（hitbox1）
+        if (pts.some((q: any) => eyes.some((e: any) => Math.abs(Math.hypot(e.x - q.x, e.y - q.y) - e.r) < 1))) continue; // 視界の境目ちょうどは除く
+        const vis = pts.some((q: any) => eyes.some((e: any) => Math.hypot(e.x - q.x, e.y - q.y) <= e.r && lineOfSight(e.x, e.y, q.x, q.y, obs)));
         const sent = s.players.some((p: any) => p.id === u.id);
         if (sent && !vis) leaked++;
         if (!sent && vis) missing++;
@@ -1810,8 +1810,8 @@ console.log('--- 東北イタコ（通常攻撃・狐火）');
   ok(`itako2: 追尾中にイタコが標的と反対へ動き、${S.leash}px より離れたら消える（命中しない）`, S.leash === 260 && lw.length === S.n && ents(lz.r, 'foxfire').length === 0 && lz.B.hp === 9999
     && lw.every((x) => x.went < S.homeRange && x.d > S.leash - S.homeSpeed * 0.05), lw);
   // イタコは動かず、標的がイタコのまわりを火の玉より速く回って逃げ続ける（leash の内側）→ 追尾を始めてから homeRange 進んで消える
-  const rz = launch(150); rz.r.walls = []; const cx = rz.A.x, cy0 = rz.A.y; let ang = 0; // 狐火の周回と逆向きに回る（全弾が順に円から離れる）
-  const rw = runAway(rz, 3.5, () => { ang -= (420 / 150) * 0.05; Object.assign(rz.B, { x: cx + Math.cos(ang) * 150, y: cy0 + Math.sin(ang) * 150 }); });
+  const rz = launch(150); rz.r.walls = []; const cx = rz.A.x, cy0 = rz.A.y; let ang = 0; // 狐火の周回と逆向きに回る（全弾が順に円から離れる）。速さ 520（hitbox1 で体の箱が大きくなったので 420 から上げた）
+  const rw = runAway(rz, 3.5, () => { ang -= (520 / 150) * 0.05; Object.assign(rz.B, { x: cx + Math.cos(ang) * 150, y: cy0 + Math.sin(ang) * 150 }); });
   ok(`itako2: イタコが動かず、標的が逃げ続けて ${S.homeRange}px 進んでも当たらなければ消える`, S.homeRange === 360 && rw.length === S.n && ents(rz.r, 'foxfire').length === 0 && rz.B.hp === 9999
     && rw.every((x) => x.went >= S.homeRange - S.homeSpeed * 0.05 && x.d <= S.leash), rw);
   // 追尾中にイタコが倒れたら消える
@@ -2088,41 +2088,41 @@ console.log('--- 近接AAの巻き戻し判定（lagcomp1）');
 
 console.log('--- 九州そら（ソーラーキャノン）');
 {
-  const S = CHARS.sora.skill, K = S.keys as number[][], DUR = (c: number) => solarAt(c, 4), N = Math.round(DUR(5) / S.every), N30 = Math.round(DUR(30) / S.every);
+  const S = CHARS.sora.skill, K = S.keys as number[][], DUR = (c: number) => solarAt(c, 4), N = Math.round(DUR(5) / S.every), F = K[2][0], L = K[3][0], M = K[4][0], N30 = Math.round(DUR(F) / S.every); // F: 100%（25秒）、L: 照射が伸び始める（265秒）、M: 最大（285秒）
   const run = (z: any, sec: number, input?: [number, number]) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { z.r.now += 0.05; if (input) [z.A.inDx, z.A.inDy] = input; z.r.updatePlayers(0.05); } };
-  const fire = (z: any, charge: number, a = 0) => { z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.A.face = a; z.A.tgt = null; z.r.skill('a'); if (charge <= K[K.length - 2][0]) run(z, (Math.ceil(S.delay / 0.05 - 1e-9) - 1) * 0.05); }; // 発生の遅れ（aim1）の分を進めてから（次の tick でビームが出る）
+  const fire = (z: any, charge: number, a = 0) => { z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.A.face = a; z.A.tgt = null; z.r.skill('a'); if (solarDelay(charge) > 0) run(z, (Math.ceil(solarDelay(charge) / 0.05 - 1e-9) - 1) * 0.05); }; // 発生の遅れ（aim1。チャージで決まる）の分を進めてから（次の tick でビームが出る）
   ok('選択画面に出る。浮遊（hover）、近接のパンチ（花丸よりダメージやや高く、間隔やや長い）', PICKABLE.includes('sora') && CHARS.sora.walk === 'hover' && aaMode('sora', null).kind === 'melee'
     && charAtk('sora') * CHARS.sora.aa[0].dmg > charAtk('hanamaru') && CHARS.sora.aa[0].cd > CHARS.hanamaru.aa[0].cd && Math.round(charAtk('sora') * CHARS.sora.aa[0].dmg) === 29, { sora: charAtk('sora') * CHARS.sora.aa[0].dmg, hanamaru: charAtk('hanamaru') });
-  // チャージ: 試合開始から進む。撤退で0から、発射で0、CT 中も進む
+  // チャージ: 試合開始・復活・発射の後は CT（ct 秒）で溜まらず、明けてから0秒で溜まり始める。撤退で0から、発射で0
   const c = mk('sora', 'metan'); Object.assign(c.B, { x: -999, y: -999 }); run(c, 10); const c10 = c.A.sk.charge;
-  c.r.damagePlayer(c.A, 1e9, 'b'); c.r.now = c.A.respawnAt; c.r.updatePlayers(0.05); run(c, 0.05); const pKo = Math.round(solarPct(c.r.statusView(c.A).solarCharge)); run(c, 1.95); const cKo = c.A.sk.charge;
-  c.A.skillReadyAt = 0; c.A.sk.charge = 40; c.A.sk.koAt = c.A.koAt; c.r.skill('a'); const c0 = c.A.sk.charge, p0 = Math.round(solarPct(c0)); run(c, S.ct - 0.5); const cCt = c.A.sk.charge, inCt = c.A.skillReadyAt > c.r.now;
-  ok(`チャージ: 試合開始から進み、撤退で0から、発射で0、CT${S.ct}秒の間も進む`, Math.abs(c10 - 10) < 0.06 && Math.abs(cKo - 2) < 0.11 && c0 === 0 && inCt && Math.abs(cCt - (S.ct - 0.5)) < 0.06, { c10, cKo, c0, cCt });
+  const ready0 = c.A.skillReadyAt; c.r.damagePlayer(c.A, 1e9, 'b'); c.r.now = c.A.respawnAt; c.r.updatePlayers(0.05); run(c, 0.05); const pKo = Math.round(solarPct(c.r.statusView(c.A).solarCharge)), koCt = c.A.skillReadyAt - c.r.now; run(c, 1.95); const cKo = c.A.sk.charge; run(c, S.ct); const cKo2 = c.A.sk.charge;
+  c.A.skillReadyAt = 0; c.A.sk.charge = 40; c.A.sk.koAt = c.A.koAt; c.r.skill('a'); const c0 = c.A.sk.charge, p0 = Math.round(solarPct(c0)); run(c, S.ct - 0.5); const cCt = c.A.sk.charge, inCt = c.A.skillReadyAt > c.r.now; run(c, 1.5); const cAfter = c.A.sk.charge;
+  ok(`チャージ: 試合開始・復活・発射の後は CT${S.ct}秒（撃てず溜まらない）、明けてから0秒で溜まる。撤退で0から、発射で0`, Math.abs(ready0 - S.ct) < 0.06 && Math.abs(c10 - (10 - S.ct)) < 0.11 && koCt > S.ct - 0.15 && cKo === 0 && Math.abs(cKo2 - (2 + 0.05 - 0.05 * 2)) < 0.15 && c0 === 0 && inCt && cCt === 0 && Math.abs(cAfter - 1) < 0.11, { ready0, c10, koCt, cKo, cKo2, c0, cCt, cAfter })
   ok('技ボタンの％: 発射後・撤退後は0%', p0 === 0 && pKo === 0, { p0, pKo });
-  { // ％: 30秒の総ダメージを100%。0〜5秒は比例、5秒以降は総ダメージ÷30秒の総ダメージ（威力と同じ solarAt）
-    const want = (c: number) => Math.round(((c < 5 ? (c / 5) * solarAt(5, 1) : solarAt(c, 1)) / solarAt(30, 1)) * 100);
-    const got = [0, 2.5, 5, 10, 20, 30, 270, 294].map((c) => ({ c, got: Math.round(solarPct(c)), want: want(c) }));
-    ok('技ボタンの％: 威力と同じ補間から出る（0秒0%・30秒100%・それ以降も同じ式で100%超え）', got.every((g) => g.got === g.want) && got[0].got === 0 && got[5].got === 100 && got[7].got > got[6].got && got[6].got > 100, got);
+  { // ％: 25秒の総ダメージを100%。0〜5秒は比例、5秒以降は総ダメージ÷25秒の総ダメージ（威力と同じ solarAt）
+    const want = (c: number) => Math.round(((c < 5 ? (c / 5) * solarAt(5, 1) : solarAt(c, 1)) / solarAt(F, 1)) * 100);
+    const got = [0, 2.5, 5, 10, 20, F, L, M].map((c) => ({ c, got: Math.round(solarPct(c)), want: want(c) }));
+    ok(`技ボタンの％: 威力と同じ補間から出る（0秒0%・${F}秒100%・それ以降も同じ式で100%超え）`, got.every((g) => g.got === g.want) && got[0].got === 0 && got[5].got === 100 && got[7].got > got[6].got && got[6].got > 100, got);
   }
   ok('チャージの光の状態を送る（チャージ秒）', c.r.statusView(c.A).solarCharge === c.A.sk.charge);
-  ok('キーフレームの間は線形補間（20秒→総ダメージ62.5）、5秒より前は5秒の値、最大は294秒', solarAt(20, 1) === 62.5 && solarAt(0, 1) === K[0][1] && solarAt(294, 2) === K[K.length - 1][2] && solarAt(400, 3) === K[K.length - 1][3]);
-  // 照射秒: チャージ270秒までは0.5秒、270秒から最大（294秒）まで0.5秒→5秒へ線形に伸びる。本人が止まる時間も同じ
-  ok('照射秒: チャージ270秒以下は0.5秒、270〜294秒で0.5→5秒（線形）、294秒以降は5秒', [5, 30, 100, 270].every((c) => DUR(c) === 0.5) && Math.abs(DUR(282) - 2.75) < 1e-9 && DUR(294) === 5 && DUR(400) === 5, [5, 270, 282, 294, 400].map(DUR));
-  const ends = [5, 270, 282, 294].map((ch) => { const z = mk('sora'); fire(z, ch, 0); let n = 0; while (z.A.st.solar && n < 200) { run(z, 0.05); n++; } return +(n * 0.05).toFixed(2); });
-  ok('照射（本人が止まる lock）はその照射秒で終わる', ends.every((e, i) => Math.abs(e - DUR([5, 270, 282, 294][i])) <= 0.051), ends);
+  ok(`キーフレームの間は線形補間（${F}秒の100%＝${K[2][1]}、${M}秒が最大）、5秒より前は5秒の値。100%は25秒、265秒、最大は285秒`, F === 25 && L === 265 && M === 285 && solarAt(F, 1) === 80 && Math.abs(solarAt(17.5, 1) - 62.5) < 1e-9 && solarAt(0, 1) === K[0][1] && solarAt(M, 2) === K[K.length - 1][2] && solarAt(400, 3) === K[K.length - 1][3]);
+  // 照射秒: チャージ265秒までは0.5秒、265秒から最大（289秒）まで0.5秒→5秒へ線形に伸びる。本人が止まる時間も同じ
+  ok(`照射秒: チャージ${L}秒以下は0.5秒、${L}〜${M}秒で0.5→5秒（線形）、${M}秒以降は5秒`, [5, F, 100, L].every((c) => DUR(c) === 0.5) && Math.abs(DUR((L + M) / 2) - 2.75) < 1e-9 && DUR(M) === 5 && DUR(400) === 5, [5, L, (L + M) / 2, M, 400].map(DUR));
+  const ends = [5, L, (L + M) / 2, M].map((ch) => { const z = mk('sora'); fire(z, ch, 0); let n = 0; while (z.A.st.solar && n < 200) { run(z, 0.05); n++; } return +(n * 0.05).toFixed(2); });
+  ok('照射（本人が止まる lock）はその照射秒で終わる', ends.every((e, i) => Math.abs(e - DUR([5, L, (L + M) / 2, M][i])) <= 0.051), ends);
   // 照射: 本人は止まる。向きは移動入力の方へ毎秒6度（0.5秒で3度、5秒で30度）
   const turn = (ch: number) => { const t = mk('sora'); const x0 = t.A.x; fire(t, ch, 0); run(t, DUR(ch) - 0.05, [0, 1]); const turned = t.A.sk.beam.a, moved = Math.hypot(t.A.x - x0, t.A.y - 900); run(t, 0.1); return { turned, moved, ended: !t.A.st.solar && !t.r.effect(t.A, 'lock') }; };
-  const t5 = turn(5), t294 = turn(294);
+  const t5 = turn(5), t294 = turn(M);
   ok(`照射中は本人が止まり、移動入力の方へ毎秒${(S.turn * 180 / Math.PI).toFixed(0)}度だけ向きが変わる（0.5秒照射で約3度、5秒照射で約30度）`, t5.moved === 0 && t294.moved === 0 && Math.abs(t5.turned - Math.PI / 60) < 0.01 && Math.abs(t294.turned - Math.PI / 6) < 0.02 && t5.ended && t294.ended, { t5: t5.turned * 180 / Math.PI, t294: t294.turned * 180 / Math.PI });
   // 多段ヒット・貫通（チャージ10秒未満は爆発なし）
   const h = mk('sora', 'sayo'); h.r.addPlayer('c', 1, false); const Cc = h.r.players.get('c'); Object.assign(Cc, { char: 'sayo', alive: true, x: 1552 + 120, y: 900, hp: 9999 }); Cc.st.test = NOAUTO();
-  h.r.addPlayer('d', 1, false); const D = h.r.players.get('d'); Object.assign(D, { char: 'sayo', alive: true, x: 1592, y: 900 + 30, hp: 9999 }); D.st.test = NOAUTO(); // ビームの外（爆発があれば届く距離）
+  h.r.addPlayer('d', 1, false); const D = h.r.players.get('d'); Object.assign(D, { char: 'sayo', alive: true, x: 1592, y: 900 + 30 + C.BODY_BOX.h - C.BODY_BOX.w / 2, hp: 9999 }); D.st.test = NOAUTO(); // ビームの外（爆発があれば届く距離。体の箱の頭がビームにかからない高さ: hitbox1）
   Object.assign(h.B, { hp: 9999 }); const hits: number[] = []; fire(h, 5, 0);
   for (let i = 0; i < Math.round(1 / 0.05); i++) { const b0 = h.B.hp; run(h, 0.05); if (h.B.hp < b0) hits.push(+h.r.now.toFixed(2)); }
   const per = Math.round((K[0][1] / N) * C.DAMAGE_MULT);
   ok(`ビームは多段ヒット（同じ相手へ${S.every}秒おき、${DUR(5)}秒で${N}回）でキャラを貫通する。チャージ5秒は総ダメージ${K[0][1]}（通常攻撃1発程度）`, hits.length === N && 9999 - h.B.hp === per * N && 9999 - Cc.hp === per * N, { n: hits.length, b: 9999 - h.B.hp, c: 9999 - Cc.hp });
   // 総ダメージ（ビームの合計＋爆発）はキーフレームのまま。照射秒が短いと1ヒットが大きい
-  const tot = [5, 30, 270, 282, 294].map((ch) => { const z = mk('sora', 'sayo'); Object.assign(z.B, { x: 1552 + 40, y: 900, hp: 9999 }); fire(z, ch, 0); run(z, DUR(ch) + 0.1); const n = Math.round(DUR(ch) / S.every); return { ch, got: 9999 - z.B.hp, want: Math.round(solarAt(ch, 1) * C.DAMAGE_MULT), n }; });
+  const tot = [5, F, L, (L + M) / 2, M].map((ch) => { const z = mk('sora', 'sayo'); Object.assign(z.B, { x: 1552 + 40, y: 900, hp: 9999 }); fire(z, ch, 0); run(z, DUR(ch) + 0.1); const n = Math.round(DUR(ch) / S.every); return { ch, got: 9999 - z.B.hp, want: Math.round(solarAt(ch, 1) * C.DAMAGE_MULT), n }; });
   ok('1照射の総ダメージはキーフレームどおり（照射秒が変わっても同じ。誤差は1ヒットごとの四捨五入）', tot.every((q) => Math.abs(q.got - q.want) <= q.n / 2 + 1), tot);
   ok(`チャージ${S.boomFrom}秒未満は爆発なし（ビームの外の敵は無傷）`, D.hp === 9999 && !h.r.fx.some((f: any) => f.color === 'solar'));
   // あとから入ってきたキャラにも当たる
@@ -2130,34 +2130,35 @@ console.log('--- 九州そら（ソーラーキャノン）');
   ok('ビームにはあとから入ってきたキャラにも当たる（発射の狙いにならないように隠してから出す）', lb0 === 9999 && l.B.hp < 9999);
   // 爆発: キャラごとに1回（あとから入ってきたキャラでも）、1キャラへの爆発ダメージは1照射1回
   const e = mk('sora', 'sayo'); e.r.addPlayer('c', 1, false); const E2 = e.r.players.get('c'); Object.assign(E2, { char: 'sayo', alive: true, x: 1552 + 60, y: 900, hp: 9999 }); E2.st.test = NOAUTO();
-  e.r.addPlayer('d', 1, false); const E3 = e.r.players.get('d'); Object.assign(E3, { char: 'sayo', alive: true, x: 1552 + 50, y: 900 + 32, hp: 9999 }); E3.st.test = NOAUTO(); // ビームの外、B・E2 の両方の爆発の範囲
-  Object.assign(e.B, { x: 1552 + 40, hp: 9999 }); e.r.fx = []; fire(e, 30, 0); run(e, 0.05); const boomFx = e.r.fx.filter((f: any) => f.color === 'solar').length;
-  run(e, DUR(30)); const R30 = K[2][1], boomOne = Math.round(R30 * (1 - S.beamShare) * C.DAMAGE_MULT), beamOne = Math.round((R30 * S.beamShare / N30) * C.DAMAGE_MULT);
+  e.r.addPlayer('d', 1, false); const E3 = e.r.players.get('d'); Object.assign(E3, { char: 'sayo', alive: true, x: 1552 + 50, y: 900 + 48, hp: 9999 }); E3.st.test = NOAUTO(); // ビームの外（体の箱の頭もかからない: hitbox1）、B・E2 の両方の爆発の範囲
+  Object.assign(e.B, { x: 1552 + 40, hp: 9999 }); e.r.fx = []; fire(e, F, 0); run(e, 0.05); const boomFx = e.r.fx.filter((f: any) => f.color === 'solar').length;
+  run(e, DUR(F)); const R30 = K[2][1], boomOne = Math.round(R30 * (1 - S.beamShare) * C.DAMAGE_MULT), beamOne = Math.round((R30 * S.beamShare / N30) * C.DAMAGE_MULT);
   ok(`チャージ${K[2][0]}秒: 当たったキャラごとに1回・射程の端で1回爆発（半径${K[2][3]}）。爆発がいくつ重なっても1キャラへは1回（${boomOne}）`, boomFx === 3 && 9999 - E3.hp === boomOne && 9999 - e.B.hp === boomOne + beamOne * N30 && 9999 - E2.hp === boomOne + beamOne * N30, { boomFx, e3: 9999 - E3.hp, b: 9999 - e.B.hp, e2: 9999 - E2.hp, boomOne, beamOne });
-  const le = mk('sora', 'sayo'); Object.assign(le.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); le.B.st.h = { until: Infinity, hidden: true }; fire(le, 30, 0); delete le.B.st.h; run(le, 0.15); le.r.fx = []; le.B.y = 900; run(le, 0.05);
+  const le = mk('sora', 'sayo'); Object.assign(le.B, { x: 1552 + 100, y: 900 + 80, hp: 9999 }); le.B.st.h = { until: Infinity, hidden: true }; fire(le, F, 0); delete le.B.st.h; run(le, 0.15); le.r.fx = []; le.B.y = 900; run(le, 0.05);
   ok('途中からビームに入ってきたキャラでも爆発する', le.r.fx.some((f: any) => f.color === 'solar' && Math.abs(f.x - le.B.x) < 1e-9));
   // 壁: 壊せる壁は壊して進み、外壁で止まる。壁（長方形）ごとに1回爆発し、範囲の壁も壊す
-  const w = mk('sora'); worn(w.r); Object.assign(w.A, { x: 300, y: 150 }); w.r.fx = []; const walls0 = w.r.walls; fire(w, 30, 0); run(w, 0.05);
+  const w = mk('sora'); worn(w.r); Object.assign(w.A, { x: 300, y: 150 }); w.r.fx = []; const walls0 = w.r.walls; fire(w, F, 0); run(w, 0.05);
   const wb = w.A.sk.beam, wfx = w.r.fx.filter((f: any) => f.color === 'solar').length, wbroken = w.r.broken.length, wlen = wb.len;
-  run(w, DUR(30) - 0.1, [0, -1]); const rects = new Set(w.r.broken.map(([x, y]: number[]) => walls0.findIndex((o: any) => x * T >= o.x && x * T < o.x + o.w && y * T >= o.y && y * T < o.y + o.h)));
+  run(w, DUR(F) - 0.1, [0, -1]); const rects = new Set(w.r.broken.map(([x, y]: number[]) => walls0.findIndex((o: any) => x * T >= o.x && x * T < o.x + o.w && y * T >= o.y && y * T < o.y + o.h)));
   ok(`壊せる壁（study の東壁の扉のない所、中破）は壊して進み（チャージ${K[2][0]}秒の射程${K[2][2]}px）、壁の長方形ごとに1照射1回爆発（範囲の壁も壊す）、射程の端でも1回`, wbroken > 0 && Math.abs(wlen - K[2][2]) <= 4 && wfx === wb.wallsBoomed.size + 1 && wb.wallsBoomed.size >= 1 && w.r.fx.filter((f: any) => f.color === 'solar').length <= rects.size + 1, { wbroken, wlen, wfx, walls: wb.wallsBoomed.size });
-  const pe = mk('sora'); Object.assign(pe.A, { x: 248, y: 60 }); fire(pe, 294, -Math.PI / 2); run(pe, 0.05);
+  const pe = mk('sora'); Object.assign(pe.A, { x: 248, y: 60 }); fire(pe, M, -Math.PI / 2); run(pe, 0.05);
   ok('壊せない外壁で止まる（最大チャージでも外周の壁は壊れない）', pe.A.sk.beam.len < 60 && pe.r.broken.every(([x, y]: number[]) => !PERIMETER[y][x]), { len: pe.A.sk.beam.len });
   // 大将: ビームが当たっている間は拠点移動しない（予告・無敵も起きない）。離れたら通常どおり
-  const bh = mk('sora'); Object.assign(bh.r.bosses[1], { x: 1552 + 150, y: 900, dmgAtBase: C.BOSS_MOVE_THRESHOLD - 1 }); fire(bh, 30, 0); run(bh, DUR(30) - 0.1);
+  const bh = mk('sora'); Object.assign(bh.r.bosses[1], { x: 1552 + 150, y: 900, dmgAtBase: C.BOSS_MOVE_THRESHOLD - 1 }); fire(bh, F, 0); run(bh, DUR(F) - 0.1);
   const held = !bh.r.bosses[1].moving && bh.r.warns.length === 0 && bh.r.bosses[1].dmgAtBase >= C.BOSS_MOVE_THRESHOLD;
   run(bh, 1); bh.r.hitThing(bh.A, { k: 'boss', o: bh.r.bosses[1], x: 0, y: 0, r: 0 }, 1);
   ok('ビームが当たっている間は大将の拠点移動（予告・無敵）が起きず、照射後のダメージで通常どおり始まる', held && bh.r.bosses[1].moving, { held });
-  // 最大チャージ: 対角の端から撃つと、HP満タンの大将がワープせず試合終了の直前に撃破される（294・295・296秒）
+  // 最大チャージ: 試合開始から撃たずに溜め（開始の CT 5秒の後から溜まる）、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、試合終了までに大将へ bossMax（1200）が入りきる（照射秒が残っていない時は当たりを残り時間に詰める）
   const far = { x: 72, y: 376 }; // svcA_R の大将から、外周の壁に遮られない一番遠い床（約2600px。マップの外接の対角線は約3700px）
-  const res = [294, 295, 296].map((ch) => {
+  const res = [290, 295, 298].map((T) => {
     const z = mk('sora'); z.r.setBossRooms(['svcA', 'svcB', 'svcC']); const b = z.r.bosses[1]; Object.assign(b, { base: 0, ...z.r.bases[1][0] });
-    Object.assign(z.A, far); z.r.now = ch; fire(z, ch, Math.atan2(b.y - far.y, b.x - far.x));
-    let dieAt = -1; for (let i = 0; i < 200 && z.r.phase === 'playing'; i++) { z.r.tick(0.05, false); if (b.hp <= 0 && dieAt < 0) dieAt = z.r.now; }
-    return { ch, dieAt: +dieAt.toFixed(2), kind: z.r.finale?.kind, winner: z.r.winner, base: b.base, warned: z.r.warns.length, dist: Math.round(Math.hypot(b.x - far.x, b.y - far.y)) };
+    Object.assign(z.A, far); run(z, T - z.r.now); const charge = z.A.sk.charge; // 撃たずに溜める（試合時計 T 秒まで）
+    b.hp = 99999; const hp0 = b.hp; z.A.face = Math.atan2(b.y - far.y, b.x - far.x); z.A.tgt = null; z.r.skill('a');
+    let got = 0; for (let i = 0; i < 200 && z.r.phase === 'playing'; i++) { z.r.tick(0.05, false); if (z.r.now <= C.MATCH_TIME + 1e-9) got = hp0 - b.hp; }
+    return { T, charge: +charge.toFixed(2), got: Math.round(got), base: b.base, warned: z.r.warns.length, dist: Math.round(Math.hypot(b.x - far.x, b.y - far.y)) };
   });
-  ok(`最大チャージ: 4分54秒〜4分56秒チャージで対角の端から撃つと、満タンの大将がワープせず試合終了（${C.MATCH_TIME}秒）の直前に撃破される`, res.every((q) => q.kind === 'boss' && q.winner === 0 && q.base === 0 && q.warned === 0 && q.dieAt > 0 && q.dieAt < C.MATCH_TIME), res);
-  ok(`最大チャージの大将への合計は全倍率の後で${S.bossMax}（プレイヤーへは${K[K.length - 1][1]}）`, Math.abs(solarAt(294, 1, true) * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT - S.bossMax) < 1e-9 && solarAt(294, 1) === K[K.length - 1][1]);
+  ok(`最大チャージ: 試合開始から撃たずに溜め、試合時計の4分50秒・4分55秒・4分58秒に対角の端から撃つと、どれも試合終了（${C.MATCH_TIME}秒）までに大将へ${S.bossMax}入りきる（大将はワープしない）`, res.every((q) => q.charge >= M - 1e-6 && Math.abs(q.got - S.bossMax) <= 10 && q.base === 0 && q.warned === 0), res);
+  ok(`最大チャージの大将への合計は全倍率の後で${S.bossMax}（プレイヤーへは${K[K.length - 1][1]}）`, Math.abs(solarAt(M, 1, true) * C.DAMAGE_MULT * C.ATTACKER_BOSS_MULT - S.bossMax) < 1e-9 && solarAt(M, 1) === K[K.length - 1][1]);
   // Bot: チャージ botMin 秒以上で、ビームの線上に敵か大将がいれば撃つ
   const bt = mk('sora', 'metan'); bt.A.bot = true; Object.assign(bt.B, { x: 1552 + 200, y: 900 }); bt.A.sk.charge = S.botMin - 1; const low = bt.r.botSkillUseful(bt.A);
   bt.A.sk.charge = S.botMin + 1; const yes = bt.r.botSkillUseful(bt.A); bt.B.y = 900 + 200; const no = bt.r.botSkillUseful(bt.A);
@@ -2524,22 +2525,24 @@ console.log('--- 技の矢印照準・そらの弾速・きりたん弾の射程
 
   // そら: チャージ4分30秒以下は発射から delay 秒でビームが出る。距離200で発射を見てから（反応0.25秒）射線と垂直に動いた WhiteCUL はギリギリ当たらない
   const SS = CHARS.sora.skill, KK = SS.keys as number[][];
-  const dodge = (charge: number, react: number) => {
+  const dodge = (charge: number, react: number, dir = 1) => { // dir: 動く向き（1=下、−1=上。hitbox1 で上下どちらも確かめる）
     const z: any = mk('sora', 'whitecul'); Object.assign(z.B, { x: 1552 + 200, y: 900, hp: 9999 }); z.B.st.test = NOAUTO();
     z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.A.tgt = null; z.r.skill('a', 0); const t0 = z.r.now, sp = z.r.speedOf(z.B); let first = -1;
-    for (let i = 0; i < 30; i++) { if (z.r.now - t0 >= react - 1e-9) z.B.y += sp * 0.05; z.r.now += 0.05; z.r.updatePlayers(0.05); if (first < 0 && z.A.sk.beam?.len > 0) first = z.r.now - t0; }
+    for (let i = 0; i < 30; i++) { if (z.r.now - t0 >= react - 1e-9) z.B.y += dir * sp * 0.05; z.r.now += 0.05; z.r.updatePlayers(0.05); if (first < 0 && z.A.sk.beam?.len > 0) first = z.r.now - t0; }
     return { hit: z.B.hp < 9999, first: +first.toFixed(3), sp };
   };
-  const d0 = dodge(30, 0.25), d1 = dodge(30, 0.3), d2 = dodge(KK[KK.length - 2][0], 0.25), d3 = dodge(KK[KK.length - 2][0] + 1, 0), d4 = dodge(5, 0.25);
-  ok(`ソーラーキャノン: 発射から${SS.delay.toFixed(3)}秒（0.25＋(${SS.w}/2＋${C.PLAYER_RADIUS})÷${CHARS.whitecul.stat.speed}）でビームが出る。距離200で反応0.25秒後に垂直へ動いた WhiteCUL（速さ${d0.sp}）は当たらず、0.3秒後だと当たる（チャージ5・30・270秒）`,
-    Math.abs(SS.delay - (0.25 + (SS.w / 2 + C.PLAYER_RADIUS) / CHARS.whitecul.stat.speed)) < 1e-12 && CHARS.whitecul.stat.speed === 187 && !d0.hit && d1.hit && !d2.hit && !d4.hit && Math.abs(d0.first - 0.35) < 1e-9, { d0, d1, d2, d4 });
+  const lo = [1, -1].map((dir) => ({ dir, r25: dodge(0, 0.25, dir), r40: dodge(0, 0.4, dir) })), hi = [1, -1].map((dir) => ({ dir, r25: dodge(30, 0.25, dir) }));
+  ok(`ソーラーキャノン（hitbox1）: チャージ0秒は発生の遅れ${SS.delay[0]}秒。反応0.25秒で垂直に動いた WhiteCUL は上下どちらでもかわせ、0.4秒だと当たる`, lo.every((q) => !q.r25.hit && q.r40.hit && Math.abs(q.r25.first - 0.5) < 1e-9), { lo, hi });
+  const d3 = dodge(KK[KK.length - 2][0] + 1, 0), dl = [0, 10, 20, 30, KK[KK.length - 2][0]].map((c) => ({ c, d: +solarDelay(c).toFixed(4), first: dodge(c, 9).first }));
+  ok(`ソーラーキャノン: 発生の遅れはチャージ0秒で${SS.delay[0]}秒、${SS.delayAt}秒で${SS.delay[1].toFixed(3)}秒（0.25＋(${SS.w}/2＋${C.PLAYER_RADIUS})÷${CHARS.whitecul.stat.speed}）、その間は直線、${SS.delayAt}秒以上は${SS.delay[1].toFixed(3)}秒`,
+    Math.abs(SS.delay[1] - (0.25 + (SS.w / 2 + C.PLAYER_RADIUS) / CHARS.whitecul.stat.speed)) < 1e-12 && SS.delay[0] === 0.5 && SS.delayAt === 20 && Math.abs(solarDelay(10) - (0.5 + SS.delay[1]) / 2) < 1e-9 && solarDelay(20) === SS.delay[1] && solarDelay(KK[KK.length - 2][0]) === SS.delay[1] && dl.every((q) => Math.abs(q.first - Math.ceil(q.d / 0.05 - 1e-9) * 0.05) < 1e-9), dl);
   ok(`ソーラーキャノン: チャージ${KK[KK.length - 2][0]}秒を超えた発射は今どおり発射時点で終端まで届く（動いても当たる）`, d3.hit && d3.first === 0.05, d3);
   const sd = mk('sora'); sd.A.sk.charge = 30; sd.A.sk.koAt = sd.A.koAt; sd.r.skill('a', 0); const t0 = sd.r.now; let end = -1; for (let i = 0; i < 40 && end < 0; i++) { sd.r.now += 0.05; sd.r.updatePlayers(0.05); if (!sd.A.st.solar) end = sd.r.now - t0; }
-  ok(`ソーラーキャノン: 照射秒（${solarAt(30, 4)}秒）はビームが出てから数える（本人が止まるのは遅れ＋照射秒）`, Math.abs(end - (SS.delay + solarAt(30, 4))) <= 0.051, { end });
+  ok(`ソーラーキャノン: 照射秒（${solarAt(30, 4)}秒）はビームが出てから数える（本人が止まるのは遅れ＋照射秒）`, Math.abs(end - (solarDelay(30) + solarAt(30, 4))) <= 0.051, { end });
   // 発生の遅れの間は射線の予兆（view の pre＝発射時の射程）。ビームが出たら0。遅れなしの発射は最初から0
   const pre = (charge: number) => { const z: any = mk('sora'); z.A.sk.charge = charge; z.A.sk.koAt = z.A.koAt; z.r.skill('a', 0); const at0 = z.r.statusView(z.A).solar.pre; let n = 0; while (z.r.statusView(z.A).solar.pre && n < 40) { z.r.now += 0.05; z.r.updatePlayers(0.05); n++; } return { at0, gone: +(n * 0.05).toFixed(2), len: z.A.sk.beam.len }; };
   const p30 = pre(30), pMax = pre(KK[KK.length - 2][0] + 1);
-  ok(`ソーラーキャノン: 発生の遅れの間は射線の予兆（長さ＝発射時の射程 ${solarAt(30, 2)}）を送り、ビームが出ると消える。遅れなしの発射では出さない`, p30.at0 === solarAt(30, 2) && Math.abs(p30.gone - Math.ceil(SS.delay / 0.05 - 1e-9) * 0.05) < 1e-9 && p30.len > 0 && pMax.at0 === 0, { p30, pMax });
+  ok(`ソーラーキャノン: 発生の遅れの間は射線の予兆（長さ＝発射時の射程 ${solarAt(30, 2)}）を送り、ビームが出ると消える。遅れなしの発射では出さない`, p30.at0 === solarAt(30, 2) && Math.abs(p30.gone - Math.ceil(solarDelay(30) / 0.05 - 1e-9) * 0.05) < 1e-9 && p30.len > 0 && pMax.at0 === 0, { p30, pMax });
 
   // きりたん: ロック射程200。弾はきりたんから homeMax 以上で直進、vanish 以上で消える
   const KS = CHARS.kiritan.skill;
@@ -2577,7 +2580,7 @@ console.log('--- 自動照準は自陣営の画面に映っている敵だけ（
   // 敵大将も同じ（射程内・視界外は狙わない）
   const bo = mk('zunko'); bo.A.face = Math.PI; Object.assign(bo.r.bosses[1], { x: bo.A.x + 250, y: bo.A.y }); const bv0 = bo.r.arrowView(bo.A).skA;
   Object.assign(bo.r.bosses[1], { x: bo.A.x + 150, y: bo.A.y }); const bv1 = bo.r.arrowView(bo.A).skA;
-  ok('敵大将も同じ: 射程内・視界外なら向かない、視界内なら向く', Math.abs(bv0 - Math.PI) < 1e-9 && Math.abs(bv1) < 1e-9, { bv0, bv1 });
+  ok('敵大将も同じ: 射程内・視界外なら向かない、視界内なら向く（体の中心から大将の体の箱の中心へ）', Math.abs(bv0 - Math.PI) < 1e-9 && Math.abs(bv1 - bo.r.aimAt(bo.A, { k: 'boss', o: bo.r.bosses[1], x: bo.A.x + 150, y: bo.A.y, r: C.BOSS_RADIUS })) < 1e-9 && Math.abs(bv1) < 0.2, { bv0, bv1 });
   // Bot も同じ（通常攻撃の対象を選ばず、撃たない）
   const bt = mk('zunko', 'sayo'); bt.A.bot = true; delete bt.A.st.test; bt.A.cooldownUntil = 0; at(bt, VR + 15); bt.B.hp = 1e9;
   bt.r.updatePlayers(0.05); const tgt = bt.A.tgt, shots = bt.r.shots.filter((q: any) => q.team === 0).length;
@@ -2667,6 +2670,33 @@ console.log('--- 通常攻撃の弾の飛ぶ距離（shot1）');
   ok(`通常攻撃の弾は射程×${C.AA_SHOT_REACH}飛ぶ（パワーアップの遠距離も）。技の弾・アシストの弾は変わらない`,
     aa?.aa && Math.abs(aa.left - want) < 1e-9 && arrow !== aa && !arrow.aa && Math.abs(arrow.left - S.arrowSpeed * S.life) < 1e-9 && ul?.aa && Math.abs(ul.left - F.range * C.AA_SHOT_REACH) < 1e-9 && sa?.aa && sa !== ul && Math.abs(sa.left - aaMode('zunko', null).range) < 1e-9,
     { aa: aa?.left, want, arrow: arrow?.left, ult: ul?.left, assist: sa?.left });
+}
+
+console.log('--- 体の箱（hitbox1）');
+{
+  const open = (a: string, b: string) => { const z = mk(a, b); z.r.walls = []; z.r.seeWalls = []; return z; };
+  const th = (q: any) => ({ k: 'p', o: q, x: q.x, y: q.y, r: C.PLAYER_RADIUS });
+  // 視界: 足元は視界の外、頭だけ視界の内の敵は見える・狙える
+  const v = open('sayo', 'metan'), rv = visionRadius('sayo'); Object.assign(v.B, { x: 1552, y: 900 + rv + 10 });
+  const footSeen = v.r.visibleTo(0, v.B.x, v.B.y, v.r.seeWalls), seen = v.r.seenBy(0, th(v.B)), tg = v.r.pickTarget(v.A, rv);
+  ok('足元は視界の外・頭だけ視界に入っている敵は、見える・狙える', !footSeen && seen && tg?.o === v.B, { footSeen, seen, tg: tg?.o?.id });
+  // 射程: 足元は射程の外、体の一部が射程の内の敵をオートアタックの対象にする
+  const g = open('ierutan', 'metan'), R = aaRange('ierutan'); // 射程150（視界の内側） Object.assign(g.B, { x: 1552, y: 900 + R + C.PLAYER_RADIUS + 10 });
+  const tg2 = g.r.pickTarget(g.A);
+  ok(`足元は射程の外（足元どうし ${R + C.PLAYER_RADIUS + 10}px）・体の一部が射程の内の敵を、オートアタックの対象にする`, tg2?.o === g.B, { tg: tg2?.o?.id });
+  // 弾: 足元の円からは外れ、頭の高さを通った弾が当たる
+  const s = open('zunko', 'metan'); Object.assign(s.B, { x: 1652, y: 900 }); Object.assign(s.A, { y: 870 + C.BODY_BOX.h / 2 }); const hp0 = s.B.hp; // 弾は撃つ側の体の中心（足元の18px上）から出るので、弾の高さは y=870
+  s.r.shoot(s.A, 'bullet', 0, 300, 10); for (let i = 0; i < 10; i++) s.r.updateShots(0.05);
+  ok(`足元の円（半径${C.PLAYER_RADIUS}＋弾${C.BULLET_RADIUS}）からは外れ、頭の高さ（足元の30px上）を通った弾が当たる`, s.B.hp < hp0, { hp0, hp: s.B.hp });
+  // 壁越し: 視界も遮る横の壁（厚さ1マス）の北に自分、南に壁に接した敵。敵の頭（体の箱）は壁で切られ、北からは見えず・狙えず・弾も当たらない
+  const w = open('zunko', 'sayo'), tl = MAP.tiles as string[]; w.r.walls = wallRects(w.r.tiles); w.r.seeWalls = C.SEE_WALLS;
+  let sp: any = null;
+  for (let y = 2; y < tl.length - 3 && !sp; y++) for (let x = 2; x < tl[0].length - 6 && !sp; x++)
+    if ([0, 1, 2, 3, 4].every((d) => tl[y][x + d] === '#' && tl[y - 1][x + d] === '.' && tl[y - 2][x + d] === '.' && tl[y + 1][x + d] === '.' && tl[y + 2][x + d] === '.' && w.r.seeWalls.some((q: any) => (x + d) * T + 8 >= q.x && (x + d) * T + 8 <= q.x + q.w && y * T + 8 >= q.y && y * T + 8 <= q.y + q.h))) sp = { x, y };
+  Object.assign(w.A, { x: (sp.x + 2.5) * T, y: sp.y * T - 60 }); Object.assign(w.B, { x: (sp.x + 2.5) * T, y: (sp.y + 1) * T + C.PLAYER_RADIUS + 1 });
+  const wb = th(w.B), hpw = w.B.hp, cut = w.r.hitShape(wb).h;
+  w.r.shoot(w.A, 'bullet', Math.PI / 2, 300, 10); for (let i = 0; i < 10; i++) w.r.updateShots(0.05);
+  ok(`壁越し: 壁に接した敵の頭は壁で切られ（体の箱の高さ ${C.BODY_BOX.h}→${cut}）、北側からは見えず・狙えず・弾も当たらない`, cut < C.BODY_BOX.h && !w.r.seenBy(0, wb) && !w.r.reach(w.A, wb) && w.r.pickTarget(w.A) === null && w.B.hp === hpw, { sp, cut, seen: w.r.seenBy(0, wb), hp: w.B.hp });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

@@ -5,16 +5,16 @@ import type { Skill } from './index';
 import { CONFIG as C, Rect } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
 import { circleRect } from '../../shared/geom';
-import { solarAt } from '../../shared/solar';
+import { solarAt, solarDelay } from '../../shared/solar';
 
 const S = CHARS.sora.skill, T = C.TILE, K = S.keys as number[][];
 export { solarAt }; // 補間は shared/solar.ts（技ボタンの％と共通）
 
 // 照射の状態（発射時に決める）。start: ビームが出る時刻（発射から delay 秒後。チャージ keys の最後から2番目の秒数を超えた発射は遅れなし）
-type Beam = { a: number; start: number; charge: number; dur: number; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; toku: number; wallHit: Set<number>; hits: number; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置。wallHit: この照射で段階を進めた壁のマス。toku: この照射で入れた壁破壊の徳の回数。hits: 壁を一度に進める段階（チャージ keys の最後から2番目の秒数を超えた発射は即破壊）
+type Beam = { a: number; start: number; charge: number; dur: number; n: number; every: number; cnt: Record<string, number>; range: number; boomR: number; boom: boolean; len: number; walls0: Rect[]; next: Record<string, number>; seen: Set<string>; boomed: Set<string>; wallsBoomed: Set<number>; endBoom: boolean; toku: number; wallHit: Set<number>; hits: number; pending: { x: number; y: number }[] }; // pending: このtickに起こす爆発の位置。wallHit: この照射で段階を進めた壁のマス。toku: この照射で入れた壁破壊の徳の回数。hits: 壁を一度に進める段階（チャージ keys の最後から2番目の秒数を超えた発射は即破壊）
 
 // 総ダメージの配分: ビームの1ヒット（照射秒で多段の回数が変わる）・爆発（大将は別の値）
-const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / Math.round(b.dur / S.every);
+const hitDmg = (b: Beam, t: Thing) => (solarAt(b.charge, 1, t.k === 'boss') * (b.boom ? S.beamShare : 1)) / b.n; // n: 1照射で1キャラに当たる回数（照射秒÷every）
 const boomDmg = (b: Beam, t: Thing) => solarAt(b.charge, 1, t.k === 'boss') * (1 - S.beamShare);
 
 // 壁の段階を進める（外周は除く。1回の照射で同じマスは1段階まで）。徳は1回の照射で、進めた段階が一番多いマスの段階数分（即破壊は残っていた段階の分）。at があればエフェクトを出す。進めたマスを返す
@@ -32,7 +32,7 @@ function breakTiles(room: GameRoom, p: Player, b: Beam, tiles: number[][], at?: 
 function explode(room: GameRoom, p: Player, b: Beam, x: number, y: number) {
   for (const t of room.enemyThings(p.team)) {
     const id = thingId(t);
-    if (b.boomed.has(id) || Math.hypot(t.x - x, t.y - y) > b.boomR + t.r) continue;
+    if (b.boomed.has(id) || room.bodyDist(t, x, y) > b.boomR) continue;
     b.boomed.add(id);
     if (t.k === 'boss') t.o.holdUntil = Math.max(t.o.holdUntil, room.now + S.every); // ビームが当たっている間は拠点移動しない
     room.hitThing(p, t, boomDmg(b, t));
@@ -54,7 +54,7 @@ function beam(room: GameRoom, p: Player, dt: number) {
   // 向き: 移動入力の方へ毎秒 turn まで
   const [ix, iy] = room.moveIntent(p);
   if (ix || iy) { const d = Math.atan2(Math.sin(Math.atan2(iy, ix) - b.a), Math.cos(Math.atan2(iy, ix) - b.a)); b.a += Math.sign(d) * Math.min(Math.abs(d), S.turn * dt); }
-  const ux = Math.cos(b.a), uy = Math.sin(b.a), hw = S.w / 2, play = room.phase === 'playing';
+  const ux = Math.cos(b.a), uy = Math.sin(b.a), hw = S.w / 2, play = room.phase === 'playing', up = room.shotUp(p); // up: キャラとの当たりはビームを体の中心の高さで（壁は床の位置で）
   // ビームを伸ばす（4px 刻み）。壊せる壁は段階を進め、壊れたら進む。壊れずに残った壁・外壁で止まる（結果画面では壊さず止まる）
   let len = 0, stop = false;
   const tiles: number[][] = [];
@@ -78,31 +78,34 @@ function beam(room: GameRoom, p: Player, dt: number) {
   if (b.boom && !b.endBoom) { b.endBoom = true; b.pending.push({ x: p.x + ux * len, y: p.y + uy * len }); }
   // キャラ: ビーム（線分、幅 w）に触れた敵へ every 秒おきにダメージ。初めて触れたキャラ（プレイヤー・大将）で1回爆発
   for (const t of room.enemyThings(p.team)) {
-    const rx = t.x - p.x, ry = t.y - p.y, along = rx * ux + ry * uy;
-    if (along < -t.r || along > len + t.r || Math.abs(-rx * uy + ry * ux) > hw + t.r) continue;
+    if (!room.bodyCircles(t).some((q) => { const rx = q.x - p.x, ry = q.y - (p.y - up), along = rx * ux + ry * uy; return along >= -q.r && along <= len + q.r && Math.abs(-rx * uy + ry * ux) <= hw + q.r; })) continue; // 相手は体の箱（hitbox1）
     const id = thingId(t);
     if (t.k === 'boss') t.o.holdUntil = Math.max(t.o.holdUntil, room.now + S.every); // ビームが当たっている間は拠点移動しない
     if (b.boom && (t.k === 'p' || t.k === 'boss') && !b.seen.has(id)) { b.seen.add(id); b.pending.push({ x: t.x, y: t.y }); }
-    if (room.now < (b.next[id] ?? -Infinity) - 1e-9) continue; // 1e-9: 時刻の足し算の誤差
-    b.next[id] = room.now + S.every;
-    room.hitThing(p, t, hitDmg(b, t));
+    // b.every 秒おきに1キャラ n 回まで（試合終了までに照射秒が残っていない時は every を詰めるので、1tick に複数回入ることもある）。離れていた相手は今から数える。1e-9: 時刻の足し算の誤差
+    let nx = b.next[id] ?? room.now;
+    if (nx < room.now - b.every - 1e-9) nx = room.now;
+    while (room.now >= nx - 1e-9 && (b.cnt[id] ?? 0) < b.n) { b.cnt[id] = (b.cnt[id] ?? 0) + 1; nx += b.every; room.hitThing(p, t, hitDmg(b, t)); }
+    b.next[id] = nx;
   }
   for (const q of b.pending.splice(0)) explode(room, p, b, q.x, q.y);
 }
 
-// チャージ: 試合中だけ進む。撤退（撃破）で0から
+// チャージ: 試合中だけ進む。撤退（撃破）で0から。試合開始・復活・発射の後の CT の間は溜まらない
 function charge(room: GameRoom, p: Player, dt: number) {
-  if (p.sk.koAt !== p.koAt) { p.sk.koAt = p.koAt; p.sk.charge = 0; }
-  p.sk.charge = (p.sk.charge ?? 0) + dt;
+  if (p.sk.koAt !== p.koAt) { p.sk.koAt = p.koAt; p.sk.charge = 0; p.skillReadyAt = Math.max(p.skillReadyAt, room.now - dt + S.ct); } // 試合開始・復活: この tick の始まりから CT（その間は撃てず、溜まらない）
+  if (room.now - dt >= p.skillReadyAt - 1e-9) p.sk.charge = (p.sk.charge ?? 0) + dt; // CT（試合開始・復活・発射の後）が明けた後の時間だけ溜まる（試合時計 t 秒のチャージ＝t−ct）
   p.st.solarCharge ??= { until: Infinity, view: () => p.sk.charge }; // 光の見た目（復活で状態は消えるので付け直す）
 }
 
 const skill: Skill = {
   use(room, p) {
-    const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2)), start = room.now + (c > K[K.length - 2][0] ? 0 : S.delay);
-    p.sk.beam = { a, start, charge: c, dur: solarAt(c, 4), range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, toku: 0, wallHit: new Set(), hits: c > K[K.length - 2][0] ? C.WALL_HITS : 1, pending: [] };
+    const c = p.sk.charge ?? 0, a = room.skillAim(p, solarAt(c, 2)), start = room.now + solarDelay(c), dur = solarAt(c, 4), n = Math.round(dur / S.every);
+    const left = C.MATCH_TIME - start, short = room.phase === 'playing' && left < dur; // 試合終了までに照射秒が残っていない: n 回の当たりを残り時間に等間隔で詰め、試合終了までに全部入れる
+    p.sk.beam = { a, start, charge: c, dur: short ? Math.max(0, left) : dur, n, every: short ? Math.max(0, left) / n : S.every, cnt: {}, range: solarAt(c, 2), boomR: solarAt(c, 3), boom: c >= S.boomFrom, len: 0, walls0: room.walls, next: {}, seen: new Set(), boomed: new Set(), wallsBoomed: new Set(), endBoom: false, toku: 0, wallHit: new Set(), hits: c > K[K.length - 2][0] ? C.WALL_HITS : 1, pending: [] };
     p.sk.charge = 0;
-    p.st.solar = { until: start + p.sk.beam.dur, lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]), pre: room.now < start - 1e-9 ? solarAt(c, 2) : 0 }) }; // pre: 発生の遅れの間の射線の予兆の長さ（発射時の射程。出ていなければ0）
+    // 詰めた時は、試合終了ちょうどの tick の当たりも入るように照射の状態を1tick長く残す
+    p.st.solar = { until: start + p.sk.beam.dur + (short ? 1 / C.TICK_HZ : 0), lock: true, still: true, noAttack: true, cancel: true, view: () => ({ a: p.sk.beam?.a ?? a, len: p.sk.beam?.len ?? 0, w: S.w, k: Math.min(1, c / K[K.length - 1][0]), pre: room.now < start - 1e-9 ? solarAt(c, 2) : 0 }) }; // pre: 発生の遅れの間の射線の予兆の長さ（発射時の射程。出ていなければ0）
   },
   tick(room, p, dt) {
     if (room.phase === 'playing') charge(room, p, dt);

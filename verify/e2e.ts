@@ -757,7 +757,7 @@ async function aimStuckCheck(A: Tab) {
 // そら（aimfix2）: 発射から発生までの遅れの間、射線の予兆（細い線）が敵の画面に見え、ビームが出ると消える
 async function soraCheck(A: Tab, B: Tab) {
   await aliveOf(A); await aliveOf(B);
-  await send(A, 'e2eClearUlt'); await send(A, 'e2eChar', { char: 'sora' }); await send(A, 'e2eTeleport', HALL); await send(B, 'e2eTeleport', { x: HALL.x + 150, y: HALL.y }); await send(A, 'e2eReady'); await sleep(400);
+  await send(A, 'e2eClearUlt'); await send(A, 'e2eChar', { char: 'sora' }); await send(A, 'e2eTeleport', HALL); await send(B, 'e2eTeleport', { x: HALL.x + 150, y: HALL.y }); await sleep(200); await send(A, 'e2eReady', { charge: 1 }); await sleep(400); // そらは替わった直後に CT（hitbox1）が始まるので、その後で CT を明ける（charge: koAt もそろえる）
   const aid = (await A.snap()).me;
   // B の画面: 毎フレーム、A のソーラーキャノンの状態（予兆の長さ・ビームの長さ）を記録
   await B.page.evaluate(`(() => { const w = window; w.solarLog = []; const f = () => { const v = w.snap?.players.find((p) => p.id === ${JSON.stringify(aid)})?.st?.solar; if (v) w.solarLog.push({ pre: v.pre, len: v.len }); if (w.solarLog.length < 600) requestAnimationFrame(f); }; requestAnimationFrame(f); })()`); // 文字列: 関数の中の関数は tsx の __name が付いてページで動かない

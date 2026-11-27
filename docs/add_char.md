@@ -52,6 +52,8 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 
 使える道具（`room` の）: `hitThing`・`inCircle`・`inRectAhead`・`inArc`・`enemyThings`・`reach`・`nearFoe`・`push`・`breakWalls`・`shoot`・`addFx`・`addToku`・`aimOf`・`moveIntent`・`speedOf`・`stat`・`effect`・`targetable`・`pickTarget(p, 射程)`・`attack`・`skill`・`removeEnt`・`bodies`・`obstacles`・`cageOf` ほか。
 
+相手との当たりは体の箱（hitbox1）で測る。`t.x, t.y, t.r`（足元の円）で直接測らず、点や円との距離は `room.bodyDist(t, x, y)`（≦ 半径なら当たり）、扇・長方形など円以外の形は `room.bodyCircles(t)` の円のどれかと重なるかで判定する。狙う向きは `room.aimAt(p, t)`（撃つ側の体の中心→相手の体の箱の中心）。`room.shoot` の弾は撃つ側の体の中心の高さを飛び（`up`）、壁は真下の床で当たる。場の物の飛び道具が壁を見る時は床の位置で見る（イタコの狐火の `ground` が手本）
+
 - 敵を狙う技（ロックオン・追尾・狙う先の選択）は `room.targetable(t)` で絞る（敵の対象にならない状態を除く）。範囲攻撃は絞らない
 - 結果画面でも技は使える（`ended` がない技は状態が残り続けるので、動く技は `ended` でも同じ処理を呼ぶ。ダメージ・壁の破壊は `room.phase === 'ended'` で止める）
 

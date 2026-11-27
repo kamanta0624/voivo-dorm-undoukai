@@ -34,7 +34,7 @@
 22. handoff_botai3.md　済（反映なし・タグなし。報告 docs/botai3_report.md。rush に勝ち越すマクロは無し）
 23. handoff_ierutan2.md　済
 24. handoff_shot1.md　済
-25. handoff_hitbox1.md（shot1 の後）
+25. handoff_hitbox1.md（shot1 の後）　済（そらのチャージの作り直しを含む）
 26. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから。あいえるたんの koed は ierutan2 で「恐怖」に替わった）
 27. handoff_botai4.md（そら砲。0章の報告で止めて聞く。反映なし）
 28. teaser（宣伝動画の撮影。docs/handoff/teaser/ を参考に。画質優先で ffmpeg の画面録画。まず1本撮って止まる）

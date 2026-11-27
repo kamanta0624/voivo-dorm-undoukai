@@ -58,7 +58,8 @@ export function reserveBiiContacts(room: GameRoom, e: Ent) {
       const u = len2 ? Math.max(0, Math.min(1, -(x0 * vx + y0 * vy) / len2)) : 0;
       dx = x0 + vx * u; dy = y0 + vy * u;
     }
-    if (Math.hypot(dx, dy) > t.r + B.touch) continue;
+    const sh = room.hitShape(t), fy = dy + (t.y - b.y), cy = Math.max(fy - sh.hi, Math.min(fy - sh.lo, 0)); // 相手の体の箱（足元から上へ lo〜hi の線分、半径 r）までの距離で測る（hitbox1）
+    if (Math.hypot(dx, cy) > sh.r + B.touch) continue;
     if (!e.marks.some((m: Mark) => m.id === id)) e.marks.push({ id, ko: t.k === 'p' ? t.o.koAt : 0 });
   }
   marksView(room, p, e);
@@ -66,7 +67,7 @@ export function reserveBiiContacts(room: GameRoom, e: Ent) {
 
 // 残像（おとり）をその場に置く
 function decoy(room: GameRoom, p: Player) {
-  room.ents.push({ id: room.nextId++, kind: 'biiDecoy', team: p.team, owner: p.id, x: p.x, y: p.y, r: C.PLAYER_RADIUS, body: 'unit', hp: B.decoyHp, a: p.face, until: room.now + B.decoyLife });
+  room.ents.push({ id: room.nextId++, kind: 'biiDecoy', team: p.team, owner: p.id, x: p.x, y: p.y, r: C.PLAYER_RADIUS, body: 'unit', dot: 1, hp: B.decoyHp, a: p.face, until: room.now + B.decoyLife });
 }
 // 残像: decoyLife 秒で消える（攻撃を受けたら hitThing が消す）
 function updateDecoy(room: GameRoom, e: Ent) {

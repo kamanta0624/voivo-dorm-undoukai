@@ -15,7 +15,7 @@ const balls = (room: GameRoom, p: Player, mode: string) => room.ents.filter((e) 
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 // 標的にできる敵（射程内・見える・対象にできる）の最寄り
 const nearest = (room: GameRoom, p: Player) => room.enemyThings(p.team)
-  .filter((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t) && dist(t, p) <= S.range + t.r && room.reach(p, t))
+  .filter((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t) && room.bodyDist(t, p.x, p.y) <= S.range && room.reach(p, t))
   .sort((u, v) => dist(u, p) - dist(v, p))[0];
 const find = (room: GameRoom, team: number, id: string) => room.enemyThings(team).find((t) => thingId(t) === id && room.targetable(t));
 
@@ -50,7 +50,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
     if (e.mode !== 'home') { // 回っている間: 触れた敵にダメージ（同じ相手には rehit 秒おき。相手の体の中心で測る）
       for (const t of room.enemyThings(e.team)) {
         const id = thingId(t);
-        if (dist(room.body(t), e) > t.r + e.r || room.now < (e.hits[id] ?? 0) || !room.reach(ground(e), t)) continue;
+        if (room.bodyDist(t, e.x, e.y) > e.r || room.now < (e.hits[id] ?? 0) || !room.reach(ground(e), t)) continue;
         e.hits[id] = room.now + S.rehit;
         room.hitThing(o, t, S.dmg);
       }
@@ -73,7 +73,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
     e.x += Math.cos(e.a) * m; e.y += Math.sin(e.a) * m; step -= m;
     const g = ground(e);
     if (room.walls.some((w) => inRect(g.x, g.y, w))) return room.removeEnt(e);
-    if (t && tb && dist(tb, e) <= t.r + e.r) { room.hitThing(o, t, S.homeDmg); return room.removeEnt(e); }
+    if (t && tb && room.bodyDist(t, e.x, e.y) <= e.r) { room.hitThing(o, t, S.homeDmg); return room.removeEnt(e); }
     e.went += m;
     if (e.went >= S.homeRange || dist(room.bodyOf(o), e) > S.leash) return room.removeEnt(e);
   }

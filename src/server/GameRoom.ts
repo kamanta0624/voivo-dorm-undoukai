@@ -91,7 +91,7 @@ type Team = { toku: number; wanted: string | null; slot: Slot; m: ModernSlot | n
 type Warn = { id: number; team: number; owner: string; x: number; y: number; r: number; at: number; dmg: number; follow: string | null; boss?: boolean; push?: number; color?: string }; // アシストの範囲攻撃の予告（at に発動。follow があればその位置で発動）。boss: 大将の拠点移動前の広範囲攻撃（owner は使わない）。push: 発動で外向きにはじく距離、color: 発動の円の色（なければ赤い輪）
 type Material = { id: number; x: number; y: number; hi: boolean; big?: boolean }; // hi: 裏側に出た高ポイントの資材、big: コバコが置いた高性能の徳
 type Item = { id: number; kind: string; team: number; x: number; y: number; e2e?: boolean }; // kind: heal（回復アイテム）/ box_ult / box_assist（コバコの荷物）。team は常に -1。e2e: テスト用の仕掛けで置いたもの
-type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon' | 'kunai'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void; steer?: (s: Shot, dt: number) => void; aa?: boolean; courier?: boolean }; // steer: 毎tick 進む前に向き（vx・vy）を変える（誘導する技が渡す）。boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）、aa: 通常攻撃の弾、courier: コバコに当たる（通常攻撃の弾はコバコを狙うときだけ）
+type Shot = { id: number; kind: 'bullet' | 'arrow' | 'cannon' | 'kunai'; team: number; owner: string; x: number; y: number; vx: number; vy: number; sp: number; left: number; dmg: number; boom?: number; onHit?: (t: Thing) => void; steer?: (s: Shot, dt: number) => void; aa?: boolean; courier?: boolean; up?: number }; // up: 足元からの高さ（撃つ側の体の中心。壁・視界は真下の床 y+up で見る） // steer: 毎tick 進む前に向き（vx・vy）を変える（誘導する技が渡す）。boom: 大将の弾（着弾地点で半径 boom の爆発。owner は使わない）、onHit: 命中時にダメージの代わりに起きること（発射した技が渡す）、aa: 通常攻撃の弾、courier: コバコに当たる（通常攻撃の弾はコバコを狙うときだけ）
 // 状態: until まで有効。効果は共通処理が見る（値は付与した技が渡す）。speed: 移動倍率、cd: 通常攻撃の間隔の倍率（アシストには掛けない）、regen: 毎秒の回復、noSkill: 技不可、lock: 移動不可（still: その場で止まる lock。自キャラの見た目を補間に切り替えない）、atk: 与えるダメージの倍率、noAttack: 攻撃不可、invincible: 無敵（敵の状態も付かない）、noPush: はじき無効、cancel: KO・試合終了で消える、hidden: 敵の対象にならない、fragile: 被弾で即死、noAuto: オートアタックしない
 // at: 付与した時刻（技処理が使う）、view: スナップショットで送る描画用の値
 export type Status = { until: number; at?: number; speed?: number; cd?: number; regen?: number; noSkill?: boolean; lock?: boolean; still?: boolean; atk?: number; noAttack?: boolean; invincible?: boolean; noPush?: boolean; cancel?: boolean; hidden?: boolean; fragile?: boolean; noAuto?: boolean; noAaDmg?: boolean; view?: () => any };
@@ -732,6 +732,7 @@ export class GameRoom extends Room {
   }
 
   tick(dt: number, send = true) {
+    this.clipCache.clear(); // 体の箱の高さ（壁で切った後）は tick ごとに測り直す
     const measure = this.measure, start = measure && this.phase === 'playing' ? performance.now() : null;
     if (start !== null) {
       if (this.lastTick !== null) measure!.interval.add(start - this.lastTick);
@@ -1023,7 +1024,7 @@ export class GameRoom extends Room {
       p.tgt = this.pickTarget(p);
       const lt = this.lagT(p), rt = lt === null ? null : this.pickTarget(p, undefined, lt);
       if (rt && this.meleeAt(p, rt)) p.tgt = rt;
-      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id) && (p.bot || p.recallAt === null)) this.attack(p.id, Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x));
+      if (p.tgt && !locked && this.now >= p.cooldownUntil && !this.effect(p, 'noAuto') && !this.noAuto.has(p.id) && (p.bot || p.recallAt === null)) this.attack(p.id, this.aimAt(p, p.tgt));
     }
   }
 
@@ -1197,9 +1198,55 @@ export class GameRoom extends Room {
     return out;
   }
 
-  // 壁に遮られていないか
+  // 壁に遮られていないか（体の足元・中心・頭のどこかへ見通せれば届く）
   reach(p: Pt, t: Thing) {
-    return lineOfSight(p.x, p.y, t.x, t.y, this.obstacles());
+    const obs = this.obstacles();
+    return this.bodyPts(t).some((q) => lineOfSight(p.x, p.y, q.x, q.y, obs));
+  }
+
+  // 体の当たり（hitbox1）: 足元を下辺の中央とする体の箱（BODY_BOX×表示倍率）。足元から上へ見て最初の壁で切る（壁に隠れた頭は体に数えない）。
+  // 当たりは縦長のカプセル（半径 w/2、足元から上へ h−w/2 の線分）で表す。下は足元の円（今の判定）を含む。箱を持たない場の物（ファンネルなど）は今の足元の円
+  boxScale(t: Thing) { return t.k === 'p' ? (t.o.assist ? C.ASSIST.scale : 1) : t.k === 'boss' ? 2 : t.k === 'c' ? 1 : t.o.dot ?? 0; }
+  clipCache = new Map<string, number>(); // 体の箱の高さ（壁で切った後）。tick ごとに消す
+  hitShape(t: Thing) {
+    const s = this.boxScale(t);
+    if (!s) return { r: t.r, lo: 0, hi: 0, h: 0 }; // lo・hi: カプセルの線分（足元から上への高さ）
+    const key = `${t.x}|${t.y}|${s}`;
+    let h = this.clipCache.get(key);
+    if (h === undefined) {
+      h = C.BODY_BOX.h * s;
+      for (const w of this.walls) if (t.x >= w.x && t.x <= w.x + w.w && w.y + w.h <= t.y && w.y + w.h > t.y - h) h = t.y - (w.y + w.h); // 足元の真上の一番近い壁の下端まで
+      this.clipCache.set(key, h);
+    }
+    const r = Math.min((C.BODY_BOX.w / 2) * s, h / 2);
+    return { r, lo: 0, hi: h - r, h }; // 線分は足元から: カプセルの下は足元より r だけ下まで（今の足元の円を含む）
+  }
+  // 体の箱の中心（狙いの先）
+  boxCenter(t: Thing): Pt { return { x: t.x, y: t.y - this.hitShape(t).h / 2 }; }
+  // 撃つ側の体の箱の中心の、足元からの高さ（弾・ビーム・矢はここから出る）
+  shotUp(p: Player) { return (C.BODY_BOX.h / 2) * (p.assist ? C.ASSIST.scale : 1); }
+  // p の体の中心から t の体の箱の中心への向き（オートアタック・技の自動照準）
+  aimAt(p: Player, t: Thing) { const c = this.boxCenter(t); return Math.atan2(c.y - (p.y - this.shotUp(p)), c.x - p.x); }
+  // 点 (x, y) から体までの一番近い距離（体の内側は 0 以下）
+  bodyDist(t: Thing, x: number, y: number) {
+    const b = this.hitShape(t), cy = Math.max(t.y - b.hi, Math.min(t.y - b.lo, y));
+    return Math.hypot(x - t.x, y - cy) - b.r;
+  }
+  // 体を円の列で表す（扇・長方形など円以外の形との重なり用。隣の円の間隔は半径以下）
+  bodyCircles(t: Thing) {
+    const b = this.hitShape(t), len = b.hi - b.lo, n = len > 0 ? Math.ceil(len / b.r) + 1 : 1;
+    return Array.from({ length: n }, (_, i) => ({ x: t.x, y: t.y - b.lo - (n > 1 ? (len * i) / (n - 1) : 0), r: b.r }));
+  }
+  // 体の見える・見通せるかを調べる点: 足元・中心・頭・中心の高さの左右の端（箱を持たないものは足元だけ）
+  bodyPts(t: Thing) {
+    const b = this.hitShape(t);
+    if (!b.h) return [{ x: t.x, y: t.y }];
+    const m = t.y - b.h / 2, w = C.BODY_BOX.w / 2 * this.boxScale(t);
+    return [{ x: t.x, y: t.y }, { x: t.x, y: m }, { x: t.x, y: t.y - b.h + 1 }, { x: t.x - w + 1, y: m }, { x: t.x + w - 1, y: m }];
+  }
+  // 陣営 team から体の一部でも見えるか（visibleTo を体の点で）
+  bodySeen(team: number, t: Thing, obs: Rect[]) {
+    return this.bodyPts(t).some((q) => this.visibleTo(team, q.x, q.y, obs));
   }
 
   // 通常攻撃の射程（ウルト中は変身先、ほかはモードのうち一番長いもの）
@@ -1211,8 +1258,8 @@ export class GameRoom extends Room {
   // 照準モードで対象を選ぶ。コバコのモードは射程内のコバコを最優先。ほかはユニット（敵プレイヤー・大将・ユニット扱いの場の物）を優先し、いなければコバコ以外の対象
   // T: 相手の位置をこのサーバー時刻（elapsed）まで戻して選ぶ（人間の近接AAの巻き戻し判定）
   pickTarget(p: Player, R = this.atkRange(p), T?: number): Thing | null {
-    const d = (t: Thing) => Math.hypot(t.x - p.x, t.y - p.y);
-    const all = (T === undefined ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), T)).filter((t) => d(t) <= R + t.r && this.targetable(t) && this.reach(p, t) && this.seenBy(p.team, t)); // 自陣営の画面に映っている敵だけ（見えない敵には自動で撃たない・向かない）
+    const d = (t: Thing) => this.bodyDist(t, p.x, p.y); // 自分の足元から相手の体までの一番近い距離
+    const all = (T === undefined ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), T)).filter((t) => d(t) <= R && this.targetable(t) && this.reach(p, t) && this.seenBy(p.team, t)); // 自陣営の画面に映っている敵だけ（見えない敵には自動で撃たない・向かない）
     const c = p.aim === 'courier' && all.find((t) => t.k === 'c');
     if (c) return c;
     const inRange = all.filter((t) => t.k !== 'c'); // コバコはコバコのモードでだけ狙う
@@ -1303,7 +1350,7 @@ export class GameRoom extends Room {
   // 陣営 team の画面に映っているか（スナップショットの出し分け sendSnapshots と同じ判定。コバコと霧に隠れない場の物は常に映る、開幕中は敵大将も映る）
   seenBy(team: number, t: Thing) {
     if (t.k === 'c' || (t.k === 'e' && !ENTS[t.o.kind].fog) || (t.k === 'boss' && this.phase === 'intro')) return true;
-    return this.visibleTo(team, t.x, t.y, this.seeWalls);
+    return this.bodySeen(team, t, this.seeWalls);
   }
 
   targetable(t: Thing) {
@@ -1312,14 +1359,14 @@ export class GameRoom extends Room {
 
   // 技・攻撃の向き: 狙っている対象があればその方向、なければ向いている方向
   aimOf(p: Player) {
-    return p.tgt ? Math.atan2(p.tgt.y - p.y, p.tgt.x - p.x) : p.face;
+    return p.tgt ? this.aimAt(p, p.tgt) : p.face;
   }
 
   // 技の向き: 技の矢印で決めた向きがあればそれ。なければ技の射程 R で通常攻撃と同じ照準ルール（pickTarget）で選んだ対象の方向、いなければ向いている方向
   skillAim(p: Player, R: number) {
     if (p.skillA !== undefined) return p.skillA;
     const t = this.pickTarget(p, R);
-    return t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
+    return t ? this.aimAt(p, t) : p.face;
   }
 
   inArc(p: Player, tx: number, ty: number, tr: number, aim = p.face, range = C.ATTACK_RANGE, arc = C.ATTACK_ARC): boolean {
@@ -1368,7 +1415,7 @@ export class GameRoom extends Room {
       if (requested >= C.NET_REWIND_MAX) m.capped++;
     }
     for (const t of lt === null ? this.enemyThings(p.team) : this.rewound(this.enemyThings(p.team), lt)) {
-      if ((toC || t.k !== 'c') && this.inArc(p, t.x, t.y, t.r, a, range, arc) && this.reach(p, t)) this.hitThing(p, t, dmg, true);
+      if ((toC || t.k !== 'c') && this.bodyCircles(t).some((q) => this.inArc(p, q.x, q.y, q.r, a, range, arc)) && this.reach(p, t)) this.hitThing(p, t, dmg, true);
     }
   }
 
@@ -1465,7 +1512,7 @@ export class GameRoom extends Room {
 
   // 大将の爆発: 陣営 team の敵プレイヤー（アシスト含む）のうち半径 r に触れるものにダメージ
   explode(team: number, x: number, y: number, r: number, dmg: number) {
-    for (const q of this.players.values()) if (q.team !== team && q.alive && Math.hypot(q.x - x, q.y - y) <= r + C.PLAYER_RADIUS) this.damagePlayer(q, dmg, null);
+    for (const q of this.players.values()) if (q.team !== team && q.alive && this.bodyDist({ k: 'p', o: q, x: q.x, y: q.y, r: C.PLAYER_RADIUS }, x, y) <= r) this.damagePlayer(q, dmg, null);
     this.addFx({ team, x, y }, 'aura', { r, color: 'dash' });
   }
 
@@ -1753,7 +1800,7 @@ export class GameRoom extends Room {
   // ---- 弾 ----
 
   shoot(p: Player, kind: Shot['kind'], a: number, range: number, dmg: number, sp = C.BULLET_SPEED) {
-    const s: Shot = { id: this.nextId++, kind, team: p.team, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, left: range, dmg };
+    const up = this.shotUp(p), s: Shot = { id: this.nextId++, kind, team: p.team, owner: p.id, x: p.x, y: p.y - up, up, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, left: range, dmg }; // 撃つ側の体の中心から（up: 足元からの高さ。壁との当たりは真下の床で）
     this.shots.push(s);
     return s;
   }
@@ -1768,8 +1815,8 @@ export class GameRoom extends Room {
       while (step > 0 && !done) {
         const d = Math.min(8, step);
         s.x += (s.vx / s.sp) * d; s.y += (s.vy / s.sp) * d; s.left -= d; step -= d;
-        if (this.walls.some((w) => inRect(s.x, s.y, w))) { done = true; out = 'wall'; break; }
-        const hit = this.enemyThings(s.team).find((t) => (!s.aa || s.courier || t.k !== 'c') && Math.hypot(t.x - s.x, t.y - s.y) <= t.r + C.BULLET_RADIUS); // 通常攻撃の弾はコバコを狙うときだけコバコに当たる
+        if (this.walls.some((w) => inRect(s.x, s.y + (s.up ?? 0), w))) { done = true; out = 'wall'; break; } // 壁は弾の真下の床の位置で
+        const hit = this.enemyThings(s.team).find((t) => (!s.aa || s.courier || t.k !== 'c') && this.bodyDist(t, s.x, s.y) <= C.BULLET_RADIUS); // 通常攻撃の弾はコバコを狙うときだけコバコに当たる
         if (hit) {
           done = true; out = 'hit';
           if (s.boom) break;
@@ -1802,20 +1849,20 @@ export class GameRoom extends Room {
   // 自分の体の中心から半径 r（＋相手の半径）以内の敵。相手も体の中心で測る
   inBodyCircle(p: Player, r: number) {
     const c = this.bodyOf(p);
-    return this.enemyThings(p.team).filter((t) => { const b = this.body(t); return Math.hypot(b.x - c.x, b.y - c.y) <= r + t.r; });
+    return this.enemyThings(p.team).filter((t) => this.bodyDist(t, c.x, c.y) <= r); // 相手は体の箱で測る（hitbox1）
   }
 
   inCircle(p: Player, x: number, y: number, r: number) {
-    return this.enemyThings(p.team).filter((t) => Math.hypot(t.x - x, t.y - y) <= r + t.r);
+    return this.enemyThings(p.team).filter((t) => this.bodyDist(t, x, y) <= r);
   }
 
   // 前方の長方形（長さ len、幅 w）に入る敵
   inRectAhead(p: Player, a: number, len: number, w: number) {
     const ux = Math.cos(a), uy = Math.sin(a);
-    return this.enemyThings(p.team).filter((t) => {
-      const rx = t.x - p.x, ry = t.y - p.y, along = rx * ux + ry * uy, side = Math.abs(-rx * uy + ry * ux);
-      return along >= -t.r && along <= len + t.r && side <= w / 2 + t.r;
-    });
+    return this.enemyThings(p.team).filter((t) => this.bodyCircles(t).some((q) => {
+      const rx = q.x - p.x, ry = q.y - p.y, along = rx * ux + ry * uy, side = Math.abs(-rx * uy + ry * ux);
+      return along >= -q.r && along <= len + q.r && side <= w / 2 + q.r;
+    }));
   }
 
   // 重いアシスト（はじかれない。config の ASSIST.units の heavy）
@@ -1855,6 +1902,7 @@ export class GameRoom extends Room {
     for (const [x, y] of tiles) this.tiles[y] = this.tiles[y].slice(0, x) + '.' + this.tiles[y].slice(x + 1);
     this.broken.push(...tiles);
     this.walls = wallRects(this.tiles); // 当たり判定・視界・経路探索に即反映
+    this.clipCache.clear(); // 体の箱を切る壁も変わる
     this.seeWalls = seeRects(this.tiles); // 視界の壁も同じく
   }
 
@@ -1931,7 +1979,7 @@ export class GameRoom extends Room {
       if (this.now < w.at) continue;
       this.warns = this.warns.filter((x) => x !== w);
       for (const t of this.enemyThings(w.team)) {
-        if (!isUnit(t) || Math.hypot(t.x - w.x, t.y - w.y) > w.r + t.r) continue;
+        if (!isUnit(t) || this.bodyDist(t, w.x, w.y) > w.r) continue;
         this.hitThing(owner, t, w.dmg);
         if (w.push) { const d = Math.hypot(t.x - w.x, t.y - w.y) || 1; this.push(t, (t.x - w.x) / d, (t.y - w.y) / d, w.push); } // 外向きにはじく
       }
@@ -2173,10 +2221,10 @@ export class GameRoom extends Room {
   sendSnapshots() {
     const obs = this.seeWalls; // 敵の表示は視界の壁（透過壁を通す）
     const vis = [0, 1].map((team) => ({
-      players: [...this.players.values()].filter((p) => p.team === team || ((p.alive || this.dying(p)) && this.visibleTo(team, p.x, p.y, obs))), // 撃破の演出中の敵も視界内なら送る
-      bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.visibleTo(team, b.x, b.y, obs)), // 開幕中は敵大将も映す
+      players: [...this.players.values()].filter((p) => p.team === team || ((p.alive || this.dying(p)) && this.bodySeen(team, { k: 'p', o: p, x: p.x, y: p.y, r: C.PLAYER_RADIUS }, obs))), // 体の一部でも見えれば送る（hitbox1） // 撃破の演出中の敵も視界内なら送る
+      bosses: this.bosses.filter((b) => b.team === team || this.phase === 'intro' || this.bodySeen(team, { k: 'boss', o: b, x: b.x, y: b.y, r: C.BOSS_RADIUS }, obs)), // 開幕中は敵大将も映す
       ents: this.ents.filter((e) => e.team === team || !ENTS[e.kind].fog || this.visibleTo(team, e.x, e.y, obs)),
-      shots: this.shots.filter((s) => s.team === team || this.visibleTo(team, s.x, s.y, obs)),
+      shots: this.shots.filter((s) => s.team === team || this.visibleTo(team, s.x, s.y + (s.up ?? 0), obs)), // 弾は真下の床の位置で
       fx: this.fx.filter((f) => f.team === team || this.visibleTo(team, f.x, f.y, obs)), // 視界内なら他プレイヤーの技も見える
       warns: this.warns.filter((w) => w.team === team || this.visibleTo(team, w.x, w.y, obs)),
     }));

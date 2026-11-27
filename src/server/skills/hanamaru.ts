@@ -55,7 +55,7 @@ function updateFist(room: GameRoom, f: Ent, dt: number) {
       if (tiles.some(([tx, ty]) => room.tiles[ty][tx] === '#' && circleRect(f.x, f.y, H.core, { x: tx * T, y: ty * T, w: T, h: T }))) { gone = true; break; } // 壊れずに残った壁に芯が触れた: 消える
     }
     for (const t of room.enemyThings(f.team)) {
-      if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || Math.hypot(t.x - f.x, t.y - f.y) > f.r + t.r) continue;
+      if ((t.k !== 'p' && t.k !== 'boss') || f.hit.has(thingId(t)) || room.bodyDist(t, f.x, f.y) > f.r) continue;
       f.hit.add(thingId(t));
       room.hitThing(owner!, t, f.dmg);
     }

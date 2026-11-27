@@ -22,7 +22,7 @@ function update(room: GameRoom, e: Ent, dt: number) {
     const m = Math.min(8, step);
     e.x += Math.cos(e.a) * m; e.y += Math.sin(e.a) * m; e.left -= m; step -= m;
     if (room.walls.some((w) => inRect(e.x, e.y, w))) return room.removeEnt(e);
-    const t = room.enemyThings(e.team).find((t) => Math.hypot(t.x - e.x, t.y - e.y) <= t.r + e.r);
+    const t = room.enemyThings(e.team).find((t) => room.bodyDist(t, e.x, e.y) <= e.r);
     if (t) { room.hitThing(o, t, enmaDmg(room, t)); return room.removeEnt(e); }
   }
   if (e.left <= 0) room.removeEnt(e);

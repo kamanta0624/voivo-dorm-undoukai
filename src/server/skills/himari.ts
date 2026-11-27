@@ -13,8 +13,7 @@ function scythe(room: GameRoom, p: Player, a: number) {
   let hit = false;
   const c = room.bodyOf(p); // 扇の要と相手は体の中心
   for (const t of room.enemyThings(p.team)) {
-    const b = room.body(t);
-    if (!room.inArc({ ...p, ...c }, b.x, b.y, t.r, a, S.range, S.arc) || !room.reach(p, t)) continue;
+    if (!room.bodyCircles(t).some((q) => room.inArc({ ...p, ...c }, q.x, q.y, q.r, a, S.range, S.arc)) || !room.reach(p, t)) continue; // 相手は体の箱（hitbox1）
     hit = true;
     room.hitThing(p, t, t.k === 'boss' ? S.bossDmg : t.k === 'p' && t.o.assist ? S.dmg * S.assistMult : S.dmg);
   }
@@ -48,7 +47,7 @@ const skill: Skill = {
   ended: (room, p, dt) => leap(room, p, dt),
   // 透明化中に対象が鎌の範囲に入ったら自動で振る（人間・Bot とも。近づくのは移動操作／Bot の戦闘の動き）
   tick(room, p) {
-    if (room.stat(p, 'cloak') && p.tgt && room.inArc({ ...p, ...room.bodyOf(p) }, p.tgt.x, room.body(p.tgt).y, p.tgt.r, room.aimOf(p), S.range, S.arc)) room.attack(p.id, room.aimOf(p));
+    if (room.stat(p, 'cloak') && p.tgt && room.bodyCircles(p.tgt).some((q) => room.inArc({ ...p, ...room.bodyOf(p) }, q.x, q.y, q.r, room.aimOf(p), S.range, S.arc))) room.attack(p.id, room.aimOf(p));
   },
   botUse: (room, p) => room.nearFoe(p, C.BOT_SKILL_SENSE, (t) => t.k === 'p' || t.k === 'boss'),
   statuses: ['cloak', 'leap'],

@@ -11,7 +11,7 @@ const PATTERNS = ['straight', 'spread', 'brake'];
 
 // ロックできる敵（射程内・見える・対象にできる）。近い順
 const candidates = (room: GameRoom, p: Player) => room.enemyThings(p.team)
-  .filter((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t) && Math.hypot(t.x - p.x, t.y - p.y) <= S.range + t.r && room.reach(p, t))
+  .filter((t) => (t.k === 'p' || t.k === 'boss') && room.targetable(t) && room.bodyDist(t, p.x, p.y) <= S.range && room.reach(p, t))
   .sort((u, v) => Math.hypot(u.x - p.x, u.y - p.y) - Math.hypot(v.x - p.x, v.y - p.y));
 const find = (room: GameRoom, team: number, id: string) => room.enemyThings(team).find((t) => thingId(t) === id && room.targetable(t));
 
@@ -57,7 +57,7 @@ function updateMissile(room: GameRoom, e: Ent, dt: number) {
     const m = Math.min(8, step);
     e.x += sx * m; e.y += sy * m; step -= m;
     if (room.walls.some((w) => inRect(e.x, e.y, w))) return room.removeEnt(e);
-    const hit = e.orphan ? room.enemyThings(e.team).find((u) => Math.hypot(u.x - e.x, u.y - e.y) <= u.r + e.r) : t && Math.hypot(t.x - e.x, t.y - e.y) <= t.r + e.r ? t : undefined;
+    const hit = e.orphan ? room.enemyThings(e.team).find((u) => room.bodyDist(u, e.x, e.y) <= e.r) : t && room.bodyDist(t, e.x, e.y) <= e.r ? t : undefined;
     if (hit) { room.hitThing(owner, hit, S.dmg); return room.removeEnt(e); }
   }
 }

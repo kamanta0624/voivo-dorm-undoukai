@@ -38,7 +38,7 @@ function dashStep(room: GameRoom, p: Player, dt: number) {
   // 体が壁に止められたら壁に沿って滑る（正面なら前に進まず、dur まで突撃を続ける）
   Object.assign(p, moveBody(p.x, p.y, nx - p.x, ny - p.y, C.PLAYER_RADIUS, room.obstacles(), true, (q) => room.noteJump(`p:${p.id}`, p, q)));
   for (const t of room.enemyThings(p.team)) {
-    if (p.sk.hit.has(thingId(t)) || !inDashShape(S, t.x, t.y, p.x, p.y, a, t.r)) continue;
+    if (p.sk.hit.has(thingId(t)) || !room.bodyCircles(t).some((q) => inDashShape(S, q.x, q.y, p.x, p.y, a, q.r))) continue;
     p.sk.hit.add(thingId(t));
     room.hitThing(p, t, S.dmg);
   }

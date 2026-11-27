@@ -13,8 +13,15 @@ export function solarAt(charge: number, col: number, boss = false) {
   return v(K.length - 1);
 }
 
-// 技ボタンの％（整数に丸める前）: 30秒の総ダメージを100%。5秒以降は総ダメージ÷30秒の総ダメージ、0〜5秒は0%から5秒の％まで秒数に比例
+// 技ボタンの％（整数に丸める前）: keys の3行目（25秒）の総ダメージを100%。5秒以降は総ダメージ÷その総ダメージ、0〜5秒は0%から5秒の％まで秒数に比例
 export function solarPct(charge: number) {
-  const pct = (c: number) => (solarAt(c, 1) / solarAt(30, 1)) * 100;
+  const pct = (c: number) => (solarAt(c, 1) / solarAt(K[2][0], 1)) * 100;
   return charge < 5 ? (Math.max(0, charge) / 5) * pct(5) : pct(charge);
+}
+
+// 発射からビームが出るまでの秒数: チャージ0秒で delay[0]、delayAt 秒以上で delay[1]、その間は直線。keys の最後から2番目の秒数を超えた発射は0
+export function solarDelay(charge: number) {
+  if (charge > K[K.length - 2][0]) return 0;
+  const [d0, d1] = S.delay as number[];
+  return charge >= S.delayAt ? d1 : d0 + ((d1 - d0) * Math.max(0, charge)) / S.delayAt;
 }
