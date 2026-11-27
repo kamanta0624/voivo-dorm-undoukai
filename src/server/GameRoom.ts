@@ -58,7 +58,7 @@ export type Player = {
   rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
-  bot: boolean; role: 'gather' | 'raid' | 'guard'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
+  bot: boolean; role: 'gather' | 'raid'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
@@ -110,7 +110,8 @@ export const isUnit = (t: Thing) => t.k === 'p' || t.k === 'boss' || (t.k === 'e
 export class GameRoom extends Room {
   static logFile = ''; // 試合ログの出力先（JSON Lines、空なら書かない）。src/server/index.ts で設定
   static matchlogDir = ''; static matchlogSource: 'human' | 'bot' = 'human'; static matchSeed: number | null = null; // 試合の記録部の書き出し先（空なら書かない）・source・乱数の種（Bot 戦だけ。tools/botsim.ts）
-  macros: string[] = ['std', 'std']; // チームのマクロ（CONFIG.BOT_MACROS。本番は std。tools/botai.ts が試合の前に変える）
+  macros: string[] = ['std', 'std']; // チームのマクロ（CONFIG.BOT_MACROS・BOT_LAYER。本番は std。tools/botai.ts が試合の前に変える）
+  endDefend = [false, false]; // マクロの層 e で終盤の守りに入ったか（記録用）
   rec = new MatchRec(); // 試合の記録部（常時ON。要約は rec.summary()）
   maxClients = C.MAX_CLIENTS;
   static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
@@ -654,8 +655,9 @@ export class GameRoom extends Room {
         const b = this.addPlayer(`bot${++this.botSeq}`, t, true);
         if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
       }
-      const mc = this.macros[t]; // マクロの役割の割り振り（std は今の交互）
-      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : mc === 'guard' ? (i % 2 === 0 ? 'gather' : 'guard') : i % 2 === 0 ? 'gather' : 'raid'));
+      const mc = this.macros[t].split('+')[0]; // マクロの土台の役割の割り振り（std は今の交互）
+      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : i % 2 === 0 ? 'gather' : 'raid'));
+      this.endDefend[t] = false;
     }
     for (const p of this.players.values()) p.hp = this.maxHp(p); // キャラ確定後にロールのHPを反映
     // 開始演出: 各陣営を開始した部屋（study）に横並びにする
@@ -2011,21 +2013,39 @@ export class GameRoom extends Room {
     const box = best(this.items.filter((i) => i.kind.startsWith('box_') && this.visibleTo(p.team, i.x, i.y, obs)), (i) => `item:${i.id}`);
     if (box) { this.rec.bot(p, 'item'); return go(box, `item:${box.id}`); }
     // 4. 役割: 資材集め（一番近い資材）か、敵陣の見回り
-    if (p.role === 'guard') { // マクロ guard: 自陣の大将のそばで待つ（近づいた敵は上の「近くの敵を攻撃」で迎え撃つ）
-      const own = this.bosses[p.team];
+    // マクロの層（botai2。層のない std は今の役割のまま）: e 終盤リードで守り ＞ u パワーアップ中は攻め ＞ a アシストに同行 ＞ 土台の役割
+    const fl = this.macros[p.team].split('+')[1] ?? '', L = C.BOT_LAYER;
+    let role: string = p.role;
+    if (fl) {
+      const pct = (t: number) => this.bosses[t].hp / C.BOSS_HP;
+      if (fl.includes('e') && this.timeLeft <= L.endSec && pct(p.team) > pct(1 - p.team)) { role = 'guard'; this.endDefend[p.team] = true; }
+      else if (fl.includes('u') && p.ult && !p.ult.pending) role = 'ultraid';
+      else if (fl.includes('a') && this.escorts(p.team).includes(p)) role = 'escort';
+    }
+    if (role === 'guard') { // 守り: 自陣の大将の近く（defendR 以内）にいる見える敵を迎え撃つ。いなければ大将のそばで待つ
+      const own = this.bosses[p.team], d2 = (e: Pt) => Math.hypot(e.x - own.x, e.y - own.y);
+      const atk = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && d2(e) <= L.defendR && this.visibleTo(p.team, e.x, e.y, obs)).sort((u, v) => d2(u) - d2(v))[0];
       this.rec.bot(p, 'guard');
+      if (atk) return this.botFight(p, atk, C.PLAYER_RADIUS, obs);
       if (dist(own) > C.BOSS_RADIUS * 3) return go(own, 'guard');
       return this.setInput(p.id, 0, 0);
     }
-    const alive = (t: number) => [...this.players.values()].filter((q) => q.team === t && q.alive && !q.assist).length;
-    if (p.role === 'gather' || (this.macros[p.team] === 'adv' && alive(p.team) <= alive(1 - p.team))) { // マクロ adv: 人数有利でない間は攻め役も資材集め
+    if (role === 'escort') { // 同行: 味方のアシストのそばにつき、アシストの近く（escortFight 以内）の見える敵と戦う
+      const a = this.teamAssist(p.team)!, d2 = (e: Pt) => Math.hypot(e.x - a.x, e.y - a.y);
+      const atk = [...this.players.values()].filter((e) => e.team !== p.team && e.alive && !this.effect(e, 'hidden') && d2(e) <= L.escortFight && this.visibleTo(p.team, e.x, e.y, obs)).sort((u, v) => d2(u) - d2(v))[0];
+      this.rec.bot(p, 'escort');
+      if (atk) return this.botFight(p, atk, C.PLAYER_RADIUS, obs);
+      if (dist(a) > L.escortNear) return go(a, 'escort');
+      return this.setInput(p.id, 0, 0);
+    }
+    if (role === 'gather') {
       this.rec.bot(p, 'gather');
       const m = best(this.materials, (m) => `mat:${m.id}`);
       return m ? go(m, `mat:${m.id}`) : go({ x: C.MAP_W / 2, y: C.MAP_H / 2 }, 'center');
     }
     const boss = this.bosses[1 - p.team];
-    this.rec.bot(p, 'raid');
-    if (this.visibleTo(p.team, boss.x, boss.y, obs)) { p.goal = 'boss'; this.rec.bot(p, 'boss'); return this.botFight(p, boss, C.BOSS_RADIUS, obs); }
+    this.rec.bot(p, role === 'ultraid' ? 'ultraid' : 'raid');
+    if (this.visibleTo(p.team, boss.x, boss.y, obs)) { p.goal = 'boss'; this.rec.bot(p, role === 'ultraid' ? 'ultraid' : 'boss'); return this.botFight(p, boss, C.BOSS_RADIUS, obs); }
     const bs = this.bases[1 - p.team];
     // 未見回りの部屋のうち近い部屋（同じくらいならランダム、詰まった部屋は避ける）
     const next = () => best(bs.map((b, i) => ({ ...b, i })).filter((b) => !p.visited.includes(b.i)), (b) => `room:${b.i}`)!.i;
@@ -2045,6 +2065,10 @@ export class GameRoom extends Room {
   assistThink(p: Player, obs: Rect[]) {
     const foe = this.enemyAssist(p);
     if (foe) { p.goal = `p:${foe.id}`; return this.botFight(p, foe, C.PLAYER_RADIUS, obs); }
+    if (this.macros[p.team].split('+')[1]?.includes('a')) { // マクロの層 a: 同行役が全員 assistWait より遠い間は進まずに待つ（単騎で攻め込んで倒されないように）
+      const es = this.escorts(p.team);
+      if (es.length && es.every((e) => Math.hypot(e.x - p.x, e.y - p.y) > C.BOT_LAYER.assistWait)) return this.setInput(p.id, 0, 0);
+    }
     const boss = this.bosses[1 - p.team];
     p.goal = 'boss';
     this.botFight(p, boss, C.BOSS_RADIUS, obs);
@@ -2073,6 +2097,13 @@ export class GameRoom extends Room {
     const n = p.path[0];
     if (n) this.setInput(p.id, n.x - p.x, n.y - p.y);
     else this.setInput(p.id, 0, 0);
+  }
+
+  // マクロの層 a の同行役: 味方のアシストが出ている間、アシストに近い生存中の Bot（アシスト以外）から BOT_LAYER.escort 人
+  escorts(team: number): Player[] {
+    const a = this.teamAssist(team);
+    if (!a) return [];
+    return [...this.players.values()].filter((q) => q.team === team && q.bot && !q.assist && q.alive).sort((u, v) => Math.hypot(u.x - a.x, u.y - a.y) - Math.hypot(v.x - a.x, v.y - a.y)).slice(0, C.BOT_LAYER.escort);
   }
 
   // 撃破の演出中で、まだ消えていない（爆発まで。視界を残し、敵にも送る）

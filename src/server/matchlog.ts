@@ -7,7 +7,7 @@ import { CONFIG as C } from '../shared/config';
 import { roomAt } from './commentary';
 
 const COMMIT = (() => { try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return null; } })();
-export const BOT_STATES = ['fight', 'flee', 'recall', 'eat', 'courier', 'item', 'gather', 'boss', 'raid', 'guard', 'dead'] as const; // Bot の状態（botThink の分岐）。dead=撤退中、guard=マクロ guard の守り役が自陣の大将のそばにいる
+export const BOT_STATES = ['fight', 'flee', 'recall', 'eat', 'courier', 'item', 'gather', 'boss', 'raid', 'guard', 'escort', 'ultraid', 'dead'] as const; // Bot の状態（botThink の分岐）。dead=撤退中。マクロの層（botai2）: guard=終盤の守り、escort=アシストに同行、ultraid=パワーアップ中の攻め
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100; // 徳の1秒ごと（1発 −0.06 などが 0.1 刻みだと丸めで合計がずれる）
 const add = (a: number[], i: number, v: number) => { while (a.length <= i) a.push(0); a[i] += v; };
@@ -125,7 +125,7 @@ export class MatchRec {
     }));
     const teams = [0, 1].map((t) => {
       const T = room.teams[t], b = room.bosses[t];
-      return { macro: room.macros?.[t] ?? 'std', toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
+      return { macro: room.macros?.[t] ?? 'std', endDefend: !!room.endDefend?.[t], toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
     });
     this.result = {
       v: 1, source, start: new Date(this.startedAt).toISOString(), seed: this.seed, commit: COMMIT, slotMode: C.SLOT_MODE,

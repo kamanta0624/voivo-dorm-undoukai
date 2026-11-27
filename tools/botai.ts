@@ -1,5 +1,5 @@
-// Bot のフィジカル × チームのマクロの比較（handoff_botai1）。botsim と同じく通信なしで早回しし、記録部が logs/botai/YYYYMMDD_bot.jsonl へ書く
-// 実行: npx tsx tools/botai.ts [--n 40] [--port 2567]（--n: 組み合わせごとの試合数。陣営を入れ替えて半分ずつ。途中から再開できる＝出力済みの試合数を数えて残りだけ回す）
+// Bot のマクロの比較（handoff_botai2。botai1 の総当たり・adv・常駐の guard は botai2 で廃止。botai1 の結果は logs/botai と docs/botai_report.md）。botsim と同じく通信なしで早回しし、記録部が logs/botai2/YYYYMMDD_bot.jsonl へ書く
+// 実行: npx tsx tools/botai.ts [--n 20] [--extend] [--port 2567]（--n: 組み合わせごとの試合数。陣営を入れ替えて半分ずつ。途中から再開できる＝出力済みの試合数を数えて残りだけ回す。--extend: 勝率の95%区間が50%をまたぐ組だけ 2倍の試合数まで足す）
 // 始めない・途中で止める: botsim と同じ（公開サーバーに人間・観戦者／e2e）。公開側の botsim が動いている間は待つ
 import { execSync } from 'node:child_process';
 import { randomInt } from 'node:crypto';
@@ -9,19 +9,16 @@ import { CONFIG as C } from '../src/shared/config';
 import { GameRoom } from '../src/server/GameRoom';
 
 const arg = (k: string, d: number) => { const i = process.argv.indexOf(k); return i > 0 ? Number(process.argv[i + 1]) : d; };
-const N = arg('--n', 40), PORT = arg('--port', C.PORT), DIR = 'logs/botai', DT = 1 / C.TICK_HZ;
+const N = arg('--n', 20), PORT = arg('--port', C.PORT), DIR = 'logs/botai2', DT = 1 / C.TICK_HZ, EXTEND = process.argv.includes('--extend');
 const log = (s: string) => console.log(`${new Date().toISOString()} [botai] ${s}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // 組み合わせ: [陣営Aの フィジカル/マクロ, 陣営Bの フィジカル/マクロ]
 type Side = { phys: string; macro: string };
 const S = (phys: string, macro: string): Side => ({ phys, macro });
-const M = C.BOT_MACROS;
-const PLAN: [string, Side, Side][] = [
-  ['A 強vs弱', S('strong', 'std'), S('weak', 'std')], ['A 強vs中', S('strong', 'std'), S('mid', 'std')], ['A 中vs弱', S('mid', 'std'), S('weak', 'std')],
-  ...M.flatMap((a, i) => M.slice(i + 1).map((b): [string, Side, Side] => [`B ${a}vs${b}`, S('mid', a), S('mid', b)])),
-  ...M.filter((m) => m !== 'std').map((m): [string, Side, Side] => [`C 弱${m}vs強std`, S('weak', m), S('strong', 'std')]),
-];
+// 全部を今の本番（中・std）と戦わせる（総当たりはしない。本人）。物理はすべて中
+const VS = ['std+uae', 'rush', 'rush+uae', 'farm', 'farm+uae', 'std+u', 'std+a', 'std+e'];
+const PLAN: [string, Side, Side][] = VS.map((m): [string, Side, Side] => [`${m} vs std`, S('mid', m), S('mid', 'std')]);
 const key = (a: Side, b: Side) => `${a.phys}/${a.macro}|${b.phys}/${b.macro}`;
 
 async function busy(): Promise<string | null> {
@@ -86,15 +83,29 @@ GameRoom.logFile = ''; GameRoom.matchlogDir = DIR; GameRoom.matchlogSource = 'bo
 const why = await busy();
 if (why) { log(`始めない: ${why}`); process.exit(0); }
 const have = done();
+const wilson = (w: number, n: number) => { const z = 1.96, p = w / n, d = 1 + (z * z) / n, c = p + (z * z) / (2 * n), h = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n)); return [(c - h) / d, (c + h) / d]; };
+// --extend: 出力済みの結果で 95%区間が 50% をまたぐ組だけ、試合数を 2倍に
+const target = (a: Side, b: Side) => {
+  if (!EXTEND) return N;
+  let w = 0, n = 0;
+  for (const l of existsSync(DIR) ? readdirSync(DIR).filter((f) => f.endsWith('.jsonl')).flatMap((f) => readFileSync(`${DIR}/${f}`, 'utf8').split('\n').filter((x) => x.trim())) : []) {
+    const m = JSON.parse(l), ms = [m.teams[0].macro, m.teams[1].macro];
+    const at = ms[0] === a.macro && ms[1] === b.macro ? 0 : ms[1] === a.macro && ms[0] === b.macro ? 1 : -1;
+    if (at < 0) continue;
+    n++; w += m.winner === at ? 1 : m.winner === 2 ? 0.5 : 0;
+  }
+  const ci = n ? wilson(w, n) : [0, 1];
+  return ci[0] > 0.5 || ci[1] < 0.5 ? N : N * 2;
+};
 let ran = 0;
 const t0 = Date.now();
-for (const [name, a, b] of PLAN) for (const [x, y] of [[a, b], [b, a]]) {
-  for (let i = have.get(key(x, y)) ?? 0; i < N / 2; i++) {
+for (const [name, a, b] of PLAN) { const goal = target(a, b); for (const [x, y] of [[a, b], [b, a]]) {
+  for (let i = have.get(key(x, y)) ?? 0; i < goal / 2; i++) {
     while (liveBotsim()) await sleep(5000); // 公開側の定期 Bot 戦と同時に回さない
     if (!(await match(randomInt(2 ** 32), x, y))) process.exit(0);
     ran++;
   }
-  log(`${name}（${x.phys}/${x.macro} が陣営0）: ${N / 2}試合そろった（累計 ${ran}試合、${Math.round((Date.now() - t0) / 1000)}秒）`);
-}
+  log(`${name}（${x.phys}/${x.macro} が陣営0）: ${goal / 2}試合そろった（累計 ${ran}試合、${Math.round((Date.now() - t0) / 1000)}秒）`);
+} }
 log(`完了: ${ran}試合`);
 process.exit(0);

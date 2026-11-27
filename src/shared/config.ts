@@ -321,9 +321,10 @@ export const CONFIG = {
     strong: { react: 0, recallHp: 0.3, fleeRatio: 1.0, aggro: 250, skillDelay: 0, focusLow: true },
     weak: { react: 0.35, recallHp: 0.3, fleeRatio: 1.0, aggro: 200, skillDelay: 1, focusLow: false },
   } as Record<string, { react: number; recallHp: number; fleeRatio: number; aggro: number; skillDelay: number; focusLow: boolean }>,
-  // チームのマクロ（botai1）。std＝今の割り振り（交互に gather・raid）。本番・練習は std
-  // rush: 全員で敵陣（大将）へ、farm: 全員で資材集め、guard: 半分は自陣の大将のそばで守る（残りは資材集め）、adv: std と同じ割り振りで、攻め役は自陣の生存人数が敵より多い時だけ攻める（それ以外は資材集め）
-  BOT_MACROS: ['std', 'rush', 'farm', 'guard', 'adv'] as const,
+  // チームのマクロ（botai1・botai2）。名前は「土台+層」（例 'rush+uae'）。土台 std＝今の割り振り（交互に資材集め・攻め）、rush＝全員攻め、farm＝全員資材集め。本番・練習は std（層なし）
+  // 層: u＝パワーアップ中は攻め、a＝味方のアシストに同行（近い Bot から escort 人）、e＝残り endSec 秒で大将HP%がリードしていたら全員で守り
+  BOT_MACROS: ['std', 'rush', 'farm'] as const,
+  BOT_LAYER: { endSec: 60, escort: 2, escortNear: 80, escortFight: 200, assistWait: 200, defendR: 300 }, // escortNear: 同行役がアシストのそばとみなす距離、escortFight: アシストのこの距離以内の敵と戦う、assistWait: 同行役が全員この距離より遠い間はアシストが待つ、defendR: 守りで迎え撃つ自陣の大将からの距離。値は仮置き
   BOT_REPATH: 0.5, // 経路の再計算間隔(秒)
   GRID_CELL: 16, // A* のマス目サイズ
   E2E_FIGHT_SECONDS: 60, // e2e: 試合1の残り時間の戦闘を打ち切る秒数（その後フックで試合終了へ）
