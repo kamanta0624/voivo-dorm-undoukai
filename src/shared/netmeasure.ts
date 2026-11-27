@@ -41,6 +41,7 @@ export class ClientMeasure {
 export class ServerClientMeasure {
   queue = new Histogram(); requested = new Histogram(); actual = new Histogram();
   catchup = 0; dropped = 0; capped = 0;
+  bytes = new Histogram(); // 送ったスナップショットの大きさ（バイト。msgpack で詰めた大きさ＋見出し。sync2）
 }
 export class ServerMeasure {
   tick = new Histogram(); interval = new Histogram();
