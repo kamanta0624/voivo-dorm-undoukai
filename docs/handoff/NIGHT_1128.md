@@ -1,4 +1,4 @@
-夜間：38 まで済み。本人の返事が要るもの 14 件
+夜間：39 まで済み。本人の返事が要るもの 15 件
 
 # 夜間の報告（2026-11-28）
 
@@ -137,5 +137,36 @@
   - 許容 NET_REWIND_SLACK 0.1秒でよいか
   - 開発版でテストプレイ（引き継ぎ書の「反映の前」）
 
+## 39 sync2 0章（スナップショットの量の計測。ここで止めている）
+- 済んだこと（night-1128 の 291c962）：通信の計測（ServerMeasure）に、送ったスナップショットの大きさ（クライアントごと、10tick に1回だけ測る）を足した。項目ごとの内訳を出す tools/snapbytes.ts を作った。送る中身は変えていない
+- 計測（tools/snapbytes.ts。固定シードの4vs4、人間の枠1人の操作は Bot に任せ、観戦1人。Colyseus と同じ msgpack の詰め方で測った。2つのシードでほぼ同じ）：
+  - 人間の枠：平均 3.2〜3.3 KB・最大 5.0〜5.3 KB／回、毎秒 63〜65 KB（毎秒20回）
+  - 観戦：平均 4.1〜4.3 KB・最大 5.4〜5.6 KB／回、毎秒 79〜84 KB
+  - 項目の割合：players 50〜52%・materials 12〜14%・roster 12〜13%・teams 6%・items 3%・残りはそれぞれ 2% 未満
+  - players の中：項目がほぼ均等に3〜5%ずつ（項目の名前の文字も毎回送っている分が大きい）。char・assist・cdMax なども毎回それぞれ3〜4%
+- 効果の目安（人間の枠）：変わった時だけ送る候補（roster・bossRooms・broken・materials・items と、players の char・team・bot・assist・tier・maxHp・cdMax）を抜くと約42%減。敵向けの候補（skillCd・cd・aim・tgt・spd・ack・bad）を抜いても約2%減（人間の枠に届く players のうち敵の分は20〜24%）
+- 読み取り：1章（静的・動的に分ける）は効果が大きい。2章（敵向けに絞る）は量の効果は小さく、目的は改造クライアント対策（敵のクールタイムが見えない）になる
+- 確かめた基準：golden 一致・typecheck・test:server（netfix の既存の失敗を除く）・e2e 全体1回 → 通った
+- 本人に要る返事：1章・2章へ進むか
+
 ## 朝の確認の手順
-（夜間の作業が進んだら書き足す）
+- 開発版（night-1128）の起動：
+  - `cd ~/kiritan_zunda_proto/.claude/worktrees/night-1128 && GAME_PORT=2601 CLIENT_PORT=5201 npm run dev` → PC で http://localhost:5201/
+  - iPhone は docs/mobile_device_test.md の手順で worktree に certs/ を作ってから `HTTPS=1 GAME_PORT=2601 CLIENT_PORT=5201 npm run dev`（今は certs/ が無い）
+- PC で見ること：
+  - 1試合して、操作の体感（sec1 の入力の予算）を見る
+  - 撃破のカットイン・キルログが撃破の絵と同じ時に出るか（sync1）
+  - 表示の崩れが無いか（refac3）
+  - 結果画面 → 待機 → 次の試合も1回
+- iPhone で見ること：1試合して、表示の崩れ・操作（refac3）
+- 境目のコミット（night-1128、main の 0b82b36 から積んだ順）：
+  - 34 sec1 d752404
+  - 35 refac1 c58e8f8
+  - 36 refac2 0d4a0e6
+  - 37 refac3 d5cc2e5（1段目）・4acc96e（2段目）・6831c71（3段目）
+  - 38 sync1 e110236
+  - 39 sync2 0章 291c962
+- 全体：
+  - タグ・反映はしていない。公開サーバー・live・launchd・cloudflared には触っていない。golden の --write もしていない
+  - verify/netfix.ts の「stopped-out」は main でも落ちる元からの失敗で、test:server がそこで止まる（後ろの3本は1本ずつ流して通した）
+  - worktree に、コミットしていない使い捨ての検証（verify/_snaphash.ts＝送信のハッシュの照合、verify/_replay.ts＝クライアントの記録・再生の比較）を置いてある

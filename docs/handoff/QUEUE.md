@@ -76,12 +76,12 @@
 32. teaser　保留（プレイヤーボイス実装後に撮り直し。03-wall の試し撮りは verify/evidence/teaser/ に残す）
 32b. handoff_pvoice1.md（プレイヤーボイスの台本。0章の場面の一覧で止めて聞く → 台本を CSV で出して本人のレビューで止める。コード変更なし・反映なし）　夜間：下書きまで（docs/voice/player_voice_draft.csv。場面の案と台本は本人のレビュー待ち。NIGHT_1128.md）
 33. handoff_tidy1.md（権利の一覧・「仮置き」の棚卸し。調査だけ・コード変更なし。2枚を出して止める。ついなちゃん・後鬼の規約と素材の有無も）　夜間：2枚を出した（docs/rights.md・docs/kari_list.md。ライセンス・仮置きの確定は本人の返事待ち。NIGHT_1128.md）
-34. handoff_sec1.md（受信の検証・例外で落ちない・e2e 部屋の封鎖・入力の予算制・127.0.0.1 待ち受け。反映前に本人が1試合）
-35. handoff_refac1.md（GameRoom から snapshot・lagcomp・e2e フック。挙動は変えない・golden 一致）
-36. handoff_refac2.md（GameRoom から slot・bot・lobby。挙動は変えない・golden 一致）
-37. handoff_refac3.md（main.ts から net・hud、update() の段分け。反映前に本人が PC と iPhone で1試合ずつ）
-38. handoff_sync1.md（出来事の時刻合わせ・巻き戻し時刻の検証・残り秒を終了時刻で。反映前に本人がテストプレイ）
-39. handoff_sync2.md（スナップショットの量の計測で止める → 分割・敵向けの項目の絞り込み）
+34. handoff_sec1.md（受信の検証・例外で落ちない・e2e 部屋の封鎖・入力の予算制・127.0.0.1 待ち受け。反映前に本人が1試合）　夜間：night-1128 d752404（F の 127.0.0.1 は止めて聞く。予算の上限は 20 にした。NIGHT_1128.md）
+35. handoff_refac1.md（GameRoom から snapshot・lagcomp・e2e フック。挙動は変えない・golden 一致）　夜間：night-1128 c58e8f8（golden・送信のハッシュとも一致）
+36. handoff_refac2.md（GameRoom から slot・bot・lobby。挙動は変えない・golden 一致）　夜間：night-1128 0d4a0e6（golden・送信のハッシュとも一致）
+37. handoff_refac3.md（main.ts から net・hud、update() の段分け。反映前に本人が PC と iPhone で1試合ずつ）　夜間：night-1128 d5cc2e5・4acc96e・6831c71（記録・再生で前後の描画を比べて一致。本人の1試合待ち）
+38. handoff_sync1.md（出来事の時刻合わせ・巻き戻し時刻の検証・残り秒を終了時刻で。反映前に本人がテストプレイ）　夜間：night-1128 e110236（1・2 済み。3 は時計が合わない所があり止めて聞く）
+39. handoff_sync2.md（スナップショットの量の計測で止める → 分割・敵向けの項目の絞り込み）　夜間：night-1128 291c962（0章の計測まで。分割で約42%減の見込み。1章へ進むかは本人）
 40. ついなちゃん・後鬼の追加（Chat待ち。仕様は本人。tidy1 の規約・素材の確認を見てから）
 
 33〜39 の決まり：refac（35〜37）は挙動を変えない・golden.ts --write 禁止。refac の途中に GameRoom.ts・main.ts を触る別の修正を混ぜない（本人の修正の指示は、1本が済んだ切れ目に入れる）。見た目の良し悪しは Code・Chat で判断せず、画像を出して本人が判断する。
