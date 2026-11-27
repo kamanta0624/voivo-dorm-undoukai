@@ -1,6 +1,6 @@
 # キャラ追加・技差し替えの手順
 
-共通処理（`src/server/GameRoom.ts`・`src/client/main.ts`・`src/shared/geom.ts`・`src/shared/config.ts`）は触らない。キャラごとの値と処理は下の表に乗せる。
+共通処理（`src/server/GameRoom.ts` と、そこから切り出した `slot.ts`・`bot.ts`・`lobby.ts`・`snapshot.ts`・`lagcomp.ts`・`messages.ts`・`e2e.ts`、`src/client/main.ts`・`src/shared/geom.ts`・`src/shared/config.ts`）は触らない。キャラごとの値と処理は下の表に乗せる。
 
 ## 触るファイルと項目
 
@@ -91,7 +91,7 @@ PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python npm run assets
 共通処理に呼び出し1行＋型に1項目だけ足す。
 
 - 状態の効果: `GameRoom.ts` の `Status` 型に1項目、その効果を見る共通処理に `this.effect(p, '<効果>')` を1行
-- 呼び口: `server/skills/index.ts` の `Skill` 型に1項目、`GameRoom.ts` の呼ぶ場所に `SKILLS[p.char]?.<呼び口>?.(this, p, ...)` を1行
+- 呼び口: `server/skills/index.ts` の `Skill` 型に1項目、`GameRoom.ts`（と切り出したファイル。切り出した関数の中では `room`）の呼ぶ場所に `SKILLS[p.char]?.<呼び口>?.(this, p, ...)` を1行
 - 描画の呼び口: `client/skills/index.ts` の型に1項目、`main.ts` の呼ぶ場所に1行
 
 ## 確認
