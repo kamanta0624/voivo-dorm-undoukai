@@ -9,7 +9,8 @@ import { CONFIG as C } from '../src/shared/config';
 import { GameRoom } from '../src/server/GameRoom';
 
 const arg = (k: string, d: number) => { const i = process.argv.indexOf(k); return i > 0 ? Number(process.argv[i + 1]) : d; };
-const N = arg('--n', 20), PORT = arg('--port', C.PORT), DIR = 'logs/botai2', DT = 1 / C.TICK_HZ, EXTEND = process.argv.includes('--extend');
+const PLANNAME = process.argv.includes('--plan') ? process.argv[process.argv.indexOf('--plan') + 1] : 'botai2'; // botai2 / botai3
+const N = arg('--n', 20), PORT = arg('--port', C.PORT), DIR = `logs/${PLANNAME}`, DT = 1 / C.TICK_HZ, EXTEND = process.argv.includes('--extend');
 const log = (s: string) => console.log(`${new Date().toISOString()} [botai] ${s}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,8 +18,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Side = { phys: string; macro: string };
 const S = (phys: string, macro: string): Side => ({ phys, macro });
 // 全部を今の本番（中・std）と戦わせる（総当たりはしない。本人）。物理はすべて中
-const VS = ['std+uae', 'rush', 'rush+uae', 'farm', 'farm+uae', 'std+u', 'std+a', 'std+e'];
-const PLAN: [string, Side, Side][] = VS.map((m): [string, Side, Side] => [`${m} vs std`, S('mid', m), S('mid', 'std')]);
+const VS: [string, string][] = PLANNAME === 'botai3' // [自分, 相手]。botai3: 対 rush と 対 std（handoff_botai3）
+  ? [...['steal', 'counter', 'counter+w', 'split', 'rush+w', 'std', 'farm'].map((m): [string, string] => [m, 'rush']), ...['steal', 'counter', 'counter+w', 'split', 'rush+w'].map((m): [string, string] => [m, 'std'])]
+  : ['std+uae', 'rush', 'rush+uae', 'farm', 'farm+uae', 'std+u', 'std+a', 'std+e'].map((m): [string, string] => [m, 'std']);
+const PLAN: [string, Side, Side][] = VS.map(([m, o]): [string, Side, Side] => [`${m} vs ${o}`, S('mid', m), S('mid', o)]);
 const key = (a: Side, b: Side) => `${a.phys}/${a.macro}|${b.phys}/${b.macro}`;
 
 async function busy(): Promise<string | null> {

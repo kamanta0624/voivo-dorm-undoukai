@@ -34,7 +34,7 @@ export class MatchRec {
   result: any = null;
 
   start(room: any, seed: number | null) {
-    Object.assign(this, { on: true, startedAt: Date.now(), seed, chars: new Map(), spins: [], events: [], botState: new Map(), last: [null, null], result: null });
+    Object.assign(this, { on: true, startedAt: Date.now(), seed, chars: new Map(), spins: [], events: [], botState: new Map(), last: [null, null], result: null, mats: [{}, {}] });
     this.series = { toku: [], bossHp: [], bossPct: [], assistBossDmg: [[], []] };
     for (const p of room.players.values()) if (!p.assist) this.ch(p);
     this.sample(room);
@@ -89,6 +89,9 @@ export class MatchRec {
     if (!p.assist && dmg >= C.BOSS_HP * C.MATCHLOG.bossBig) this.ev(room, p.team, p.char, 'bossBig', String(r1(dmg)));
   }
   courier(room: any, p: any) { if (!this.on || p.assist) return; this.ch(p).dmg.courier++; this.ev(room, p.team, p.char, 'koba', null); }
+  // 拾った資材（チームごと）: big＝コバコの資材、back の自陣／敵陣＝裏側の部屋の資材、front＝表側の資材
+  mats = [{}, {}] as Record<string, number>[];
+  mat(p: any, m: any) { if (!this.on) return; const own = p.team === 0 ? m.x < C.MAP_W / 2 : m.x > C.MAP_W / 2, k = m.big ? 'big' : m.hi ? (own ? 'backOwn' : 'backEnemy') : 'front'; this.mats[p.team][k] = (this.mats[p.team][k] ?? 0) + 1; }
   wall(p: any, n: number) { if (this.on && p && !p.assist) this.ch(p).dmg.wall += n; }
   skill(p: any) { if (this.on && !p.assist) this.ch(p).skills++; }
   ult(p: any) { if (this.on && !p.assist) this.ch(p).ults++; }
@@ -125,7 +128,7 @@ export class MatchRec {
     }));
     const teams = [0, 1].map((t) => {
       const T = room.teams[t], b = room.bosses[t];
-      return { macro: room.macros?.[t] ?? 'std', endDefend: !!room.endDefend?.[t], toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
+      return { macro: room.macros?.[t] ?? 'std', endDefend: !!room.endDefend?.[t], counterN: room.counterN?.[t] ?? 0, counterBoss: r1(room.counterBoss?.[t] ?? 0), mats: { big: 0, backOwn: 0, backEnemy: 0, front: 0, ...this.mats[t] }, toku: r1(T.toku), bossHp: r1(b.hp), bossPct: r1((b.hp / C.BOSS_HP) * 100), bossMoved: !!b.moved, bossDmg: { player: r1(room.bossDmg[t].player), assist: r1(room.bossDmg[t].assist) }, wanted: T.wanted ?? null, powerTier: T.powerTier ?? null, slotLv: T.m ? T.m.lv : null, slotMaxLv: T.m ? T.m.maxLv : null, holds: T.m ? T.m.holds?.length ?? null : T.slot?.holds?.length ?? null };
     });
     this.result = {
       v: 1, source, start: new Date(this.startedAt).toISOString(), seed: this.seed, commit: COMMIT, slotMode: C.SLOT_MODE,

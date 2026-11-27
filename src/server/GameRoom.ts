@@ -58,7 +58,7 @@ export type Player = {
   rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
-  bot: boolean; role: 'gather' | 'raid'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
+  bot: boolean; role: 'gather' | 'raid' | 'counter'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
   inputs: { seq: number; dx: number; dy: number; rt?: number }[]; ack: number; // 人間の入力待ちと、処理済みの入力番号
@@ -112,6 +112,7 @@ export class GameRoom extends Room {
   static matchlogDir = ''; static matchlogSource: 'human' | 'bot' = 'human'; static matchSeed: number | null = null; // 試合の記録部の書き出し先（空なら書かない）・source・乱数の種（Bot 戦だけ。tools/botsim.ts）
   macros: string[] = ['std', 'std']; // チームのマクロ（CONFIG.BOT_MACROS・BOT_LAYER。本番は std。tools/botai.ts が試合の前に変える）
   endDefend = [false, false]; // マクロの層 e で終盤の守りに入ったか（記録用）
+  counterMode = ['hold', 'hold']; counterN = [0, 0]; counterBoss = [0, 0]; // マクロ counter・split: 構え(hold)／逆襲(attack)、逆襲に入った回数と逆襲中の大将ダメージ（記録用）
   rec = new MatchRec(); // 試合の記録部（常時ON。要約は rec.summary()）
   maxClients = C.MAX_CLIENTS;
   static live = new Set<GameRoom>(); // 動いている部屋（管理ページの一覧）
@@ -656,8 +657,8 @@ export class GameRoom extends Room {
         if (process.env.E2E_HOOKS) b.char = E2E_BOTS[(this.botSeq - 1) % E2E_BOTS.length]; // e2e: Bot は固定の編成（検証が揺らがないように）
       }
       const mc = this.macros[t].split('+')[0]; // マクロの土台の役割の割り振り（std は今の交互）
-      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : i % 2 === 0 ? 'gather' : 'raid'));
-      this.endDefend[t] = false;
+      [...this.players.values()].filter((p) => p.team === t).forEach((p, i) => (p.role = mc === 'rush' ? 'raid' : mc === 'farm' ? 'gather' : mc === 'counter' ? 'counter' : mc === 'split' ? (i % 2 === 0 ? 'counter' : 'raid') : i % 2 === 0 ? 'gather' : 'raid'));
+      this.endDefend[t] = false; this.counterMode[t] = 'hold'; this.counterN[t] = 0; this.counterBoss[t] = 0;
     }
     for (const p of this.players.values()) p.hp = this.maxHp(p); // キャラ確定後にロールのHPを反映
     // 開始演出: 各陣営を開始した部屋（study）に横並びにする
@@ -996,6 +997,7 @@ export class GameRoom extends Room {
         for (const m of [...this.materials]) {
           if (!this.touches(p, m, C.MATERIAL_PICKUP_BOX)) continue;
           this.materials = this.materials.filter((x) => x !== m);
+          this.rec.mat(p, m);
           this.addToku(p.team, p, m.big ? 'materialBig' : m.hi ? 'materialBack' : 'material', ''); // 表示は「徳+XX」だけ
         }
         // 回復アイテム・荷物も触れるだけで拾う
@@ -1435,6 +1437,7 @@ export class GameRoom extends Room {
     if (this.phase !== 'playing' || (this.bossGuard && p.bot) || boss.moving) return; // 移動の予告中は無敵
     this.bossDmg[1 - boss.team][p.assist ? 'assist' : 'player'] += Math.min(dmg, boss.hp);
     this.rec.boss(this, p, Math.min(dmg, boss.hp));
+    if (this.counterMode[1 - boss.team] === 'attack' && !p.assist) this.counterBoss[1 - boss.team] += Math.min(dmg, boss.hp); // 記録用（counter の逆襲中の大将ダメージ）
     boss.hp = Math.max(this.practice ? 1 : 0, boss.hp - dmg); // 練習の大将は倒れない（HP1で止まる）
     boss.target = p.id;
     boss.dmgAtBase += dmg;
@@ -1938,6 +1941,13 @@ export class GameRoom extends Room {
 
   updateBots() {
     const obs = this.obstacles();
+    for (const t of [0, 1]) { // マクロ counter・split: 敵が trigger 人以上撤退中なら逆襲へ。逆襲は戻らず、味方が全滅したら構えに戻る
+      const mc = this.macros[t].split('+')[0];
+      if (mc !== 'counter' && mc !== 'split') continue;
+      const dead = (tm: number) => [...this.players.values()].filter((q) => q.team === tm && !q.assist && !q.alive).length, n = (tm: number) => [...this.players.values()].filter((q) => q.team === tm && !q.assist).length;
+      if (this.counterMode[t] === 'hold' && dead(1 - t) >= C.BOT_COUNTER.trigger) { this.counterMode[t] = 'attack'; this.counterN[t]++; }
+      else if (this.counterMode[t] === 'attack' && dead(t) === n(t)) this.counterMode[t] = 'hold';
+    }
     for (const p of this.players.values()) if (p.bot && p.alive && !(this.practice && p.id === 'foe' && this.foeMode === 'stand')) this.botThink(p, obs); // 練習の棒立ちは考えない（動かない）
   }
 
@@ -1984,7 +1994,9 @@ export class GameRoom extends Room {
       foes = foes.filter((e) => this.now - seen.get(e.id)! >= ph.react);
     }
     // リコール: HPが低いとき（給湯室にいるときは使わない）。脅威あり（近くに見える敵／直近の被弾）の間は始めず、溜め中なら中断。給湯室に着いたら、HPが満タンになるまでご飯を食べる
-    const low = !this.atBase(p) && p.hp < this.maxHp(p) * (ph?.recallHp ?? C.BOT_RECALL_HP), threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
+    const fl = this.macros[p.team].split('+')[1] ?? '', L = C.BOT_LAYER;
+    const allIn = fl.includes('w') && [...this.players.values()].some((q) => q.team === p.team && !q.assist && !q.alive); // 層 w: 味方が撤退中の間は帰還・逃げをせず攻め切る
+    const low = !allIn && !this.atBase(p) && p.hp < this.maxHp(p) * (ph?.recallHp ?? C.BOT_RECALL_HP), threat = foes.length > 0 || this.now - p.hitAt < C.BOT_RECALL_SAFE;
     if (threat) { if (p.recallAt !== null) this.cancelRecall(p); }
     else if (low && p.recallAt === null && this.now >= p.recallBanUntil) p.recallAt = this.now;
     if (p.recallAt !== null) { this.rec.bot(p, 'recall'); this.setInput(p.id, 0, 0); return; } // 溜め中は止まる（移動・技で中断するため）
@@ -2014,9 +2026,10 @@ export class GameRoom extends Room {
     if (box) { this.rec.bot(p, 'item'); return go(box, `item:${box.id}`); }
     // 4. 役割: 資材集め（一番近い資材）か、敵陣の見回り
     // マクロの層（botai2。層のない std は今の役割のまま）: e 終盤リードで守り ＞ u パワーアップ中は攻め ＞ a アシストに同行 ＞ 土台の役割
-    const fl = this.macros[p.team].split('+')[1] ?? '', L = C.BOT_LAYER;
     let role: string = p.role;
-    if (fl) {
+    if (role === 'counter') role = this.counterMode[p.team] === 'attack' ? 'raid' : 'guard'; // counter: 構えは守り、逆襲は攻め
+    if (allIn) role = 'raid';
+    else if (fl) {
       const pct = (t: number) => this.bosses[t].hp / C.BOSS_HP;
       if (fl.includes('e') && this.timeLeft <= L.endSec && pct(p.team) > pct(1 - p.team)) { role = 'guard'; this.endDefend[p.team] = true; }
       else if (fl.includes('u') && p.ult && !p.ult.pending) role = 'ultraid';
@@ -2040,7 +2053,8 @@ export class GameRoom extends Room {
     }
     if (role === 'gather') {
       this.rec.bot(p, 'gather');
-      const m = best(this.materials, (m) => `mat:${m.id}`);
+      const enemySide = (x: number) => (p.team === 0 ? x > C.MAP_W / 2 : x < C.MAP_W / 2), pri = this.macros[p.team].startsWith('steal') ? this.materials.filter((q) => q.big || (q.hi && enemySide(q.x))) : []; // steal: コバコの資材・敵陣の裏側の資材を優先
+      const m = best(pri.length ? pri : this.materials, (m) => `mat:${m.id}`);
       return m ? go(m, `mat:${m.id}`) : go({ x: C.MAP_W / 2, y: C.MAP_H / 2 }, 'center');
     }
     const boss = this.bosses[1 - p.team];
