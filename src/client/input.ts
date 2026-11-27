@@ -1,7 +1,8 @@
+import type { C2S } from '../shared/protocol';
 // 入力の抽象化: キーボードとタッチを同じ入力コマンド（サーバーへ送るメッセージ）にする
 import { CONFIG as C } from '../shared/config';
 
-export type Send = (type: string, msg?: any) => void;
+export type Send = <K extends keyof C2S>(type: K, msg?: C2S[K]) => void; // 送る中身は shared/protocol.ts の型（sec1）
 export type Keys = { up: boolean; down: boolean; left: boolean; right: boolean };
 
 export class Controls {

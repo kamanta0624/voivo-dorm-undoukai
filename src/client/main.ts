@@ -18,6 +18,7 @@ import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
+import { sendC2S, type C2S } from '../shared/protocol';
 
 type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | string[] | null)[]; parts: number[] }; // tap の配列は同じ部位を触るたびに順番に替わる // 余白の立ち絵の反応（react1。chars.json の react）
 type Tachie = { fit?: 'full' | 'knee'; cm?: number; top?: number; foot?: number; base?: number; knee?: number; crate?: number[] }; // 選択画面・余白の立ち絵の出し方（chars.json の tachie。tachie2）
@@ -441,7 +442,7 @@ class GameScene extends Phaser.Scene {
   finishMeasure() {
     if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
     this.measureSent = true;
-    this.room.send('netReport', { id: this.measureId, value: this.measure.report() });
+    sendC2S(this.room, 'netReport', { id: this.measureId, value: this.measure.report() });
     this.interp.measure = null;
   }
   interp = new Interp(); // 他キャラ・大将の補間
@@ -463,7 +464,7 @@ class GameScene extends Phaser.Scene {
   slotHtml = ['', ''];
   mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxSnap: any = null; mfxMyTeam = -1; mfxKeyNow = ''; mfxTm: any[] = [null, null]; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
-  ctl = new Controls((t, m) => this.room?.send(t, t === 'qdown' ? { seq: this.pred.seq } : m)); // キーボード・タッチの入力 → サーバーへ送るコマンド。帰還（qdown）には送り終えた移動入力の番号を付ける
+  ctl = new Controls((t, m) => { if (this.room) sendC2S(this.room, t, (t === 'qdown' ? { seq: this.pred.seq } : m) as never); }); // キーボード・タッチの入力 → サーバーへ送るコマンド。帰還（qdown）には送り終えた移動入力の番号を付ける
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
   stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置、画面のpx）
   hiddenAt = 0; // バックグラウンドに入った時刻(ms)
@@ -622,11 +623,11 @@ class GameScene extends Phaser.Scene {
     });
     document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン（練習は「開始」。相手はサーバーがランダムに選ぶ） → 出撃済み
       if (this.selMode === 'confirm') this.selMode = 'sortie';
-      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', { char: this.selChar }); }
+      else if (this.selMode === 'sortie') { this.selMode = 'go'; if (this.room && this.selChar) sendC2S(this.room, 'go', { char: this.selChar }); }
       this.lobbyRender();
     };
     document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー
-      if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
+      if (this.selMode === 'go') { this.selMode = 'sortie'; if (this.room) sendC2S(this.room, 'unpick'); }
       else this.selMode = this.selMode === 'sortie' ? 'confirm' : 'browse';
       this.lobbyRender();
     };
@@ -642,13 +643,13 @@ class GameScene extends Phaser.Scene {
       hint.querySelector('button')!.onclick = () => { hint.remove(); try { localStorage.setItem('pwaHintClosed', '1'); } catch {} };
       lobby.appendChild(hint);
     }
-    document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
-    $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
+    document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t && this.room) sendC2S(this.room, 'team', { team: Number(t) }); };
+    $('.back').onclick = () => { this.backSent = true; if (this.room) sendC2S(this.room, 'back'); };
     $('.rsbtn').onclick = () => { const s = this.snap, mine = s?.players.find((p: any) => p.id === s.me); if (this.result && s) openResult(this.result, { myTeam: mine ? mine.team : null, title: s.winner === 2 ? '引き分け' : !mine ? `${TEAM_NAME[s.winner]}の勝ち` : s.winner === mine.team ? '勝利' : '敗北', colors: TEAM_COLOR.map(css16), names: TEAM_NAME, players: Object.fromEntries(s.roster.map((r: any) => [r.id, r.bot ? 'Bot' : r.name ?? ''])) }); };
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
     for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
     // 練習パネル: 操作はサーバーへ（pr）。表示は tick の practiceHud
-    const pr = (m: any) => this.room?.send('pr', m), prp = $('.prp'), prw = $('.prw');
+    const pr = (m: any) => { if (this.room) sendC2S(this.room, 'pr', m); }, prp = $('.prp'), prw = $('.prw');
     $('.prbtn').onclick = () => prw.classList.toggle('open'); // 押すたびに開閉（引き出しの外を触っても閉じない）
     $('.pfoe').onchange = (e) => pr({ op: 'foe', char: (e.target as HTMLSelectElement).value });
     prp.onclick = (e) => {
@@ -741,7 +742,7 @@ class GameScene extends Phaser.Scene {
       room.onMessage('recalled', (m: any) => { if (m.r <= C.REACT.relief) this.react('relief'); }); // 残りHPが少ない状態で帰還
       room.onMessage('bossHit', () => { const t = performance.now(); if (t - this.reactJoyAt >= C.REACT.joyEvery * 1000 && this.react('joy')) this.reactJoyAt = t; }); // 大将に当てた（REACT.joyEvery 秒に1回まで）
       room.onMessage('result', (r: any) => (this.result = r)); // 試合結果画面のデータ（決着後に1回）
-      room.send('resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
+      sendC2S(room, 'resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
     }
   }
 
@@ -856,7 +857,7 @@ class GameScene extends Phaser.Scene {
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
     // 観戦者の視点の切り替え（全体・実況追従・組の視界）
-    for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) btn(`.spec [data-v="${b.dataset.v}"]`, () => { const v = b.dataset.v!; this.room?.send('spec', { view: v === '0' || v === '1' ? Number(v) : v }); });
+    for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) btn(`.spec [data-v="${b.dataset.v}"]`, () => { const v = b.dataset.v!; if (this.room) sendC2S(this.room, 'spec', { view: (v === '0' || v === '1' ? Number(v) : v) as C2S['spec']['view'] }); });
     const mm = $('.mm');
     let held: number | null = null;
     const at = (e: PointerEvent) => { const b = mm.getBoundingClientRect(); this.mmCam = { x: Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * C.MAP_W, y: Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * C.MAP_H }; };
@@ -1505,7 +1506,7 @@ class GameScene extends Phaser.Scene {
     if (this.selChar === k) return;
     this.selChar = k;
     this.lobbyRender();
-    if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
+    if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; if (this.room && this.selChar) sendC2S(this.room, 'pick', { char: this.selChar }); }, PICK_SEND_MS);
   }
 
   // 練習パネルの表示: 試合中だけ左端のタブと引き出しを出す（タイマーは隠す）。相手・動き・パワーアップはサーバーの値
@@ -1640,7 +1641,7 @@ class GameScene extends Phaser.Scene {
       this.measureFrameAt = now;
       if (now - this.pingAt >= 1000 && (this.pingPending === null || now - this.pingPending > 10000)) {
         this.pingAt = this.pingPending = now;
-        this.room.send('netPing', { id: this.measureId, at: now });
+        sendC2S(this.room, 'netPing', { id: this.measureId, at: now });
       }
     }
     const k = this.keys;
@@ -1652,7 +1653,7 @@ class GameScene extends Phaser.Scene {
     while (this.acc >= C.NET_STEP * 1000) {
       this.acc -= C.NET_STEP * 1000;
       const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
-      this.room.send('input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
+      sendC2S(this.room, 'input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
     }
     this.practice = !!s.practice;
     if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
@@ -2007,7 +2008,7 @@ class GameScene extends Phaser.Scene {
     const backDisp = s.phase === 'ended' && mine ? 'block' : 'none';
     setCss(back, 'display', backDisp); setCss($('.totitle'), 'display', backDisp);
     if (this.resultPh === 'ended' && s.phase !== 'ended') { this.result = null; this.resultAsked = false; if (resultOpen()) closeResult(); } // 次の試合へ進んだら捨てる（'result' は phase が ended になるより先に届くことがあるので、ended から離れた時だけ）
-    if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; this.room?.send('resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
+    if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; if (this.room) sendC2S(this.room, 'resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
     this.resultPh = s.phase;
     setCss($('.rsbtn'), 'display', s.phase === 'ended' && this.result ? 'block' : 'none');
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }

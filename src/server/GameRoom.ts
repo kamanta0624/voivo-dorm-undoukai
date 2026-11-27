@@ -15,6 +15,7 @@ import * as OG from './outgame';
 import { ModernSlot, dress, pick as pickW, type Ev as MEv, type Pay } from '../shared/slot_modern';
 import { MatchRec } from './matchlog';
 import { solarAt } from '../shared/solar';
+import { bindMessages } from './messages';
 
 const T = C.TILE;
 // 強さの倍率の表（POWER_MULT・ULT_HP_MULT）の添字 tier の値。表の最後（Lv4）を超えた Lv4+N は Lv4 の値から +lvStep ずつ（handoff_slot3。クラシックは超えない）
@@ -59,6 +60,7 @@ export type Player = {
   rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
+  budget: number; // 入力の予算（sec1。C.NET_INPUT_BUDGET）
   engage: { at: number; seen: Map<string, boolean> } | null; // 交戦（react1）: 最初に当てられた時刻と、当てた相手ごとの「最初に当てた時に自陣営から見えていたか」。REACT.engageGap 秒被弾しなければ次の交戦
   bot: boolean; role: 'gather' | 'raid' | 'counter' | 'guard'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
@@ -189,188 +191,14 @@ export class GameRoom extends Room {
   private lastTick: number | null = null;
   private pendingLog: { line: any; file: string; timer: ReturnType<typeof setTimeout> } | null = null;
 
-  messages = {
-    netPing: (client: Client, m: { id: number; at: number }) => {
-      if (this.measure && m?.id === this.measureId && Number.isFinite(m.at)) client.send('netPong', m);
-    },
-    netReport: (client: Client, m: { id: number; value: unknown }) => {
-      if (!this.measure || m?.id !== this.measureId || Object.hasOwn(this.reports, client.sessionId)) return;
-      const report = clientReport(m.value);
-      if (report) this.reports[client.sessionId] = report;
-    },
-    input: (client: Client, m: { seq: number; dx: number; dy: number; rt?: number }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p) return;
-      p.inputs.push(m); // 1tickに1つずつ処理する（クライアントの予測と同じ刻み）
-      p.inDx = m.dx; p.inDy = m.dy; // 最後に届いた移動入力（アルの突撃の方向に使う）
-      if (p.inputs.length > C.NET_QUEUE_MAX) { p.inputs.shift(); if (this.measure && this.phase === 'playing') this.measure.client(client.sessionId).dropped++; }
-    },
-    // Q を押した: 押している間リコールを溜める
-    resultReq: (client: Client) => { const r = this.rec.summary(); if (this.phase === 'ended' && r) client.send('result', r); }, // 試合結果画面のデータ: 結果画面の間に入室・再接続した人は、受け取る準備ができてから求める
-    qdown: (client: Client, m?: { seq?: number }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'playing' && p.alive && p.qAt === null) { p.qAt = p.recallAt = this.now; p.qSeq = Number.isFinite(m?.seq) ? m!.seq! : -Infinity; } // seq: 押す前に送った移動入力（まだ処理待ちの分で中断しない）
-    },
-    // Q を離した: 溜めを捨てる（短押しは何もしない）
-    qup: (client: Client) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p || p.qAt === null) return;
-      p.qAt = p.recallAt = null;
-    },
-    // 観戦者の視点の切り替え（観戦者だけ。参加者は無視）
-    spec: (client: Client, m: { view: unknown }) => {
-      if (!this.owners.has(client.sessionId) && (['all', 'focus', 0, 1] as unknown[]).includes(m?.view)) this.specView.set(client.sessionId, m.view as 'all' | 'focus' | 0 | 1);
-    },
-    // リザルトの「戻る」
-    back: (client: Client) => {
-      const id = this.owners.get(client.sessionId);
-      if (id && this.phase === 'ended') { this.backVotes.add(id); this.checkBack(); }
-    },
-    skill: (client: Client) => {
-      const id = this.owners.get(client.sessionId);
-      if (id) this.skill(id);
-    },
-    // 技の入力を離した。a: 矢印の向き（動かしていなければなし＝自動照準）
-    skillUp: (client: Client, m?: { a?: number }) => {
-      const id = this.owners.get(client.sessionId);
-      if (id) this.skillUp(id, m?.a);
-    },
-    // タメ中に技の入力を押し直して矢印を動かした（アルの突撃・花丸パンチ）。a: 矢印の向き
-    skillAim: (client: Client, m?: { a?: number }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p?.alive && Number.isFinite(m?.a)) SKILLS[p.char]?.reAim?.(this, p, m!.a!);
-    },
-    aim: (client: Client, m: { mode: string }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && C.AIM_MODES.includes(m.mode)) p.aim = m.mode;
-    },
-    // 待機画面で今選んでいる（表示している）キャラ。猶予の時間切れで未出撃なら、このキャラで出撃する
-    pick: (client: Client, m: { char: string }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting' && this.sortieLeft === null && PICKABLE.includes(m.char)) p.char = m.char; // 出撃の秒数の間は変えられない
-    },
-    // 出撃: そのキャラで出撃済みにする。開始の判定（全員出撃で開始、最初の出撃で選択猶予のカウント開始）
-    go: (client: Client, m: { char: string }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p || this.phase !== 'waiting' || this.sortieLeft !== null || !PICKABLE.includes(m.char)) return;
-      Object.assign(p, { char: m.char, ok: true });
-      if (this.practice) { this.startPractice(PICKABLE[Math.floor(Math.random() * PICKABLE.length)]); return; } // 練習: 相手は選べるキャラからランダムで即開始
-      if (this.lobbyLeft === null) this.lobbyLeft = C.LOBBY_GRACE;
-      this.updateLobby(0);
-    },
-    // 出撃を取り消す（キャラはそのまま。カウントは止まらない）
-    unpick: (client: Client) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (p && this.phase === 'waiting' && this.sortieLeft === null) p.ok = false;
-    },
-    // 待機画面で陣営を移る（満員なら移れない）
-    team: (client: Client, m: { team: number }) => {
-      const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-      if (!p || this.phase !== 'waiting' || this.sortieLeft !== null || (m.team !== 0 && m.team !== 1) || p.team === m.team) return;
-      if ([...this.players.values()].filter((q) => q.team === m.team).length >= C.TEAM_SIZE) return;
-      this.players.delete(p.id);
-      this.addPlayer(p.id, m.team, false).char = p.char;
-    },
-    // 練習の部屋の操作（練習パネル）: 相手の差し替え・相手の動き・パワーアップのレベル・アシスト召喚・大将の全快・選択画面へ
-    pr: (client: Client, m: any) => {
-      const me = this.players.get(this.owners.get(client.sessionId) ?? ''), foe = this.players.get('foe');
-      if (!this.practice || !me || this.phase !== 'playing') return;
-      if (m?.op === 'foe' && foe && PICKABLE.includes(m.char)) this.practiceFoe(foe, m.char);
-      if (m?.op === 'mode' && ['stand', 'passive', 'bot'].includes(m.mode)) this.practiceMode(m.mode);
-      if (m?.op === 'power' && (m.d === 1 || m.d === -1)) { const q = m.who === 'foe' ? foe : me; if (q) this.practicePower(q, m.d); }
-      if (m?.op === 'assist' && C.ASSIST.units[m.char] && Number.isInteger(m.tier) && m.tier >= 0 && m.tier < C.ASSIST_TAGS.length && (m.side === 'mine' || m.side === 'foe')) {
-        const team = m.side === 'mine' ? me.team : 1 - me.team;
-        for (const a of [...this.players.values()]) if (a.assist && a.team === team) this.players.delete(a.id); // 同時1体なので、今のアシストと入れ替える
-        this.summonAssist(team, m.tier, m.char);
-      }
-      if (m?.op === 'boss') for (const b of this.bosses) Object.assign(b, { hp: C.BOSS_HP, dmgAtBase: 0 });
-      if (m?.op === 'back') this.practiceBack();
-    },
-    // e2e 専用（環境変数 E2E_HOOKS=1 のときだけ有効）: 自キャラを敵大将の左隣へ移す
-    ...(process.env.E2E_HOOKS ? {
-      e2eWarp: (client: Client) => {
-        const p = this.players.get(this.owners.get(client.sessionId) ?? '');
-        if (!p || !p.alive || this.phase !== 'playing') return;
-        const boss = this.bosses[1 - p.team];
-        this.relocate(`p:${p.id}`, p, { x: boss.x - (C.BOSS_RADIUS + C.PLAYER_RADIUS + 8), y: boss.y });
-        Object.assign(p, { dx: 0, dy: 0, face: 0 });
-      },
-      // 時間の早送り（1tickの間にサーバーの処理を k 回まわす）
-      e2eSpeed: (_c: Client, m: { k: number }) => { this.speed = Math.max(1, Math.round(m.k)); },
-      // 残り時間を sec 秒にする（試合終了までの待ちを省く）
-      e2eTimeLeft: (_c: Client, m: { sec: number }) => { if (Number.isFinite(m.sec)) this.now = C.MATCH_TIME - m.sec; },
-      // 自分の近くに資材を1個置く（資材の出現を待たずに、拾う確認をするため）
-      e2eMaterial: (c: Client) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (p) { const q = pushOut(p.x + 40, p.y, 4, this.obstacles()); this.materials.push({ id: this.nextId++, ...q, hi: isBackAt(Math.floor(q.x / T), Math.floor(q.y / T)) }); }
-      },
-      // 自分の足元に回復アイテム・荷物を置く
-      e2eItem: (c: Client, m: { kind: string }) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (p) this.items.push({ id: this.nextId++, kind: m.kind, team: -1, x: p.x + 8, y: p.y, e2e: true });
-      },
-      // 自分の画面に全ユニットを送る（観戦者と同じ）
-      e2eReveal: (c: Client, m: { on: boolean }) => { if (m.on) this.reveal.add(c.sessionId); else this.reveal.delete(c.sessionId); },
-      // 開始の演出とカウントを飛ばす
-      e2eSkipIntro: () => { if (this.phase === 'intro' || this.phase === 'countdown') this.beginPlay(); },
-      // 陣営 team の徳を v にする
-      e2eToku: (_c: Client, m: { team: number; v: number }) => { if (this.teams[m.team]) this.teams[m.team].toku = m.v; },
-      // 陣営 team のスロットを今すぐ回し直し、結果を決める（win: 当たり、reach: 2つそろい）。chain: チャンスアップの確率
-      e2eSlot: (_c: Client, m: { team: number; win?: boolean; pen?: boolean; reach?: boolean; chain?: number }) => {
-        const sl = this.teams[m.team]?.slot;
-        if (!sl) return;
-        const ms = this.teams[m.team].m; // モダン: 次に回る保留を差し替える（pen＝転落、reach＝リーチのみの演出つき）
-        if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.reach ? 'plain' : null }); return; }
-        this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss', !m.win && !m.pen ? (m.reach ? 'plain' : null) : undefined);
-        if (m.chain !== undefined) this.slotChance = m.chain;
-      },
-      // 自分の陣営にアシストを召喚する（near: 自分の隣に出す）
-      e2eAssist: (c: Client, m: { char: string; tier: number; dx?: number; dy?: number; ready?: boolean }) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (!p) return;
-        const a = this.summonAssist(p.team, m.tier, m.char);
-        if (m.dx !== undefined) this.relocate(`p:${a.id}`, a, pushOut(p.x + m.dx, p.y + (m.dy ?? 0), C.PLAYER_RADIUS, this.obstacles())); // 自分からの位置
-        if (m.ready) a.skillReadyAt = this.now; // 技をすぐ使える
-      },
-      // 自分の悪行ポイントを v にする（指名手配の確認用）
-      e2eBad: (c: Client, m: { v: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.bad = m.v; p.wantedHold = false; } },
-      // 自キャラを (x, y) へ移す
-      e2eTeleport: (c: Client, m: { x: number; y: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.alive) { this.relocate(`p:${p.id}`, p, pushOut(m.x, m.y, C.PLAYER_RADIUS, this.obstacles())); p.dx = p.dy = 0; } },
-      // 自キャラのキャラを変える（花丸の確認用）
-      e2eChar: (c: Client, m: { char: string }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && PICKABLE.includes(m.char)) { for (const k of SKILLS[p.char]?.statuses ?? []) delete p.st[k]; p.char = m.char; p.hp = this.maxHp(p); } }, // 前のキャラの技の状態（アルのタメなど）は消す。替えた後のキャラでは終わらず残るので
-      // 自キャラの技のクールタイムを明ける（charge: CT 明けから何秒たったことにするか。花丸パンチのチャージの確認用）
-      e2eReady: (c: Client, m?: { charge?: number }) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p) { p.skillReadyAt = this.now - (m?.charge ?? 0); if (m?.charge) Object.assign(p.sk, { from: undefined, koAt: p.koAt }); } }, // from: 花丸の撤退からのチャージの起点。koAt もそろえる（撤退から戻った直後だと、次の tick で戻ったとみなされてチャージが0からになる）
-      // コバコを自分の近くに出す（dist: 自分からの距離）
-      e2eCourier: (c: Client, m: { dist?: number; box?: string }) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (!p) return;
-        if (!this.couriers.length) this.spawnCourier();
-        this.relocate(`c:${this.couriers[0].id}`, this.couriers[0], pushOut(p.x + (m.dist ?? 40), p.y, C.PLAYER_RADIUS, this.obstacles()));
-        if (m.box) this.couriers[0].box = m.box;
-      },
-      // Bot の攻撃で大将が減らないようにする（人間の確認の途中で試合が決着しないように）
-      e2eBossGuard: (_c: Client, m: { on: boolean }) => { this.bossGuard = m.on; },
-      e2eCourierGuard: (_c: Client, m: { on: boolean }) => { this.courierGuard = m.on; },
-      // 自キャラの変身（パワーアップ）を解き、落ちている荷物の箱を片付ける
-      e2eClearUlt: (c: Client) => { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p?.ult) this.endUlt(p); this.items = this.items.filter((it) => !it.kind.startsWith('box_')); },
-      // スロットの自然な回転を外れに固定する（e2eSlot で結果を決める回転は別）
-      e2eSlotMiss: (_c: Client, m: { on: boolean }) => { this.slotMiss = m.on; },
-      // 敵大将に、拠点移動が起きるだけのダメージを与える（拠点移動・第2形態の確認用）
-      e2eBossMove: (c: Client) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (p && this.phase === 'playing') { const b = this.bosses[1 - p.team]; this.damageBoss(b, Math.max(1, C.BOSS_MOVE_THRESHOLD - b.dmgAtBase), p); }
-      },
-      // 自キャラの自動攻撃を止める／戻す（検証の前提を崩さないように）
-      e2eNoAuto: (c: Client, m: { on: boolean }) => { const id = this.owners.get(c.sessionId); if (id) { if (m.on) this.noAuto.add(id); else this.noAuto.delete(id); } },
-      // 両陣営のアシストをすべて消す（前の確認で出したアシストが後の確認に干渉しないように）
-      e2eClearAssists: () => { for (const p of [...this.players.values()]) if (p.assist) this.players.delete(p.id); },
-      // 自キャラを撤退させる
-      e2eKill: (c: Client) => {
-        const p = this.players.get(this.owners.get(c.sessionId) ?? '');
-        if (p) this.damagePlayer(p, 1e9, null);
-      },
-    } : {}),
-  };
+  // 例外の受け止め（sec1）: 定義すると Colyseus がメッセージ・タイマー・tick（setSimulationInterval）・入退室を try/catch で包む。例外はログ（logs/server.log）に残して部屋は止めない
+  onUncaughtException(error: any, methodName: string) { this.logError(methodName, error); }
+  logError(where: string, e: any, msg?: string) {
+    const err = e?.cause ?? e;
+    console.error(`${new Date().toISOString()} [error] room=${this.roomId ?? '-'} where=${where}${msg ? ` message=${msg}` : ''} ${err?.name ?? ''}: ${err?.message ?? err}\n${err?.stack ?? ''}`);
+  }
+  // クライアントからのメッセージ（中身は server/messages.ts。受信の検証・毎秒の数の上限・例外の受け止めを通す。sec1）
+  messages = bindMessages(this);
 
   // 人間・Bot共通の操作経路
   setInput(id: string, dx: number, dy: number, keepRecall = false) {
@@ -396,6 +224,7 @@ export class GameRoom extends Room {
 
   // 現在の試合: 中央からの経路距離の合計が上限以下になる組み合わせから選ぶ
   onCreate(options?: { e2e?: string; practice?: boolean }) {
+    if (options?.e2e && !process.env.E2E_HOOKS) throw new ServerError(4403, 'e2e の部屋は作れません'); // e2e の部屋は E2E_HOOKS のサーバーだけ（sec1）
     this.practice = !!options?.practice && !options?.e2e;
     this.pub = !options?.e2e && !this.practice;
     if (this.practice && [...GameRoom.live].filter((r) => r.practice).length >= C.PRACTICE_ROOMS) throw new ServerError(4429, '練習の部屋がいっぱいです。しばらくしてから試してください');
@@ -510,7 +339,7 @@ export class GameRoom extends Room {
     const p: Player = {
       id, team, char: pick(PICKABLE), x: s.x, y: s.y + (idx - 1.5) * 40, hp: C.PLAYER_HP, alive: true,
       dx: 0, dy: 0, face: team === 0 ? 0 : Math.PI, rage: 0, bad: 0, wantedHold: false,
-      cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(), engage: null,
+      cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(), budget: C.NET_INPUT_BUDGET, engage: null,
       bot, role: 'gather', path: [], pathAt: -Infinity, raidBase: -1, visited: [],
       aim: bot ? C.BOT_AIM : C.AIM_MODES[0], tgt: null, inputs: [], ack: 0,
       skillReadyAt: 0, st: {}, sk: {},
@@ -708,11 +537,13 @@ export class GameRoom extends Room {
   }
 
   // 試合の前後: 人間の入力だけ処理する（演出中は動けない。カウント中と終了後は部屋の中だけ動ける）
-  moveHumans() {
+  moveHumans(dt = C.NET_STEP) {
     for (const p of this.players.values()) {
       if (p.bot) continue;
       const c = this.cageOf(p), obs = c && [...moveWalls(p.char, this.obstacles()), ...cage(c)];
-      for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
+      p.budget = Math.min(C.NET_INPUT_BUDGET, p.budget + dt / C.NET_STEP); // 入力の予算（sec1）: 経過時間ぶん（50ms の tick で +1）足し、処理するごとに -1。tick ごとの +1 だと、サーバーの tick が 50ms より遅れた分だけ正常な入力も待ちにあふれる
+      for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length && p.budget >= 1; i--) {
+        p.budget--;
         const m = p.inputs.shift()!;
         if (obs && p.alive && !this.effect(p, 'lock')) { this.setInput(p.id, m.dx, m.dy); Object.assign(p, stepPlayer(p.x, p.y, m.dx, m.dy, this.speedOf(p), obs)); }
         p.ack = m.seq;
@@ -754,7 +585,7 @@ export class GameRoom extends Room {
       else if (this.phase === 'countdown' && this.phaseLeft <= 0) this.beginPlay();
     }
     if (this.phase === 'waiting') this.updateLobby(dt);
-    if (this.phase === 'intro' || this.phase === 'countdown' || this.phase === 'ended') this.moveHumans();
+    if (this.phase === 'intro' || this.phase === 'countdown' || this.phase === 'ended') this.moveHumans(dt);
     if (this.phase === 'countdown' && C.INTRO_MODE !== 'old') this.moveBotsCaged(dt);
     if (this.phase === 'ended') this.updateEnded(dt);
     if (this.phase === 'finale') this.updateFinale(dt);
@@ -985,7 +816,9 @@ export class GameRoom extends Room {
           const m = this.measure.client([...this.owners].find(([, id]) => id === p.id)?.[0] ?? p.id);
           m.queue.add(p.inputs.length); if (p.inputs.length > C.NET_CATCHUP) m.catchup++;
         }
-        for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length; i--) {
+        p.budget = Math.min(C.NET_INPUT_BUDGET, p.budget + dt / C.NET_STEP); // 入力の予算（sec1）: 経過時間ぶん（50ms の tick で +1）足し、処理するごとに -1。tick ごとの +1 だと、サーバーの tick が 50ms より遅れた分だけ正常な入力も待ちにあふれる
+        for (let i = p.inputs.length > C.NET_CATCHUP ? 2 : 1; i > 0 && p.inputs.length && p.budget >= 1; i--) {
+          p.budget--;
           const m = p.inputs.shift()!;
           this.setInput(p.id, m.dx, m.dy, m.seq <= p.qSeq);
           if (Number.isFinite(m.rt)) p.viewT = m.rt; // この入力を送ったときの画面の時刻
