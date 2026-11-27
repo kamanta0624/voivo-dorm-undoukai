@@ -26,8 +26,8 @@ export type StatusView = {
 };
 // 場の物の描画。layer: ground=床（資材などと同じ層）、fx=技のエフェクトの層。tc: 陣営色
 export type EntView = { layer: 'ground' | 'fx'; draw(g: G, e: any, time: number, tc: number, pos: (id: string) => { x: number; y: number } | null): void }; // pos: 対象のid（p:/boss:/c:/e:）→ 描画位置
-// 技の fx（サーバーの addFx）の描画を差し替える。color でどの技の fx か分かる。ms: 出している時間（既定 SKILL_FX_MS）、k: 0→1 の経過、s: 今のスナップショット
-export type FxView = { ms?: number; draw(g: G, f: any, time: number, k: number, s: any): void };
+// 技の fx（サーバーの addFx）の描画を差し替える。color でどの技の fx か分かる。ms: 出している時間（既定 SKILL_FX_MS）、k: 0→1 の経過、s: 今のスナップショット、pos: キャラなどの描画位置
+export type FxView = { ms?: number; draw(g: G, f: any, time: number, k: number, s: any, pos: (id: string) => { x: number; y: number } | null): void }; // pos: 対象のid（p:/boss:/c:/e:）→ 描画位置（場の物の pos と同じ）
 export type ClientSkill = {
   status?: Record<string, StatusView>;
   ents?: Record<string, EntView>;

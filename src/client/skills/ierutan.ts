@@ -1,4 +1,4 @@
-// あいえるたん: アップグレード（発動時に広がる二重の長方形と放射状の線、効果中は足元の輪と上へ流れる矢印。技が使える間は本人の画面に範囲と、範囲内の味方の頭上に▼）
+// あいえるたん: アップグレード（発動時は範囲の円をその場に縁が強く内へ薄れる光で出し、効果を受けたキャラに光の柱。効果中は足元の輪と上へ流れる矢印。技が使える間は本人の画面に範囲と、範囲内の味方の頭上に▼）
 import type { ClientSkill } from './index';
 import { CONFIG as C, bodyUp } from '../../shared/config';
 import { CHARS } from '../../shared/chars';
@@ -17,15 +17,15 @@ const skill: ClientSkill = {
     },
   },
   colors: { upgrade: COLOR },
-  // 技が使える間: アップグレードの範囲（体の中心・横 w・縦 h の長方形）を半透明の長方形で、範囲内の味方（プレイヤー・アシスト。体の中心どうしの距離。自分は除く）の頭上に小さな▼
+  // 技が使える間: アップグレードの範囲（体の中心から半径 r の円）を半透明の円で、範囲内の味方（プレイヤー・アシスト。体の中心どうしの距離。自分は除く）の頭上に小さな▼
   self(g, { me, s, myTeam, time, pos }) {
     const cx = me.x, cy = me.y - bodyUp();
-    g.fillStyle(COLOR, 0.07).fillRect(cx - S.w / 2, cy - S.h / 2, S.w, S.h).lineStyle(1, COLOR, 0.45).strokeRect(cx - S.w / 2, cy - S.h / 2, S.w, S.h);
+    g.fillStyle(COLOR, 0.07).fillCircle(cx, cy, S.r).lineStyle(1, COLOR, 0.45).strokeCircle(cx, cy, S.r);
     const bob = Math.sin(time / 180) * 1.5;
     for (const p of s.players) {
       if (p.id === s.me || p.team !== myTeam || !p.alive) continue;
       const q = pos(p.id) ?? p, sc = p.assist ? C.ASSIST.scale : 1;
-      if (Math.abs(q.x - cx) > S.w / 2 || Math.abs(q.y - bodyUp(sc) - cy) > S.h / 2) continue;
+      if (Math.hypot(q.x - cx, q.y - bodyUp(sc) - cy) > S.r) continue;
       const y = q.y - (42 * C.DOT_SCALE * sc * 0.85 + 14) + bob; // 頭の上（HPバーの上）
       g.fillStyle(COLOR, 0.95).fillTriangle(q.x - 4, y - 4, q.x + 4, y - 4, q.x, y + 2).lineStyle(1, 0x000000, 0.6).strokeTriangle(q.x - 4, y - 4, q.x + 4, y - 4, q.x, y + 2);
     }
@@ -33,14 +33,16 @@ const skill: ClientSkill = {
   fx: {
     upgrade: {
       ms: 700,
-      draw(g, f, _time, k) { // 長方形が中心から広がる（二重の枠と、中心から外へ向かう線）
-        const a = Math.min(1, k * 1.6), b = Math.max(0, Math.min(1, k * 1.6 - 0.3)), w = f.w ?? S.w, h = f.h ?? S.h;
-        const rect = (u: number) => [f.x - (w / 2) * u, f.y - (h / 2) * u, w * u, h * u] as const;
-        g.fillStyle(COLOR, 0.18 * (1 - k)).fillRect(...rect(a));
-        g.lineStyle(4, COLOR, 0.9 * (1 - k)).strokeRect(...rect(a)).lineStyle(2, 0xffffff, 0.8 * (1 - k)).strokeRect(...rect(b));
-        for (let i = 0; i < 12; i++) { // 放射状の線（長方形の形に合わせて縦横に伸ばす）
-          const t = (i / 12) * Math.PI * 2, cx = Math.cos(t) * (w / 2) * a, cy = Math.sin(t) * (h / 2) * a;
-          g.lineStyle(2, COLOR, 0.8 * (1 - k)).lineBetween(f.x + cx * 0.55, f.y + cy * 0.55, f.x + cx * 0.85, f.y + cy * 0.85);
+      // 発動した時点の範囲（体の中心から半径 r の円）をその場に出す（広がらない）。縁が一番強く、内側へ薄れる（中心付近はほぼ透明）。効果を受けたキャラ（who）には、体を包む光の柱（足元の輪・上へ流れる矢印の mark とは別）。後半でフェードアウト（ierutan3）
+      draw(g, f, _time, k, s, pos) {
+        const fade = k < 0.5 ? 1 : Math.max(0, 1 - (k - 0.5) / 0.5), r = f.r ?? S.r, N = 16, step = (r * 0.6) / N; // 縁から内側へ、半径の6割まで薄れる（中心付近は透明）
+        for (let i = 0; i < N; i++) { const u = 1 - i / N; g.lineStyle(step + 1, COLOR, 0.4 * u * u * u * fade).strokeCircle(f.x, f.y, r - step * (i + 0.5)); } // 縁から内へ薄れる帯
+        g.lineStyle(2, 0xffffff, 0.8 * fade).strokeCircle(f.x, f.y, r); // 縁
+        for (const id of f.who ?? []) {
+          const q = pos(id);
+          if (!q) continue;
+          const sc = s.players.find((p: any) => `p:${p.id}` === id)?.assist ? C.ASSIST.scale : 1, bh = 42 * C.DOT_SCALE * 0.85 * sc + 10, cw = 22 * sc * (1 - 0.4 * k); // 体の高さ＋少し（アシストは表示倍率ぶん大きい）。光の柱は時間とともに細くなる
+          for (let i = 0; i < 4; i++) { const ww = cw * (1 - i / 4); g.fillStyle(i === 3 ? 0xffffff : COLOR, (0.22 + i * 0.12) * fade).fillRect(q.x - ww / 2, q.y - bh, ww, bh + 4); }
         }
       },
     },

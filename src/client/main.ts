@@ -1868,7 +1868,7 @@ class GameScene extends Phaser.Scene {
     this.skillFx = this.skillFx.filter((f) => time - f.t0 < fxMs(f));
     for (const f of this.skillFx) {
       const v = f.color && FX_VIEW[f.color];
-      if (v) { v.draw(fxG, f, time, (time - f.t0) / fxMs(f), s); continue; } // 技ごとの描画（client/skills）
+      if (v) { v.draw(fxG, f, time, (time - f.t0) / fxMs(f), s, thingPos); continue; } // 技ごとの描画（client/skills）
       if (f.kind === 'recall') { // リコールの跡: 光の柱が細くなって消え、足元の輪が広がる
         const k = (time - f.t0) / C.RECALL_FX_MS, w = 22 * (1 - k);
         fxG.fillStyle(0x66ccff, 0.5 * (1 - k)).fillRect(f.x - w / 2, f.y - 60 * (1 - k * 0.5), w, 60 * (1 - k * 0.5) + 4).fillStyle(0xffffff, 0.8 * (1 - k)).fillRect(f.x - w / 6, f.y - 56 * (1 - k * 0.5), w / 3, 56 * (1 - k * 0.5));
