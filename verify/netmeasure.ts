@@ -8,6 +8,7 @@ import { CHARS } from '../src/shared/chars';
 import { Interp, stepPlayer } from '../src/shared/netcode';
 import { ClientMeasure, Histogram, LIMITS, clientReport } from '../src/shared/netmeasure';
 import { SKILLS } from '../src/server/skills';
+import { rttPing, rttPong } from '../src/server/lagcomp';
 
 const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`);
 function room() {
@@ -96,6 +97,30 @@ function network(lat: number, jitter: number) {
   return { client: m.report(), server: r.measure!.client('a') };
 }
 const normal = network(50, 0), jitter = network(100, 100), slow = network(200, 0);
+// 巻き戻し時刻の検証（sync1）: サーバーが測った往復の遅延（毎秒の 'rp'→'rq'）で巻き戻しを抑える。cheat: 常に最大の描画時刻を申告する。old: 抑えない（変更前と同じ。上限 NET_REWIND_MAX だけ）
+function rewindNet(lat: number, jitter: number, mode: 'normal' | 'cheat' | 'old') {
+  const { r, a } = room(), interp = new Interp();
+  let seed = 11, now = 0; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  const pipe = () => { let last = 0; const q: { at: number; fn: () => void }[] = []; return { q, send(fn: () => void) { last = Math.max(last, now + lat + (rnd() * 2 - 1) * jitter); q.push({ at: last, fn }); } }; };
+  const down = pipe(), up = pipe(); const actual: number[] = [];
+  r.rttClock = () => now; r.owners.set('a', 'a');
+  (r.clients as any).push({ sessionId: 'a', send: (t: string, m: any) => { if (t === 'rp') down.send(() => up.send(() => rttPong(r, a, m.n))); } });
+  if (mode === 'old') a.rtts = [99];
+  for (now = 0; now <= 20000; now += 10) {
+    r.elapsed = now / 1000;
+    if (now % 50 === 0) { const t = r.elapsed; down.send(() => interp.push(t, now + 5000, [{ id: 'b', x: t * 100, y: 0 }])); if (mode !== 'old') rttPing(r); }
+    for (const p of [down, up]) while (p.q.length && p.q[0].at <= now) p.q.shift()!.fn();
+    if (now > 2000 && now % 100 === 0) { const rt = mode === 'cheat' ? -1e9 : interp.renderTime(now + 5000); up.send(() => { a.viewT = rt; actual.push(r.elapsed - r.lagT(a)!); }); }
+  }
+  return { mean: actual.reduce((x, y) => x + y, 0) / actual.length, max: Math.max(...actual), rttMax: Math.max(...(a.rtts ?? [0])) };
+}
+for (const [lat, jit] of [[10, 0], [50, 0], [100, 50], [100, 100], [200, 0]] as const) {
+  const nw = rewindNet(lat, jit, 'normal'), old = rewindNet(lat, jit, 'old'), ch = rewindNet(lat, jit, 'cheat');
+  const bound = ch.rttMax + C.NET_INTERP_DELAY + C.NET_REWIND_SLACK + 1e-9;
+  assert.ok(ch.max <= bound && ch.max <= C.NET_REWIND_MAX + 1e-9, `cheat ${lat}/${jit}: ${ch.max} > ${bound}`);
+  assert.ok(Math.abs(nw.mean - old.mean) <= 0.005 && nw.max >= old.max - 0.03, `normal ${lat}/${jit}: ${JSON.stringify({ nw, old })}`);
+  console.log('PASS rewind check', `${lat}ms±${jit}`, JSON.stringify({ normal: { mean: +nw.mean.toFixed(3), max: +nw.max.toFixed(3) }, old: { mean: +old.mean.toFixed(3), max: +old.max.toFixed(3) }, cheat: { max: +ch.max.toFixed(3), bound: +bound.toFixed(3), rttMax: +ch.rttMax.toFixed(3) } }));
+}
 near(normal.client.rtt.sum / normal.client.rtt.n, 100); near(slow.client.rtt.sum / slow.client.rtt.n, 400);
 near(normal.client.offset.min, 5050); near(normal.client.receive.min, 50); near(normal.client.receive.max, 50);
 assert.ok(jitter.client.receive.max > normal.client.receive.max + 50); assert.ok(jitter.client.offsetChange.min < 0);

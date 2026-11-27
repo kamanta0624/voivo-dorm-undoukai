@@ -35,6 +35,7 @@ export function connect(sc: GameScene) {
         sc.measure.rtt.add(performance.now() - m.at); sc.pingPending = null;
       }
     });
+    room.onMessage('rp', (m: any) => sendC2S(room, 'rq', { n: m.n })); // サーバーの往復の遅延の計測: すぐ返す（sync1）
     room.onMessage('netFinish', (m: any) => { if (m.id === sc.measureId) sc.finishMeasure(); });
     room.onMessage('s', (s: Snapshot) => {
       if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== sc.measureId) {
@@ -65,19 +66,21 @@ export function connect(sc: GameScene) {
     room.onMessage('notice', (m: any) => sc.notify(m.text));
     room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
     room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
-    room.onMessage('kill', (k: any) => sc.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
-    room.onMessage('assist', (m: any) => sc.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 召喚の通知（両陣営）
+    // 単発の出来事（撃破・キルログ・アシスト・大将に当てた）は、他キャラ・fx と同じ時刻（補間の時刻が at に来てから）で出す（sync1）。koed・recalled は自キャラ（予測で今を描く）の出来事なので届いた時に出す
+    const atSnap = (m: any, f: () => void) => sc.evQueue.push({ at: m?.at, f });
+    room.onMessage('kill', (k: any) => atSnap(k, () => sc.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt)));
+    room.onMessage('assist', (m: any) => atSnap(m, () => sc.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`))); // 召喚の通知（両陣営）
     room.onMessage('slot', (m: any) => sc.slotWin(m.team, m.chain, m.kind, m.tier, m.char));
-    room.onMessage('assistUp', (m: any) => sc.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 両陣営
+    room.onMessage('assistUp', (m: any) => atSnap(m, () => sc.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`))); // 両陣営
     room.onMessage('penalty', (m: any) => sc.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
     room.onMessage('mslot', (m: any) => sc.mslotEv(m));
     room.onMessage('mslotWin', (m: any) => sc.mslotWin(m));
     room.onMessage('mpenalty', (m: any) => sc.mslotToast(m.team, `ペナルティ（${m.n === 1 ? '転落' : '引き戻し失敗'}）\n全員にダメージ・攻撃ダウン・速度ダウン`, true));
-    room.onMessage('ko', (k: any) => {
+    room.onMessage('ko', (k: any) => atSnap(k, () => {
       const mine = sc.snap?.players.find((p: any) => p.id === sc.snap.me);
       if (mine) sc.cutin(mine.char, k.victimChar, k.how);
       sc.react('kill');
-    });
+    }));
     room.onMessage('koed', (k: any) => {
       sc.koedBy = { kc: k.kc, how: k.how };
       // 立ち絵の反応: 同じ相手に2回目以降→怒る、出会い頭（倒した相手が最初に当てた時に見えていなかった・交戦の始まりから REACT.surpriseSec 秒以内）→驚く、それ以外→悲しむ。差分のない出来事は飛ばして次へ
@@ -86,7 +89,7 @@ export function connect(sc: GameScene) {
       if (!(n >= 2 && sc.react('angry')) && !((k.unseen || (k.sec !== null && k.sec <= C.REACT.surpriseSec)) && sc.react('surprise'))) sc.react('sad');
     });
     room.onMessage('recalled', (m: any) => { if (m.r <= C.REACT.relief) sc.react('relief'); }); // 残りHPが少ない状態で帰還
-    room.onMessage('bossHit', () => { const t = performance.now(); if (t - sc.reactJoyAt >= C.REACT.joyEvery * 1000 && sc.react('joy')) sc.reactJoyAt = t; }); // 大将に当てた（REACT.joyEvery 秒に1回まで）
+    room.onMessage('bossHit', (m: any) => atSnap(m, () => { const t = performance.now(); if (t - sc.reactJoyAt >= C.REACT.joyEvery * 1000 && sc.react('joy')) sc.reactJoyAt = t; })); // 大将に当てた（REACT.joyEvery 秒に1回まで）
     room.onMessage('result', (r: any) => (sc.result = r)); // 試合結果画面のデータ（決着後に1回）
     sendC2S(room, 'resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
   }

@@ -8,11 +8,13 @@ import { SKILLS } from './skills';
 import { clientReport } from '../shared/netmeasure';
 import { CHECK, checkE2e, type C2S } from '../shared/protocol';
 import { E2E_HANDLERS } from './e2e';
+import { rttPong as lagRtt } from './lagcomp';
 
 export const HANDLERS = {
   netPing: (room: GameRoom, client: Client, m: { id: number; at: number }) => {
     if (room.measure && m?.id === room.measureId && Number.isFinite(m.at)) client.send('netPong', m);
   },
+  rq: (room: GameRoom, client: Client, m: { n: number }) => { const p = room.players.get(room.owners.get(client.sessionId) ?? ''); if (p) lagRtt(room, p, m.n); }, // 往復の遅延の計測の返事（sync1）
   netReport: (room: GameRoom, client: Client, m: { id: number; value: unknown }) => {
     if (!room.measure || m?.id !== room.measureId || Object.hasOwn(room.reports, client.sessionId)) return;
     const report = clientReport(m.value);

@@ -477,6 +477,7 @@ export class GameScene extends Phaser.Scene {
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
   fxQueue: any[] = []; // 受信した技のエフェクト（スナップショットごとに届く）
+  evQueue: { at?: number; f: () => void }[] = []; // 受信した単発の出来事（撃破・キルログなど）。補間の時刻が at に来てから出す（sync1）
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
@@ -1390,6 +1391,7 @@ export class GameScene extends Phaser.Scene {
     const dt = dtMs / 1000;
     const now = performance.now();
     const { dx, dy } = this.upInput(s, dtMs, now);
+    if (this.evQueue.length) { const later: GameScene['evQueue'] = []; for (const e of this.evQueue) { if (e.at !== undefined && !this.interp.reached(e.at, now)) later.push(e); else e.f(); } this.evQueue = later; } // 単発の出来事（sync1）
     this.upWalls(s);
     const { labelSeen, sinceSnap, myTeam, thingPos, mine } = this.upSelf(s, dtMs, now);
     const { seen, fin, F, K, dying, feet } = this.upUnits(s, dx, dy, now, labelSeen, sinceSnap, time);
