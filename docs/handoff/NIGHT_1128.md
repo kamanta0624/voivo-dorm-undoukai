@@ -1,4 +1,4 @@
-夜間：34 まで済み。本人の返事が要るもの 10 件
+夜間：35 まで済み。本人の返事が要るもの 10 件
 
 # 夜間の報告（2026-11-28）
 
@@ -70,6 +70,24 @@
   - F：http で LAN から開く使い方をやめて 127.0.0.1 にしてよいか（スマホは今の https の手順だけにする）
   - loadtest.ts：子のサーバーに E2E_HOOKS=1 を付けるか（Bot の編成が e2e の固定の編成に変わる）、e2e 以外の目印で部屋を分けるか
   - 予算の上限 20・受信の上限 120 でよいか
+
+## 35 refac1（snapshot・lagcomp・e2e フックの切り出し）
+- 済んだこと（night-1128 の c58e8f8）：
+  - src/server/snapshot.ts（92行）：sendSnapshots・statusView・classicView・modernView・buffView・arrowView
+  - src/server/lagcomp.ts（58行）：noteJump・recordHist・lagT・rewound（hist・jumps は GameRoom に置いたまま）
+  - src/server/e2e.ts（95行）：e2e* のメッセージ。messages.ts が E2E_HOOKS の時だけ足す
+  - src/shared/protocol.ts にスナップショットの型 Snapshot を足し、組み立てに付けた（クライアントは触っていない）
+  - GameRoom.ts は 2193行 → 2076行（sec1 で 2277行 → 2193行）
+- 確かめた基準と結果：
+  - 送信の中身：固定シードの Bot 戦4試合で、観戦者（全体・陣営0の視点）と各陣営の本人の4つに送った全スナップショット（48016回）のハッシュが切り出しの前後で一致した（照合のスクリプトは使い捨て。コミットしていない）
+  - golden 一致・typecheck・test:server（netfix の既存の失敗を除く）・e2e 全体1回 → 通った
+- 自分で決めた点：
+  - visibleTo・bodySeen・dying は戦闘でも使うので GameRoom に残した
+  - verify・skills が呼んでいる sendSnapshots・statusView・classicView・arrowView・noteJump・recordHist・lagT・rewound は、GameRoom に1行の委譲を残した（呼び元を直すより差分が小さい）
+  - 型を付けるため GameRoom の Slot・CHold を export にした
+  - e2e.ts は静的に読み込み、E2E_HOOKS の時だけ足す。読み込み自体を E2E_HOOKS の時だけにすると、GameRoom・skills との循環の import で止まる恐れがある
+- 見つけたもの（直していない）：sendSnapshots の myTeam は使われていない
+- 本人に要る返事：なし
 
 ## 朝の確認の手順
 （夜間の作業が進んだら書き足す）
