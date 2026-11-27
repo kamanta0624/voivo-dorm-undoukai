@@ -19,7 +19,8 @@ import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
 
-type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string };
+type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | null)[]; parts: number[] }; // 余白の立ち絵の反応（react1。chars.json の react）
+type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string; react?: React };
 const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
@@ -549,6 +550,7 @@ class GameScene extends Phaser.Scene {
     // 離した判定は右ボタンが押されていないこと（Mac の Ctrl+クリックは Phaser が右ボタン扱いで down を出し、up は button 0 で来る）
     for (const t of ['pointerup', 'pointerupoutside']) this.input.on(t, (p: Phaser.Input.Pointer) => { if (!p.rightButtonDown()) this.skillUp('rc'); });
     // up を取りこぼしても詰まらないよう、ボタンを離した状態の pointermove でも離した扱い（左右同時押しの片方の解放は pointermove で来る）
+    window.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; const part = this.sidePart(e.clientX, e.clientY); if (part !== null) this.react(part); }); // 余白の立ち絵のタップ・クリック（部位ごとの反応。react1）
     window.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse') return; this.mouseAt = { x: e.clientX, y: e.clientY }; if (!(e.buttons & 1)) this.skillUp('btn'); if (!e.buttons) this.skillUp('rc'); }); // mousemove は技ボタンの pointerdown の preventDefault で止まるので pointermove
     // フォーカスを失ったら技の矢印を捨てる（発動しない）。R の keyup が来ず詰まるのを防ぐ（Phaser は blur でキーを戻すが up は出さない）
     addEventListener('blur', () => (this.ctl.aim = null));
@@ -695,6 +697,7 @@ class GameScene extends Phaser.Scene {
           if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
           else this.pred.reconcile(m.x, m.y, m.ack, m.spd, this.obstacles(s, m));
         }
+        if (s.phase === 'waiting' && this.reactKoBy.size) this.reactKoBy.clear(); // 立ち絵の反応の「同じ相手」は試合ごとに数える
         for (const f of s.fx ?? []) this.fxQueue.push(HIT_FX_KIND(f, s.me) ? { ...f, at: s.t } : f); // 当たった時の演出（汗・他人の斬撃・爆発）は弾・他キャラと同じ時刻（NET_INTERP_DELAY 前）で出す
         (window as any).snap = s;
       });
@@ -712,8 +715,17 @@ class GameScene extends Phaser.Scene {
       room.onMessage('ko', (k: any) => {
         const mine = this.snap?.players.find((p: any) => p.id === this.snap.me);
         if (mine) this.cutin(mine.char, k.victimChar, k.how);
+        this.react('kill');
       });
-      room.onMessage('koed', (k: any) => (this.koedBy = { kc: k.kc, how: k.how }));
+      room.onMessage('koed', (k: any) => {
+        this.koedBy = { kc: k.kc, how: k.how };
+        // 立ち絵の反応: 同じ相手に2回目以降→怒る、出会い頭（倒した相手が最初に当てた時に見えていなかった・交戦の始まりから REACT.surpriseSec 秒以内）→驚く、それ以外→悲しむ。差分のない出来事は飛ばして次へ
+        const n = k.kid ? (this.reactKoBy.get(k.kid) ?? 0) + 1 : 0;
+        if (k.kid) this.reactKoBy.set(k.kid, n);
+        if (!(n >= 2 && this.react('angry')) && !((k.unseen || (k.sec !== null && k.sec <= C.REACT.surpriseSec)) && this.react('surprise'))) this.react('sad');
+      });
+      room.onMessage('recalled', (m: any) => { if (m.r <= C.REACT.relief) this.react('relief'); }); // 残りHPが少ない状態で帰還
+      room.onMessage('bossHit', () => { const t = performance.now(); if (t - this.reactJoyAt >= C.REACT.joyEvery * 1000 && this.react('joy')) this.reactJoyAt = t; }); // 大将に当てた（REACT.joyEvery 秒に1回まで）
       room.onMessage('result', (r: any) => (this.result = r)); // 試合結果画面のデータ（決着後に1回）
       room.send('resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
     }
@@ -1011,7 +1023,7 @@ class GameScene extends Phaser.Scene {
     const find = (e: TouchEvent) => [...e.changedTouches].find((t) => t.identifier === this.stickId);
     document.addEventListener('touchstart', (e) => {
       if (this.stickId !== null) return;
-      const t = [...e.changedTouches].find((t) => !(t.target as HTMLElement).closest?.('button, #fx .skill, #fx .mm, #fx .prw, #lobby')); // ボタン・ミニマップ・練習の引き出し・キャラ選択の上は除く
+      const t = [...e.changedTouches].find((t) => !(t.target as HTMLElement).closest?.('button, #fx .skill, #fx .mm, #fx .prw, #lobby') && this.sidePart(t.clientX, t.clientY) === null); // ボタン・ミニマップ・練習の引き出し・キャラ選択・余白の立ち絵（タップで反応）の上は除く
       if (!t) return;
       this.stickId = t.identifier; this.stickAt = { x: t.clientX, y: t.clientY }; draw(0, 0);
     });
@@ -1152,6 +1164,27 @@ class GameScene extends Phaser.Scene {
 
   // 余白の表示: 対戦中は自キャラの色と立ち絵（既定は右の余白、ゲーム画面側に寄せて下揃え。はみ出す分は画面の端側で切る）。それ以外は既定の色だけ
   sideChar: string | null = null;
+  sideSel = ''; // 余白の立ち絵の通常の絵（select）の URL
+  reactTimer = 0; reactJoyAt = -Infinity; reactKoBy = new Map<string, number>(); // 反応: 通常の絵に戻すタイマー、最後に「喜ぶ」を出した時刻、この試合で倒された相手（id → 回数）
+  // 余白の立ち絵の反応（react1）: 出来事・タップの部位（0〜3）に割り当てた差分に、REACT.ms の間だけ差し替える。差分がなければ何もしない（false）
+  react(ev: 'kill' | 'sad' | 'relief' | 'surprise' | 'angry' | 'joy' | number) {
+    const k = this.sideChar, R = k ? CHARS[k].react : undefined, name = R ? (typeof ev === 'number' ? R.tap[ev] : R[ev]) : null;
+    if (!k || !R || !name) return false;
+    side.querySelector('img')!.src = TACHIE(k, `r${R.diffs.indexOf(name)}`);
+    clearTimeout(this.reactTimer);
+    this.reactTimer = window.setTimeout(() => { this.reactTimer = 0; if (this.sideChar === k) side.querySelector('img')!.src = this.sideSel; }, C.REACT.ms);
+    return true;
+  }
+  // 画面の (x, y) が余白の立ち絵の描かれている範囲なら、その部位（0=頭 1=顔 2=上半身 3=下半身。境目は chars.json の react.parts）。範囲外・立ち絵なしは null
+  sidePart(x: number, y: number) {
+    const k = this.sideChar, parts = k ? CHARS[k].react?.parts : undefined;
+    if (!k || !parts || side.style.display === 'none') return null;
+    const cr = side.getBoundingClientRect();
+    if (x < cr.left || x > cr.right || y < cr.top || y > cr.bottom) return null;
+    const ir = side.querySelector('img')!.getBoundingClientRect(), o = OPAQUE.get(this.sideSel) ?? [0, 1], fx = (x - ir.left) / ir.width, fy = ((y - ir.top) / ir.height) * 100;
+    if (fx < o[0] || fx > o[1]) return null;
+    return fy < parts[0] ? 0 : fy < parts[1] ? 1 : fy < parts[2] ? 2 : 3;
+  }
   pwTier = -1; // 余白の演出を出している自キャラのパワーアップの強さ（-1 はなし）
   // パワーアップの演出の切り替え（強さが変わった時だけ）。本人の画面だけ（観戦者は自キャラがいないので出ない）
   powerFx(s: any) {
@@ -1169,7 +1202,11 @@ class GameScene extends Phaser.Scene {
       this.sideChar = k;
       document.body.style.background = (k && CHARS[k]?.bg) || SIDE_BG;
       side.style.display = k ? 'block' : 'none';
-      if (k) { const im = side.querySelector('img')!; im.onload = () => { measureOpaque(im); this.sideFit(); }; im.src = TACHIE(k, 'select'); }
+      clearTimeout(this.reactTimer); this.reactTimer = 0;
+      if (k) {
+        const im = side.querySelector('img')!; im.onload = () => { if (im.src === this.sideSel) { measureOpaque(im); this.sideFit(); } }; im.src = TACHIE(k, 'select'); this.sideSel = im.src;
+        for (const i of CHARS[k].react?.diffs.keys() ?? []) new Image().src = TACHIE(k, `r${i}`); // 反応の差分を先に読む（自キャラの分だけ）
+      }
       b = undefined;
     }
     if (!k) return;
@@ -1180,8 +1217,8 @@ class GameScene extends Phaser.Scene {
     st.left = sideLeft ? '0' : `${b.right}px`; st.width = `${w}px`;
     const s2 = side2.style; // 反対側の余白（左右入れ替えに付いていく）
     s2.top = `${b.top}px`; s2.height = `${b.height}px`; s2.left = sideLeft ? `${b.right}px` : '0'; s2.width = `${sideLeft ? Math.max(0, innerWidth - b.right) : Math.max(0, b.left)}px`;
-    // 絵の描かれている部分（透明でない範囲）の左右の中心を、余白の左右の中心に合わせる。はみ出す分は両側を切る（高さ・下揃えはそのまま）
-    const el = side.querySelector('img')!, o = OPAQUE.get(el.src), dw = el.naturalHeight ? (el.naturalWidth * b.height) / el.naturalHeight : 0;
+    // 絵の描かれている部分（透明でない範囲）の左右の中心を、余白の左右の中心に合わせる。反応の差分も通常の絵で測った値を使う（差し替えで横に跳ばない）。はみ出す分は両側を切る（高さ・下揃えはそのまま）
+    const el = side.querySelector('img')!, o = OPAQUE.get(this.sideSel), dw = el.naturalHeight ? (el.naturalWidth * b.height) / el.naturalHeight : 0;
     im.left = `${w / 2 - (o ? (o[0] + o[1]) / 2 : 0.5) * dw}px`;
   }
 

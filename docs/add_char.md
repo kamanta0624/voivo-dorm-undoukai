@@ -6,7 +6,7 @@
 
 | ファイル | 項目 | 追加 | 技の差し替え |
 |---|---|---|---|
-| `src/shared/chars.json` | `name`・`dir`（立ち絵フォルダ）・`select`・`ko`・`koed`（表情。null はグレー化してずり落ちる）。大将だけ `boss` | 1行 | ― |
+| `src/shared/chars.json` | `name`・`dir`（立ち絵フォルダ）・`select`・`ko`・`koed`（表情。null はグレー化してずり落ちる）。大将だけ `boss`。余白の立ち絵の反応は `react`（`diffs`＝使う差分、出来事・`tap`＝部位ごとの差分名、`parts`＝頭/顔・顔/上半身・上半身/下半身の境目の％。差分は衣装違いを使わない。取り込みは `tools/import_tachie.py`） | 1行 | ― |
 | `src/shared/chars.ts` | `CHARS` に1項目: `role`・`stat`（`hp`・`atk`・`speed`・`vision`）・`walk`・`aa`（通常攻撃のモード）・`toku`・`skill`（`name`・`ct`・技の値） | 1項目 | `skill` を書き換え |
 | `src/server/skills/<key>.ts` | 技処理（下の「呼び口」）。`export default` で `Skill` を返す | 新規 | 書き換え |
 | `src/server/skills/index.ts` | `import` と `MODS` に1つ | 2行 | ― |

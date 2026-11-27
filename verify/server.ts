@@ -2699,5 +2699,35 @@ console.log('--- 体の箱（hitbox1）');
   ok(`壁越し: 壁に接した敵の頭は壁で切られ（体の箱の高さ ${C.BODY_BOX.h}→${cut}）、北側からは見えず・狙えず・弾も当たらない`, cut < C.BODY_BOX.h && !w.r.seenBy(0, wb) && !w.r.reach(w.A, wb) && w.r.pickTarget(w.A) === null && w.B.hp === hpw, { sp, cut, seen: w.r.seenBy(0, wb), hp: w.B.hp });
 }
 
+console.log('--- 余白の立ち絵の反応の通知（react1）');
+{
+  const room = () => {
+    const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
+    const sent: any[] = []; Object.defineProperty(r, 'clients', { value: ['x', 'y', 'z'].map((id) => ({ sessionId: id, send: (t: string, m: any) => sent.push([id, t, m]) })) });
+    r.onCreate(); r.addPlayer('a', 0, false); r.addPlayer('b', 1, false); r.owners.set('x', 'a'); r.owners.set('y', 'b'); // z は観戦者（自キャラなし）
+    r.players.get('a').char = 'sayo'; r.players.get('b').char = 'metan'; r.startMatch(); r.beginPlay(); r.notice = () => {};
+    for (const p of r.players.values()) if (p.bot) { p.alive = false; p.respawnAt = 1e9; p.x = p.y = -999; }
+    const a = r.players.get('a'), b = r.players.get('b'); Object.assign(a, { x: 1552, y: 900 }); Object.assign(b, { x: 1592, y: 900 }); a.st.test = NOAUTO(); b.st.test = NOAUTO();
+    return { r, a, b, sent, of: (t: string) => sent.filter((q) => q[1] === t) };
+  };
+  // 見えている相手に当てられて、2秒以内に倒される
+  const v = room(); v.r.damagePlayer(v.a, 1, 'b'); v.r.now += 1; v.r.damagePlayer(v.a, 1e9, 'b');
+  const kd = v.of('koed');
+  ok('koed（倒された本人だけ）に倒した人の id・見えていたか・交戦の始まりからの秒数', kd.length === 1 && kd[0][0] === 'x' && kd[0][2].kid === 'b' && kd[0][2].unseen === false && Math.abs(kd[0][2].sec - 1) < 1e-9, kd);
+  // 見えていない相手（視界の外）に最初に当てられる
+  const u = room(); Object.assign(u.b, { x: 1552 + 1000, y: 900 }); u.r.damagePlayer(u.a, 1, 'b'); Object.assign(u.b, { x: 1592, y: 900 }); u.r.now += 3; u.r.damagePlayer(u.a, 1e9, 'b');
+  const ku = u.of('koed')[0]?.[2];
+  ok('最初に当てた時に見えていなかった相手に倒されると unseen', ku?.unseen === true && Math.abs(ku.sec - 3) < 1e-9, ku);
+  // 交戦の区切り: REACT.engageGap 秒より長く被弾しなければ次の交戦
+  const g = room(); g.r.damagePlayer(g.a, 1, 'b'); g.r.now += C.REACT.engageGap + 1; g.r.damagePlayer(g.a, 1, 'b'); g.r.now += 1; g.r.damagePlayer(g.a, 1e9, 'b');
+  ok(`${C.REACT.engageGap}秒より長く被弾しなければ交戦は数え直し`, Math.abs(g.of('koed')[0][2].sec - 1) < 1e-9);
+  // 大将に当てた: 当てた本人だけ
+  const h = room(); h.r.damageBoss(h.r.bosses[1], 10, h.a);
+  ok('bossHit は大将に当てた本人だけ', h.of('bossHit').length === 1 && h.of('bossHit')[0][0] === 'x');
+  // 帰還成功: 本人だけに帰還前の HP 割合
+  const rc = room(); rc.a.hp = 30; rc.a.recallAt = rc.r.now - C.RECALL_HOLD; rc.r.updatePlayers(0.05); const re = rc.of('recalled');
+  ok('recalled は帰還した本人だけ（帰還前のHPの割合）', re.length === 1 && re[0][0] === 'x' && Math.abs(re[0][2].r - 30 / rc.r.maxHp(rc.a)) < 1e-9, re);
+}
+
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

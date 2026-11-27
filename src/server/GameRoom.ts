@@ -58,6 +58,7 @@ export type Player = {
   rage: number; bad: number; wantedHold: boolean; // bad: 悪行ポイント（徳を下げた量 × BAD_MULT の累計。反省中は BAD_DECAY_SEC の速さで減る）。wantedHold: 撃破で手配を外し、復帰後に悪行が増えるまで手配しない
   cooldownUntil: number; stunUntil: number; respawnAt: number; respawnTotal: number; // respawnTotal: 撤退時間の合計
   lastHitBy: Map<string, number>;
+  engage: { at: number; seen: Map<string, boolean> } | null; // 交戦（react1）: 最初に当てられた時刻と、当てた相手ごとの「最初に当てた時に自陣営から見えていたか」。REACT.engageGap 秒被弾しなければ次の交戦
   bot: boolean; role: 'gather' | 'raid' | 'counter'; phys?: string; seenAt?: Map<string, number>; // phys: Bot のフィジカル（なし＝中。CONFIG.BOT_PHYS）、seenAt: 反応の遅い Bot が敵を見つけた時刻（敵id → 時刻）
   path: Pt[]; pathAt: number; raidBase: number; visited: number[]; // raidBase: 見回り中の敵陣の部屋（-1=未決定）、visited: 見回り済みの部屋
   aim: string; tgt: Thing | null; // 照準モードと、今狙っている対象
@@ -507,7 +508,7 @@ export class GameRoom extends Room {
     const p: Player = {
       id, team, char: pick(PICKABLE), x: s.x, y: s.y + (idx - 1.5) * 40, hp: C.PLAYER_HP, alive: true,
       dx: 0, dy: 0, face: team === 0 ? 0 : Math.PI, rage: 0, bad: 0, wantedHold: false,
-      cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(),
+      cooldownUntil: 0, stunUntil: 0, respawnAt: 0, respawnTotal: 0, lastHitBy: new Map(), engage: null,
       bot, role: 'gather', path: [], pathAt: -Infinity, raidBase: -1, visited: [],
       aim: bot ? C.BOT_AIM : C.AIM_MODES[0], tgt: null, inputs: [], ack: 0,
       skillReadyAt: 0, st: {}, sk: {},
@@ -1008,6 +1009,7 @@ export class GameRoom extends Room {
       if (p.recallAt !== null && this.now - p.recallAt >= C.RECALL_HOLD) {
         const r = C.RECALL_ROOMS[p.team];
         p.recallAt = null; p.recallBreaks = 0;
+        if (!p.bot) for (const c of this.clients) if (this.owners.get(c.sessionId) === p.id) c.send('recalled', { r: p.hp / this.maxHp(p) }); // 帰還成功を本人へ（帰還前のHPの割合。立ち絵の反応。react1）
         this.addFx(p, 'recall', {}); // 元いた場所に瞬間移動の跡
         this.relocate(`p:${p.id}`, p, pushOut(r.x + r.w / 2, r.y + r.h / 2, C.PLAYER_RADIUS, obs));
         p.hp = Math.min(this.maxHp(p), p.hp + this.maxHp(p) * C.RECALL_HEAL);
@@ -1044,7 +1046,7 @@ export class GameRoom extends Room {
     this.noteJump(`p:${p.id}`, p, s);
     Object.assign(p, { alive: true, x: s.x, y: s.y, eating: false, stunUntil: 0, st: {}, recallAt: null, boostUntil: 0 });
     p.hp = this.maxHp(p);
-    p.lastHitBy.clear();
+    p.lastHitBy.clear(); p.engage = null;
   }
 
   // ---- 徳・資材・回復アイテム・荷物・ウルト・アシスト ----
@@ -1446,6 +1448,11 @@ export class GameRoom extends Room {
     if (role === 'balance' && ![...this.players.values()].some((a) => a !== v && a.team === v.team && a.alive && Math.hypot(a.x - v.x, a.y - v.y) <= C.BALANCE_ALONE_RADIUS)) dmg *= 1 - C.BALANCE_ALONE_CUT;
     if (v.ult && !v.ult.pending && !raw) dmg *= C.ULT_FORMS[v.ult.form].def;
     this.rec.hurt(v, attacker ? this.players.get(attacker) : null, raw, Math.min(Math.max(0, v.hp), Math.round(dmg)));
+    if (attacker) { // 交戦の始まり・当てた相手が最初に当てた時に見えていたか（本人の立ち絵の反応用。react1）
+      if (!v.engage || this.now - (v.hitAt ?? -Infinity) > C.REACT.engageGap) v.engage = { at: this.now, seen: new Map() };
+      const a = this.players.get(attacker);
+      if (a && !v.engage.seen.has(attacker)) v.engage.seen.set(attacker, this.bodySeen(v.team, { k: 'p', o: a, x: a.x, y: a.y, r: C.PLAYER_RADIUS }, this.seeWalls));
+    }
     v.hp -= Math.round(dmg);
     v.hitAt = this.now;
     if (!v.bot && v.qAt !== null) v.recallAt = this.now; // 被弾: 押し続けている人間は溜め直し（0から）
@@ -1463,7 +1470,7 @@ export class GameRoom extends Room {
     this.rec.ko(this, v, killer);
     if (killer && !v.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === killer.id) c.send('ko', { victimChar: v.char, how }); // KOカットイン用（アシストは立ち絵がないので出さない）
     // 倒された本人へ: 誰に（kc: キャラ。大将は大将のキャラ、罰は null）何で倒されたか
-    for (const c of this.clients) if (this.owners.get(c.sessionId) === v.id) c.send('koed', { kc: killer?.char ?? (raw ? null : BOSS_CHAR[1 - v.team]), kt: killer?.team ?? 1 - v.team, how });
+    for (const c of this.clients) if (this.owners.get(c.sessionId) === v.id) c.send('koed', { kc: killer?.char ?? (raw ? null : BOSS_CHAR[1 - v.team]), kt: killer?.team ?? 1 - v.team, how, kid: killer?.id ?? null, unseen: !!killer && v.engage?.seen.get(killer.id) === false, sec: v.engage ? this.now - v.engage.at : null }); // kid: 倒した人、unseen: 倒した人が最初に当てた時に見えていなかった、sec: 交戦の始まりから倒されるまで（react1）
     for (const c of this.clients) c.send('kill', { kc: killer?.char ?? null, kt: killer?.team ?? 1 - v.team, vc: v.char, vt: v.team }); // キルログ用（kc なし＝大将の反撃）
     this.cm.kill(v, killer, how, raw);
     if (killer) killer.rage += C.RAGE_KILL;
@@ -1490,6 +1497,7 @@ export class GameRoom extends Room {
     boss.dmgAtBase += dmg;
     p.rage += dmg * C.RAGE_BOSS_DMG_COEF;
     this.cm.bossDmgBy(p, dmg);
+    if (!p.assist) for (const c of this.clients) if (this.owners.get(c.sessionId) === p.id) c.send('bossHit'); // 当てた本人へ（立ち絵の反応。画面側で間引く。react1）
     if (boss.hp <= 0) return this.startFinale(1 - boss.team, 'boss', p); // 止めを刺したキャラ（大将は大将を攻撃しない）
     this.cm.bossHit(boss);
     if (boss.dmgAtBase >= C.BOSS_MOVE_THRESHOLD && this.now >= boss.holdUntil) {
