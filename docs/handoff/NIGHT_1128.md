@@ -1,4 +1,4 @@
-夜間：35 まで済み。本人の返事が要るもの 10 件
+夜間：36 まで済み。本人の返事が要るもの 10 件
 
 # 夜間の報告（2026-11-28）
 
@@ -87,6 +87,21 @@
   - 型を付けるため GameRoom の Slot・CHold を export にした
   - e2e.ts は静的に読み込み、E2E_HOOKS の時だけ足す。読み込み自体を E2E_HOOKS の時だけにすると、GameRoom・skills との循環の import で止まる恐れがある
 - 見つけたもの（直していない）：sendSnapshots の myTeam は使われていない
+- 本人に要る返事：なし
+
+## 36 refac2（slot・bot・lobby の切り出し）
+- 済んだこと（night-1128 の 0d4a0e6）：
+  - src/server/slot.ts（225行）：classicHold〜penaltyModern・mslot（引き継ぎ書の一覧どおり）
+  - src/server/bot.ts（191行）：updateBots・botSkillUseful・nearFoe・botStuck・botThink・assistThink・enemyAssist・botFight・botGoto・escorts
+  - src/server/lobby.ts（189行）：updateLobby・decideStart・checkBack・promoteSpectators・joinPlayer・spectators・updateAbandon・startPractice・practiceFoe・practiceMode・practicePower・practiceBack と、onAuth・onJoin・onDrop・onReconnect・onLeave の中身（呼び口は GameRoom に1行で残した）
+  - docs/add_char.md・.claude/skills/char/SKILL.md の「共通処理」の一覧に切り出したファイルを足した。docs/botai_report.md の botThink の場所を直した（CLAUDE.md には該当なし）
+  - GameRoom.ts は 2076行 → 1566行
+- 残った責務：試合の進行（setup・tick・開始・決着・ログ）、移動・当たり・ダメージ・撃破、大将・コバコ・壁、徳・資材・回復アイテム・荷物・ウルト、弾、キャラ技（R）の呼び出し、アシストの技（updateAssists）、マクロ soracannon、巻き戻しの記録の置き場（hist・jumps）と委譲
+- 確かめた基準と結果：golden 一致・refac1 と同じ送信のハッシュの照合も一致・typecheck・test:server（netfix の既存の失敗を除く）→ 通った。e2e は3回まわして3回目に全部通った。1回目は花丸パンチの向き、2回目はアルの突撃の右向きが落ちた。どちらも 11/24〜25 の e2e でも落ちたことがある、敵 Bot に邪魔されうる確認（サーバーの挙動は golden と送信のハッシュで一致）
+- 自分で決めた点：
+  - verify・skills・tools から呼ばれているものだけ GameRoom に1行の委譲を残し、GameRoom の中の呼び出しは直接の呼び出しに書き換えた
+  - 型と道具を使うため GameRoom の pick・SlotTarget を export にした
+  - onCreate は中身を残した（部屋の作成と tick の開始で、待機の処理でないため）。soracannon（scSora・scUpdate・scThink）は引き継ぎ書の一覧に無いので GameRoom に残した
 - 本人に要る返事：なし
 
 ## 朝の確認の手順
