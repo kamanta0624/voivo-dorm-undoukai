@@ -12,7 +12,7 @@ import { SKILLS } from '../src/server/skills';
 const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`);
 function room() {
   const r = new GameRoom(); r.setSimulationInterval = (() => {}) as any; r.lock = (() => {}) as any;
-  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 'measure' });
+  Object.defineProperty(r, 'clients', { value: [] }); { const s0 = process.env.E2E_HOOKS; process.env.E2E_HOOKS = '1'; r.onCreate({ e2e: 'measure' }); if (s0 === undefined) delete process.env.E2E_HOOKS; } // e2e の部屋は E2E_HOOKS のときだけ作れる（sec1）
   const a = r.addPlayer('a', 0, false), b = r.addPlayer('b', 1, false);
   a.char = 'sayo'; b.char = 'metan'; r.startMatch(); r.beginPlay();
   for (const p of r.players.values()) { p.st.test = { until: Infinity, noAuto: true }; if (p.bot) { p.alive = false; p.respawnAt = Infinity; } }

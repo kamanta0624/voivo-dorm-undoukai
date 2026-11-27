@@ -20,6 +20,9 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
 const T = C.TILE;
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く。Botは盤外で無効化
+// e2e の部屋（options.e2e）を作る確認だけ E2E_HOOKS を立てる（sec1: E2E_HOOKS なしでは作れない。e2e のフックはモジュールを読んだ時に決まるので、ここで立ててもフックは増えない）
+const withE2e = <X>(f: () => X): X => { const s0 = process.env.E2E_HOOKS; process.env.E2E_HOOKS = '1'; try { return f(); } finally { if (s0 === undefined) delete process.env.E2E_HOOKS; else process.env.E2E_HOOKS = s0; } };
+
 function mk(a: string, b?: string) {
   const r: any = new (GameRoom as any)();
   r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
@@ -525,7 +528,7 @@ console.log('--- 開始人数・途中参加（e2e から移動）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
   Object.defineProperty(r, 'clients', { value: [] });
-  r.onCreate({ e2e: 't' }); r.onJoin({ sessionId: 'h' }); // 途中参加（Bot と入れ替わる）は e2e の部屋だけ。常設の部屋は観戦（spectate1）
+  withE2e(() => r.onCreate({ e2e: 't' })); r.onJoin({ sessionId: 'h' }); // 途中参加（Bot と入れ替わる）は e2e の部屋だけ。常設の部屋は観戦（spectate1）
   ok('入室で待機画面（1人）', r.phase === 'waiting' && r.players.size === 1);
   r.startMatch(); r.beginPlay();
   const ps = [...r.players.values()];
@@ -1109,7 +1112,7 @@ classic(false);
 console.log('--- 通信の切断と再接続（スマホのバックグラウンド等）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
-  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 't' }); // 途中参加は e2e の部屋だけ（常設の部屋は対戦中に入れない。人間がいなくなれば待機に戻る）
+  Object.defineProperty(r, 'clients', { value: [] }); withE2e(() => r.onCreate({ e2e: 't' })); // 途中参加は e2e の部屋だけ（常設の部屋は対戦中に入れない。人間がいなくなれば待機に戻る）
   let allowed: any = null; r.allowReconnection = (c: any, sec: number) => { allowed = { id: c.sessionId, sec }; };
   r.onJoin({ sessionId: 'h' }); r.startMatch(); r.beginPlay();
   const P = r.players.get('h'); P.aim = 'lowhp';
@@ -1604,7 +1607,7 @@ console.log('--- 待機画面の開始の流れ（出撃・選択猶予）');
   ok(`開始が決まってから${C.SORTIE_SEC}秒は選択画面のまま（キャラ・陣営・出撃は変えられない）。過ぎたら戦闘画面へ`, mid3 === 'waiting' && o.r.phase === 'intro' && o.p(0).ok && o.p(1).char === 'metan' && o.p(1).team === 1);
   const q = lobby(1); q.r.messages.go(q.h(0), { char: 'sayo' }); q.r.dropped.add('h0'); q.run(C.SORTIE_SEC + 0.1);
   ok('出撃の秒数の間に人間がいなくなったら始めない', q.r.phase === 'waiting' && q.r.sortieLeft === null);
-  const e2 = new (GameRoom as any)(); e2.setSimulationInterval = () => {}; e2.lock = () => {}; e2.unlock = () => {}; Object.defineProperty(e2, 'clients', { value: [] }); e2.onCreate({ e2e: 'x' }); e2.onJoin({ sessionId: 'h0' }); e2.messages.go({ sessionId: 'h0' }, { char: 'sayo' });
+  const e2 = new (GameRoom as any)(); e2.setSimulationInterval = () => {}; e2.lock = () => {}; e2.unlock = () => {}; Object.defineProperty(e2, 'clients', { value: [] }); withE2e(() => e2.onCreate({ e2e: 'x' })); e2.onJoin({ sessionId: 'h0' }); e2.messages.go({ sessionId: 'h0' }, { char: 'sayo' });
   ok('e2e の部屋は出撃の秒数を挟まず、すぐ戦闘画面へ', e2.phase === 'intro');
 }
 
@@ -2174,7 +2177,7 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const join = (r: any, sid: string, name?: string) => { const c = { sessionId: sid, auth: auth(r, { bid: 'b' + sid }), send: (t: string, m: any) => { if (t === 's') c.got = m; }, leave: (code: number, why: string) => (c.left = [code, why]) } as any; r.clients.push(c); r.onJoin(c, { name }); return c; };
   // 常設の部屋: 空になっても残す。作り終えたら（sealed）e2e 以外の部屋は作れない
   const a = room(), b = room();
-  GameRoom.sealed = true; let sealed = false; try { room(); } catch { sealed = true; } const e = room({ e2e: 'x' }); GameRoom.sealed = false;
+  GameRoom.sealed = true; let sealed = false; try { room(); } catch { sealed = true; } const e = withE2e(() => room({ e2e: 'x' })); GameRoom.sealed = false;
   ok(`常設の部屋は空になっても残し（autoDispose なし）、${C.ROOMS}つ作った後は e2e の部屋しか作れない`, a.pub && !a.autoDispose && sealed && !e.pub && e.autoDispose);
   ok('/status: 部屋ごとの状態・人数（待機中）', JSON.stringify(OG.status([a, b]).rooms.map((x: any) => [x.no, x.state, x.humans, x.max])) === JSON.stringify([[1, 'waiting', 0, C.ROOM_FULL], [2, 'waiting', 0, C.ROOM_FULL]]));
   // 名前: 部品の組み合わせ（そのまま）、それ以外は付け直す、重複は末尾に番号
@@ -2484,7 +2487,7 @@ console.log('--- 練習モード（handoff_practice1）');
   for (const z of [...made, r]) z.onDispose();
   ok(`練習: 同時に作れる部屋は ${C.PRACTICE_ROOMS} まで`, refused && live + made.length === C.PRACTICE_ROOMS);
   // 通常の部屋は今までどおり（Bot で4人ずつ補充、開始演出から）
-  const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; Object.defineProperty(n, 'clients', { value: [] }); n.onCreate({ e2e: 'x' }); n.addPlayer('a', 0, false); n.startMatch();
+  const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; Object.defineProperty(n, 'clients', { value: [] }); withE2e(() => n.onCreate({ e2e: 'x' })); n.addPlayer('a', 0, false); n.startMatch();
   ok('通常の部屋: Bot で補充して開始演出から（練習の分岐に入らない）', !n.practice && n.players.size === C.TEAM_SIZE * 2 && n.phase === 'intro' && n.materials.length > 0 && n.couriers.length === 1);
   n.onDispose();
 }
@@ -2728,6 +2731,44 @@ console.log('--- 余白の立ち絵の反応の通知（react1）');
   // 帰還成功: 本人だけに帰還前の HP 割合
   const rc = room(); rc.a.hp = 30; rc.a.recallAt = rc.r.now - C.RECALL_HOLD; rc.r.updatePlayers(0.05); const re = rc.of('recalled');
   ok('recalled は帰還した本人だけ（帰還前のHPの割合）', re.length === 1 && re[0][0] === 'x' && Math.abs(re[0][2].r - 30 / rc.r.maxHp(rc.a)) < 1e-9, re);
+}
+
+console.log('--- 受信の検証・入力の予算・e2e 部屋の封鎖（sec1）');
+{
+  // 異常なメッセージ: どれを送っても例外にならず、その後 tick が進み、全プレイヤーの座標が有限
+  const z = mk('sayo', 'metan'); const cl = { sessionId: 'a' } as any; z.r.owners.set('a', 'a');
+  const bad: [string, any][] = [['input', null], ['input', 'x'], ['input', { seq: 1, dx: Infinity, dy: 0 }], ['input', { seq: 1, dx: NaN, dy: 0 }], ['input', { seq: 1e300, dx: 1, dy: 0 }], ['input', { seq: 1, dx: 5, dy: 0 }],
+    ['aim', undefined], ['aim', { mode: 3 }], ['pick', undefined], ['go', { char: {} }], ['team', { team: '1' }], ['spec', null], ['skillUp', 'x'], ['skillAim', { a: Infinity }], ['qdown', { seq: 'x' }], ['pr', null], ['netPing', { id: NaN }], ['netReport', null]];
+  let threw = '';
+  for (const [k, m] of bad) { try { (z.r.messages as any)[k](cl, m); } catch (e) { threw += `${k} `; } }
+  try { (z.r.messages as any)._(cl, { any: 1 }); } catch { threw += '_ '; } // 未知の名前の受け皿
+  const t0 = z.r.now; for (let i = 0; i < 20; i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
+  const finite = [...z.r.players.values()].every((p: any) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  ok('異常なメッセージ（null・文字列・Infinity・NaN・範囲外・型違い・未知の名前）で例外にならず、tick が進み、座標が有限', !threw && z.r.now > t0 && finite && z.A.inputs.length <= 1, { threw, finite, q: z.A.inputs.length });
+  // 毎秒の受信数の上限: 超えた分は捨てる
+  const rl = mk('sayo'); const c2 = { sessionId: 'a' } as any; rl.r.owners.set('a', 'a'); delete rl.A.st.test;
+  for (let i = 0; i < C.NET_MSG_MAX_PER_SEC + 50; i++) rl.r.messages.input(c2, { seq: i, dx: 1, dy: 0 });
+  ok(`毎秒の受信は ${C.NET_MSG_MAX_PER_SEC} 個まで（超えた分は捨てる）`, rl.A.inputs.length <= C.NET_QUEUE_MAX && rl.A.inputs.at(-1)?.seq === C.NET_MSG_MAX_PER_SEC - 1, { last: rl.A.inputs.at(-1)?.seq });
+  // 連打: 毎tick 2個の入力を10秒送り続けた移動距離が、毎tick 1個の 1.1 倍以内
+  const run = (perTick: number) => { const q = mk('sayo'); q.r.walls = []; const c = { sessionId: 'a' } as any; q.r.owners.set('a', 'a'); Object.assign(q.A, { x: 400, y: 900 }); let seq = 0; const x0 = q.A.x;
+    for (let i = 0; i < 200; i++) { (q.r as any).messages.input({ sessionId: 'a', __i: Math.floor(i / 20) } as any, { seq: seq++, dx: 1, dy: 0 }); if (perTick > 1) (q.r as any).messages.input({ sessionId: 'a' } as any, { seq: seq++, dx: 1, dy: 0 }); q.r.now += 0.05; q.r.updatePlayers(0.05); }
+    return q.A.x - x0; };
+  const d1 = run(1), d2 = run(2);
+  ok(`入力の連打（毎tick 2個を10秒）の移動距離は、毎tick 1個の 1.1倍以内（予算 ${C.NET_INPUT_BUDGET}）`, d2 <= d1 * 1.1, { d1: Math.round(d1), d2: Math.round(d2) });
+  // 通信の詰まり: 0.2秒（4tick）入力が止まってからまとめて届いた時、予算なし（変更前と同じ動き）と同じ tick に同じ所まで処理する
+  const stall = (budget: number, gap = 4) => { const B0 = C.NET_INPUT_BUDGET; (C as any).NET_INPUT_BUDGET = budget;
+    const st = mk('sayo'); st.r.walls = []; st.r.owners.set('a', 'a'); Object.assign(st.A, { x: 400, y: 900 }); let sq = 0; const acks: number[] = [];
+    for (let i = 0; i < 80; i++) { if (i === 10 + gap) { for (let k = 0; k < gap + 1; k++) st.r.messages.input({ sessionId: 'a' } as any, { seq: sq++, dx: 1, dy: 0 }); } else if (i < 10 || i > 10 + gap) st.r.messages.input({ sessionId: 'a' } as any, { seq: sq++, dx: 1, dy: 0 }); st.r.now += 0.05; st.r.updatePlayers(0.05); acks.push(st.A.ack); }
+    (C as any).NET_INPUT_BUDGET = B0; return acks; };
+  const withB = stall(C.NET_INPUT_BUDGET), noB = stall(Infinity);
+  ok('通信の詰まり（0.2秒）の後、予算なし（変更前）と同じ tick に同じ入力まで処理する（追いつきが遅れない）', withB.join() === noB.join(), { withB: withB.slice(12, 20), noB: noB.slice(12, 20) });
+  const w1 = stall(C.NET_INPUT_BUDGET, 20), n1 = stall(Infinity, 20);
+  ok('長い詰まり（1秒）の後も、予算なしと同じ tick に同じ入力まで処理する（遅れが残らない）', w1.join() === n1.join() && w1.at(-1) === n1.at(-1), { withB: w1.slice(30, 50), noB: n1.slice(30, 50) });
+  // e2e の部屋: E2E_HOOKS なしでは作れない
+  const saved = process.env.E2E_HOOKS; delete process.env.E2E_HOOKS;
+  let rejected = false; try { const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 'x' }); } catch { rejected = true; }
+  if (saved !== undefined) process.env.E2E_HOOKS = saved;
+  ok('E2E_HOOKS なしでは e2e の部屋（options.e2e）を作れない', rejected);
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

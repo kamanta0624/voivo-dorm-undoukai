@@ -4,7 +4,7 @@ import { CONFIG as C } from '../src/shared/config';
 
 function setup() {
   const r = new GameRoom(); r.setSimulationInterval = (() => {}) as any; r.lock = (() => {}) as any;
-  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 'netfix' });
+  Object.defineProperty(r, 'clients', { value: [] }); { const s0 = process.env.E2E_HOOKS; process.env.E2E_HOOKS = '1'; r.onCreate({ e2e: 'netfix' }); if (s0 === undefined) delete process.env.E2E_HOOKS; } // e2e の部屋は E2E_HOOKS のときだけ作れる（sec1）
   const a = r.addPlayer('a', 0, false), b = r.addPlayer('b', 1, false);
   a.char = b.char = 'bii'; r.startMatch(); r.beginPlay();
   for (const p of r.players.values()) { p.st.test = { until: Infinity, noAuto: true }; if (p.bot) { p.alive = false; p.respawnAt = Infinity; } }
