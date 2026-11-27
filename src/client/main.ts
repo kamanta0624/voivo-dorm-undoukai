@@ -1393,12 +1393,31 @@ export class GameScene extends Phaser.Scene {
     if (!s) return;
     const dt = dtMs / 1000;
     const now = performance.now();
+    const { dx, dy } = this.upInput(s, dtMs, now);
+    this.upWalls(s);
+    const { labelSeen, sinceSnap, myTeam, thingPos, mine } = this.upSelf(s, dtMs, now);
+    const { seen, fin, F, K, dying, feet } = this.upUnits(s, dx, dy, now, labelSeen, sinceSnap, time);
+    this.upCamera(s, sinceSnap, myTeam, labelSeen, dx, dt, dy, thingPos, mine, feet);
+    const { fxG } = this.upFx(thingPos, s, seen, now, dying, fin, sinceSnap, F, K, time, mine, myTeam);
+    this.upShots(now, fxG, time);
+    this.upGround(myTeam, s, labelSeen, thingPos, mine, time);
+    this.upVision(myTeam, s, sinceSnap, dtMs, mine);
+    this.upHud(s, myTeam, sinceSnap, now, labelSeen, mine);
+  }
+
+  // update の段（refac3）: 入力: 計測の ping・入力の送信と予測（net.ts）、試合の切り替わり・待機画面
+  upInput(s: any, dtMs: number, now: number) {
     const { dx, dy } = sendInputs(this, s, dtMs, now); // 計測の ping・入力の送信と予測（net.ts。refac3）
     this.practice = !!s.practice;
     if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 
+    return { dx, dy };
+  }
+
+  // update の段（refac3）: 壁の反映: 大将の候補部屋、壁破壊（タイル・ミニマップ・移動予測の壁）
+  upWalls(s: any) {
     if (s.bossRooms && s.bossRooms.join() !== this.homesKey) { this.homesKey = s.bossRooms.join(); this.applyHomes(s.bossRooms); }
     // 壁破壊の反映（タイル・ミニマップ・移動予測の壁）
     if (s.broken.length > this.brokenN) {
@@ -1420,6 +1439,10 @@ export class GameScene extends Phaser.Scene {
     }
     this.cullCracks();
 
+  }
+
+  // update の段（refac3）: 自キャラ: 移動予測の位置・陣営・描画位置の引き方
+  upSelf(s: any, dtMs: number, now: number) {
     // 自キャラの移動予測
     const mine = s.players.find((p: any) => p.id === s.me);
     if (mine) {
@@ -1444,6 +1467,11 @@ export class GameScene extends Phaser.Scene {
       return null;
     };
 
+    return { labelSeen, sinceSnap, myTeam, thingPos, mine };
+  }
+
+  // update の段（refac3）: ユニットの描画: キャラ・大将・コバコ・札
+  upUnits(s: any, dx: any, dy: any, now: number, labelSeen: any, sinceSnap: any, time: number) {
     // ユニット描画（受信したものだけ）
     const seen = new Set<string>();
     const feet = this.feet.clear();
@@ -1550,6 +1578,11 @@ export class GameScene extends Phaser.Scene {
     }
     for (const [id, im] of this.tags) if (!this.tagSeen.has(id)) { im.destroy(); this.tags.delete(id); } // 描かなかったキャラの札を片付ける
     this.tagSeen.clear();
+    return { seen, fin, F, K, dying, feet };
+  }
+
+  // update の段（refac3）: カメラ・観戦者のボタン・画面に固定の表示・自キャラの射程の円
+  upCamera(s: any, sinceSnap: any, myTeam: any, labelSeen: any, dx: any, dt: number, dy: any, thingPos: any, mine: any, feet: any) {
     // カメラ: 開始演出は味方の横並びに寄せる。ミニマップを押している間はその位置（離したら即座に自キャラへ）。撤退中は WASD で視点だけ動かす（壁に関係なく）。それ以外は自キャラに追従
     const camera = this.cameras.main, meUnit = this.units.get(s.me);
     const freeCam = !!mine && !mine.alive && s.phase === 'playing' && (mine.ko === null || mine.ko + sinceSnap >= C.RESPAWN_BASE); // 撃破の演出（絞り切るまで）はカメラを自キャラの位置のまま
@@ -1601,6 +1634,10 @@ export class GameScene extends Phaser.Scene {
       if (cd > 0) feet.fillStyle(0x000000, 0.6).fillRect(this.me.x - 10, this.me.y + 5, 20, 3).fillStyle(0xffffff).fillRect(this.me.x - 10, this.me.y + 5, 20 * Math.min(1, cd / mine.cdMax), 3);
     }
 
+  }
+
+  // update の段（refac3）: fx: 技の範囲・撃破・着弾・予告・状態のエフェクト・本人だけの描画
+  upFx(thingPos: any, s: any, seen: any, now: number, dying: any, fin: any, sinceSnap: any, F: any, K: any, time: number, mine: any, myTeam: any) {
     const fxG = this.fxG.clear();
     const sweatPos = (id: string | undefined) => {
       if (!id) return null;
@@ -1692,6 +1729,11 @@ export class GameScene extends Phaser.Scene {
       selfView(fxG, { me: this.me, s, myTeam, time, pos: (id: string) => this.interp.at(id, now) });
     this.aimArrow(fxG, mine);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
+    return { fxG };
+  }
+
+  // update の段（refac3）: 弾
+  upShots(now: number, fxG: any, time: number) {
     this.kunaiSeen.clear();
     this.interp.shotsAt('shot:', now, (k, x, y) => { // 弾も他キャラと同じ時刻（NET_INTERP_DELAY 前）で描く
       const sh = this.shotData.get(Number(k.slice(5)));
@@ -1704,6 +1746,10 @@ export class GameScene extends Phaser.Scene {
     });
     for (const [id, im] of this.kunais) if (!this.kunaiSeen.has(id)) { im.destroy(); this.kunais.delete(id); } // 消えた弾の絵を片付ける
 
+  }
+
+  // update の段（refac3）: 地面: 大将の候補部屋の縁取り・資材・アイテム・地面の場の物
+  upGround(myTeam: any, s: any, labelSeen: any, thingPos: any, mine: any, time: number) {
 
     const g = this.g.clear();
     // 自陣の大将の候補部屋の縁取り
@@ -1715,6 +1761,10 @@ export class GameScene extends Phaser.Scene {
     }
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team), thingPos);
 
+  }
+
+  // update の段（refac3）: 視界（フォグ）
+  upVision(myTeam: any, s: any, sinceSnap: any, dtMs: number, mine: any) {
     // 視界（観戦者はフォグなし）
     const vg = this.visG;
     const fogTeam = mine ? myTeam : s.spec?.view === 0 || s.spec?.view === 1 ? s.spec.view : null; // 観戦者の「組の視界」はその組の視界で
@@ -1737,6 +1787,10 @@ export class GameScene extends Phaser.Scene {
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
     } else if (this.visDrawn) { vg.clear(); this.visDrawn = null; }
 
+  }
+
+  // update の段（refac3）: HUD: タイマー・リザルトの戻る・技のアイコン・ミニマップ・ラベル・KO・自分の情報・計測
+  upHud(s: any, myTeam: any, sinceSnap: any, now: number, labelSeen: any, mine: any) {
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
     setText($('.timer'), `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
@@ -1841,6 +1895,7 @@ export class GameScene extends Phaser.Scene {
     setCss($('#info'), 'display', this.perf ? 'block' : 'none');
     if (this.perf) setText($('#info'), `視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`);
   }
+
 }
 
 // 論理解像度を整数倍で表示（#wrap はノッチなどを除いた範囲）
