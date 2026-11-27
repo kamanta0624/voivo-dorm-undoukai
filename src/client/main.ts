@@ -475,6 +475,7 @@ class GameScene extends Phaser.Scene {
   homes: { x: number; y: number; w: number; h: number }[][] = [[], []]; // この試合の自宅（大将の部屋）
   homesKey = '';
   result: any = null; // 試合結果画面のデータ（サーバーの 'result'。結果画面の間だけ持つ）
+  resultPh = ''; resultAsked = false; // 前のフレームの phase（ended から離れた時に結果を捨てる）・ended の間に resultReq を送ったか
   prevPhase = ''; // 演出の切り替え検知用（直前のスナップショットの phase と残り時間）
   prevTimeLeft = Infinity;
   timed: { key: string; text: string; sub: string; color: string; until: number } | null = null; // 時間で消える大きな表示（GAME START・形勢・残り秒数）
@@ -1929,7 +1930,9 @@ class GameScene extends Phaser.Scene {
     const back = $('.back') as HTMLButtonElement;
     const backDisp = s.phase === 'ended' && mine ? 'block' : 'none';
     setCss(back, 'display', backDisp); setCss($('.totitle'), 'display', backDisp);
-    if (s.phase !== 'ended' && this.result) { this.result = null; if (resultOpen()) closeResult(); } // 次の試合へ進んだら捨てる
+    if (this.resultPh === 'ended' && s.phase !== 'ended') { this.result = null; this.resultAsked = false; if (resultOpen()) closeResult(); } // 次の試合へ進んだら捨てる（'result' は phase が ended になるより先に届くことがあるので、ended から離れた時だけ）
+    if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; this.room?.send('resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
+    this.resultPh = s.phase;
     setCss($('.rsbtn'), 'display', s.phase === 'ended' && this.result ? 'block' : 'none');
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     this.rosterHud(s, myTeam, sinceSnap);
