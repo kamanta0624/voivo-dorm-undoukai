@@ -36,5 +36,7 @@
 24. handoff_shot1.md　済
 25. handoff_hitbox1.md（shot1 の後）　済（そらのチャージの作り直しを含む）
 26. handoff_react1.md（react0 の報告を受けて。部位の境目とタップの割り当ては一覧と画像で本人に聞いてから。あいえるたんの koed は ierutan2 で「恐怖」に替わった）
-27. handoff_botai4.md（そら砲。0章の報告で止めて聞く。反映なし）
-28. teaser（宣伝動画の撮影。docs/handoff/teaser/ を参考に。画質優先で ffmpeg の画面録画。まず1本撮って止まる）
+27. handoff_ierutan3.md
+28. handoff_tachie2.md（選択画面を主に書き換える）
+29. handoff_botai4.md（そら砲。0章の報告で止めて聞く。反映なし）
+30. teaser（宣伝動画の撮影。docs/handoff/teaser/ を参考に。画質優先で ffmpeg の画面録画。まず1本撮って止まる）
