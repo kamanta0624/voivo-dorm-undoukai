@@ -24,10 +24,11 @@ function agg(ms: any[]) {
   for (const m of ms) {
     win[m.winner === 2 ? 2 : m.winner]++; kinds[m.kind] = (kinds[m.kind] ?? 0) + 1;
     for (const c of m.chars) {
-      const a = (ch[c.char] ??= { n: 0, w: 0, dmgChar: 0, dmgBoss: 0, dmgCourier: 0, dmgWall: 0, takenChar: 0, takenBoss: 0, takenPen: 0, kills: 0, deaths: 0, assists: 0 });
+      const a = (ch[c.char] ??= { n: 0, w: 0, dmgChar: 0, dmgBoss: 0, dmgCourier: 0, dmgWall: 0, takenChar: 0, takenBoss: 0, takenPen: 0, kills: 0, deaths: 0, assists: 0, shHit: 0, shMiss: 0, shWall: 0 });
       a.n++; if (m.winner === c.team) a.w++;
       a.dmgChar += c.dmg.char; a.dmgBoss += c.dmg.boss; a.dmgCourier += c.dmg.courier; a.dmgWall += c.dmg.wall;
       a.takenChar += c.taken.char; a.takenBoss += c.taken.boss; a.takenPen += c.taken.penalty; a.kills += c.kills; a.deaths += c.deaths; a.assists += c.assists;
+      if (c.shots) { a.shHit += c.shots.hit; a.shMiss += c.shots.miss; a.shWall += c.shots.wall; }
     }
   }
   const chars = Object.entries(ch).map(([k, a]: [string, any]) => ({ char: (NAMES as Record<string, any>)[k]?.name ?? k, n: a.n, win: a.w / a.n, ...Object.fromEntries(Object.entries(a).filter(([x]) => x !== 'n' && x !== 'w').map(([x, v]) => [x, r1((v as number) / a.n)])) })).sort((u, v) => v.n - u.n);
@@ -82,8 +83,8 @@ function show(k){
   if(a.mixed) h+='<p class="warn">人間の試合と Bot 戦が混ざっている。数字は参考（混ぜた数字で断定しない）</p>';
   h+='<h2>試合数・勝率</h2><p>'+a.n+'試合'+(a.n<FEW?'（少ない）':'')+'。だいだい組（陣営0） '+pct(a.win[0]/a.n)+'（'+a.win[0]+'）・みどり組（陣営1） '+pct(a.win[1]/a.n)+'（'+a.win[1]+'）・引き分け '+a.win[2]+'</p>';
   h+='<p>決着の種類: '+Object.entries(a.kinds).map(([k,v])=>({boss:'大将撃破',timeout:'時間切れ'})[k]+' '+pct(v/a.n)+'（'+v+'）').join('・')+'</p>';
-  h+='<h2>キャラ別（1試合あたりの平均）</h2><div class="wrap"><table><tr><th>キャラ</th><th>出場</th><th>出場時勝率</th><th>与ダメ 対キャラ</th><th>対大将</th><th>コバコ撃破</th><th>壁(段階)</th><th>被ダメ 対キャラ</th><th>対大将</th><th>罰</th><th>キル</th><th>デス</th><th>アシスト</th></tr>';
-  for(const c of a.chars) h+='<tr class="'+(c.n<FEW?'few':'')+'"><td>'+esc(c.char)+'</td><td>'+c.n+'</td><td>'+pct(c.win)+(c.n<FEW?'（少）':'')+'</td><td>'+c.dmgChar+'</td><td>'+c.dmgBoss+'</td><td>'+c.dmgCourier+'</td><td>'+c.dmgWall+'</td><td>'+c.takenChar+'</td><td>'+c.takenBoss+'</td><td>'+c.takenPen+'</td><td>'+c.kills+'</td><td>'+c.deaths+'</td><td>'+c.assists+'</td></tr>';
+  h+='<h2>キャラ別（1試合あたりの平均）</h2><div class="wrap"><table><tr><th>キャラ</th><th>出場</th><th>出場時勝率</th><th>与ダメ 対キャラ</th><th>対大将</th><th>コバコ撃破</th><th>壁(段階)</th><th>被ダメ 対キャラ</th><th>対大将</th><th>罰</th><th>キル</th><th>デス</th><th>アシスト</th><th>通常攻撃の弾 当たり／届かず／壁</th></tr>';
+  for(const c of a.chars) h+='<tr class="'+(c.n<FEW?'few':'')+'"><td>'+esc(c.char)+'</td><td>'+c.n+'</td><td>'+pct(c.win)+(c.n<FEW?'（少）':'')+'</td><td>'+c.dmgChar+'</td><td>'+c.dmgBoss+'</td><td>'+c.dmgCourier+'</td><td>'+c.dmgWall+'</td><td>'+c.takenChar+'</td><td>'+c.takenBoss+'</td><td>'+c.takenPen+'</td><td>'+c.kills+'</td><td>'+c.deaths+'</td><td>'+c.assists+'</td><td>'+((c.shHit+c.shMiss+c.shWall)?[c.shHit,c.shMiss,c.shWall].map((x)=>pct(x/(c.shHit+c.shMiss+c.shWall))).join('／'):'−')+'</td></tr>';
   h+='</table></div><p class="mute">出場が'+FEW+'未満のキャラは薄く表示（勝率を断定しない）</p>';
   const lg='<p class="lg"><span><i style="background:var(--t0)"></i>だいだい組</span><span><i style="background:var(--t1)"></i>みどり組</span></p>';
   const tmax=Math.max(1,...a.toku.flatMap((b)=>b.map((p)=>p[3])));

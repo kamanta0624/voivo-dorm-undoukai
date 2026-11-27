@@ -2656,5 +2656,18 @@ console.log('--- 壁の段階破壊（walldmg1）');
   ok('連戦（待機画面に戻る）: 壁の段階も最初に戻る', g.wallDmg.size === 0 && g.crackLog.length === 0 && !got.x.at(-1).cracks);
 }
 
+console.log('--- 通常攻撃の弾の飛ぶ距離（shot1）');
+{
+  const last = (r: any) => r.shots[r.shots.length - 1];
+  const z = mk('zunko'); z.A.tgt = null; z.r.attack('a', 0);
+  const aa = last(z.r), want = aaMode('zunko', null).range * C.AA_SHOT_REACH;
+  z.r.skill('a'); const arrow = last(z.r), S = CHARS.zunko.skill as any;
+  const u = mk('zunko'); u.A.ult = { form: 'ranged', tier: 0, until: 1e9 }; u.r.attack('a', 0); const ul = last(u.r), F = C.ULT_FORMS.ranged;
+  const as = u.r.summonAssist(0, 1); Object.assign(as, { char: 'zunko', x: 1552, y: 900, face: 0, tgt: null }); u.r.attack(as.id, 0); const sa = last(u.r);
+  ok(`通常攻撃の弾は射程×${C.AA_SHOT_REACH}飛ぶ（パワーアップの遠距離も）。技の弾・アシストの弾は変わらない`,
+    aa?.aa && Math.abs(aa.left - want) < 1e-9 && arrow !== aa && !arrow.aa && Math.abs(arrow.left - S.arrowSpeed * S.life) < 1e-9 && ul?.aa && Math.abs(ul.left - F.range * C.AA_SHOT_REACH) < 1e-9 && sa?.aa && sa !== ul && Math.abs(sa.left - aaMode('zunko', null).range) < 1e-9,
+    { aa: aa?.left, want, arrow: arrow?.left, ult: ul?.left, assist: sa?.left });
+}
+
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

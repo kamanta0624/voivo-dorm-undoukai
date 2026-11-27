@@ -52,6 +52,8 @@ const BUFF: Record<string, [string, boolean]> = {
   mochi: ['ずんだ餅', false], pen_slow: ['移動速度低下（罰）', false], pen_weak: ['攻撃力低下（罰）', false],
 };
 const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
+// 当たった時の演出（通常攻撃の汗、自分以外の斬撃、大将の弾などの爆発）: 弾・他キャラと同じ時刻で出す。自分の斬撃は自キャラ（今の位置）に合わせてすぐ出す
+const HIT_FX_KIND = (f: any, me: string) => f.kind === 'sweat' || (f.kind === 'slash' && f.who !== me) || (f.kind === 'aura' && f.color === 'dash');
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const MM_TOP = 86; // ミニマップの上端（論理座標）。右上の顔パネル（みどり組の側）の下
@@ -419,6 +421,7 @@ class GameScene extends Phaser.Scene {
   pingPending: number | null = null;
   sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
   tags = new Map<string, Phaser.GameObjects.Image>(); tagSeen = new Set<string>(); // 頭上の強さの札（キャラの id ごと）と、このフレームに置いた札
+  shotData = new Map<number, any>(); // 弾の id → 最後に届いた弾の情報（seen: そのスナップショットの時刻）
   kunais = new Map<number, Phaser.GameObjects.Image>(); kunaiSeen = new Set<number>(); // クナイの弾の絵（弾の id ごと）と、このフレームに見えた弾
   finishMeasure() {
     if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
@@ -683,14 +686,16 @@ class GameScene extends Phaser.Scene {
         this.sortieVoice(s); // 出撃セリフ（本人の端末だけ）
         this.powerFx(s); // パワーアップ中の余白の演出
         if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
-        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
+        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id })), ...s.shots.map((sh: any) => ({ x: sh.x, y: sh.y, id: 'shot:' + sh.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
+        for (const sh of s.shots) this.shotData.set(sh.id, { ...sh, seen: s.t }); // 弾の種類・向き（描く時刻の位置は interp から）
+        for (const [id, d] of this.shotData) if (d.seen < s.t - 2) this.shotData.delete(id); // 2秒前から届いていない弾を片付ける（描く時刻はそれより新しい）
         if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
         const m = s.players.find((p: any) => p.id === s.me);
         if (m) {
           if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
           else this.pred.reconcile(m.x, m.y, m.ack, m.spd, this.obstacles(s, m));
         }
-        this.fxQueue.push(...(s.fx ?? []));
+        for (const f of s.fx ?? []) this.fxQueue.push(HIT_FX_KIND(f, s.me) ? { ...f, at: s.t } : f); // 当たった時の演出（汗・他人の斬撃・爆発）は弾・他キャラと同じ時刻（NET_INTERP_DELAY 前）で出す
         (window as any).snap = s;
       });
       room.onMessage('notice', (m: any) => this.notify(m.text));
@@ -1671,16 +1676,17 @@ class GameScene extends Phaser.Scene {
       if (!bare && onScr) feet.fillStyle(teamColor(team), isMe ? 0.9 : 0.5).fillEllipse(cx, cy, 18 * scale, 7 * scale);
       const tagL = p?.ult && p.ult.left !== null ? C.POWER_TAGS[Math.min(p.ult.tier, C.POWER_TAGS.length - 1)] : p?.assist ? C.ASSIST_TAGS[Math.min(p.tier, C.ASSIST_TAGS.length - 1)] : null; // 強さの札（パワーアップ中 1〜MAX、アシスト★）
       this.placeTag(id, alpha === 1 && !bare && s.phase !== 'finale' && onScr ? tagL : null, cx + 12, cy - h - 3.5); // HP バーの右
-      if (alpha === 1 && !bare && s.phase !== 'finale' && onScr) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hp / maxHp)), 3);
+      const hpV = this.interp.hpAt(id, now) ?? hp; // 頭上の HP バーと被弾の演出は描く時刻（弾・他キャラと同じ NET_INTERP_DELAY 前）の HP で
+      if (alpha === 1 && !bare && s.phase !== 'finale' && onScr) feet.fillStyle(0x000000, 0.6).fillRect(cx - 10, cy - h - 5, 20, 3).fillStyle(teamColor(team)).fillRect(cx - 10, cy - h - 5, 20 * Math.max(0, Math.min(1, hpV / maxHp)), 3);
       // 被弾: 点滅（全段階）とダメージ数値。被弾側の最大HP比で 小=点滅だけ、中=ダメージ量に比例した着弾エフェクト、大=派手な着弾エフェクト＋揺れ（HIT_FX）
-      if (e.hp !== undefined && hp < e.hp) {
-        const ratio = (e.hp - hp) / maxHp;
+      if (e.hp !== undefined && hpV < e.hp) {
+        const ratio = (e.hp - hpV) / maxHp;
         e.flashUntil = time + C.HIT_FLASH_MS;
-        this.popup(String(Math.round(e.hp - hp)), cx, cy - h - 6, 'dmg');
+        this.popup(String(Math.round(e.hp - hpV)), cx, cy - h - 6, 'dmg');
         if (ratio >= C.HIT_FX.mid) this.hits.push({ x: cx, y: cy - h / 2, ratio, big: ratio >= C.HIT_FX.big, t0: time, seed: Math.random() * 6.283 });
         if (ratio >= C.HIT_FX.big) { e.shakeUntil = time + C.HIT_FX.shakeMs; if (isMe) this.cameras.main.shake(C.HIT_FX.shakeMs, C.HIT_FX.cam); }
       }
-      e.hp = hp;
+      e.hp = hpV;
       if (e.shakeUntil && time < e.shakeUntil) sp.x += Math.round(C.HIT_FX.amp * ((e.shakeUntil - time) / C.HIT_FX.shakeMs) * Math.sin(time * 0.09)); // 大ダメージ: 左右に揺れて収まる
       if (time < e.flashUntil && Math.floor((e.flashUntil - time) / C.HIT_BLINK_MS) % 2 === 0) sp.setTintFill(0xffffff); // 被弾は白く点滅（状態による点滅は状態の目印で上書き）
       else sp.clearTint();
@@ -1803,7 +1809,9 @@ class GameScene extends Phaser.Scene {
       return seen.has(key) && sprite?.visible ? { x: sprite.x, y: sprite.y } : null;
     };
     // 技の範囲エフェクト
+    const later: any[] = [];
     for (const f0 of this.fxQueue) {
+      if (f0.at !== undefined && !this.interp.reached(f0.at, now)) { later.push(f0); continue; }
       const target = f0.kind === 'sweat' ? sweatPos(f0.target) : null;
       if (f0.kind === 'sweat' && !target) continue;
       const f = target ? { ...f0, ...target } : f0.kind === 'slash' && f0.who === s.me ? { ...f0, x: this.me.x, y: this.me.y } : f0; // 自分の斬撃は画面の自キャラの位置から（向き・射程・角度はサーバーの値）
@@ -1812,7 +1820,7 @@ class GameScene extends Phaser.Scene {
       else if (f.kind === 'toku') this.popup(`徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）
       else this.skillFx.push({ ...f, t0: time });
     }
-    this.fxQueue = [];
+    this.fxQueue = later;
     this.sweatFx = this.sweatFx.filter((f) => {
       const pos = sweatPos(f.target), age = (time - f.born) / C.SWEAT_MS;
       if (!pos || age >= 1) { f.sp.destroy(); return false; }
@@ -1880,12 +1888,15 @@ class GameScene extends Phaser.Scene {
     this.aimArrow(fxG, mine);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
     this.kunaiSeen.clear();
-    for (const sh of s.shots) {
-      if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); continue; } // 技の弾（client/skills）
-      if (sh.kind === 'kunai') { this.placeKunai(sh); continue; } // クナイ: 起動時に作った絵を Image で置く
+    this.interp.shotsAt('shot:', now, (k, x, y) => { // 弾も他キャラと同じ時刻（NET_INTERP_DELAY 前）で描く
+      const sh = this.shotData.get(Number(k.slice(5)));
+      if (!sh) return;
+      sh.x = x; sh.y = y;
+      if (SHOT_VIEW[sh.kind]) { SHOT_VIEW[sh.kind](fxG, sh, time); return; } // 技の弾（client/skills）
+      if (sh.kind === 'kunai') { this.placeKunai(sh); return; } // クナイ: 起動時に作った絵を Image で置く
       if (sh.kind === 'cannon') fxG.fillStyle(0xc87a3a).fillCircle(sh.x, sh.y, 5).lineStyle(1, 0x5a3010).strokeCircle(sh.x, sh.y, 5); // きりたん砲
       else fxG.fillStyle(0x8fdf5f).fillCircle(sh.x, sh.y, C.BULLET_RADIUS).lineStyle(1, 0x2f6f1f).strokeCircle(sh.x, sh.y, C.BULLET_RADIUS);
-    }
+    });
     for (const [id, im] of this.kunais) if (!this.kunaiSeen.has(id)) { im.destroy(); this.kunais.delete(id); } // 消えた弾の絵を片付ける
 
 
@@ -2016,7 +2027,7 @@ class GameScene extends Phaser.Scene {
     const meP = $('.me'), meR = mine && s.roster.find((r: any) => r.id === s.me);
     setCss(meP, 'display', mine && s.phase !== 'waiting' ? 'block' : 'none');
     if (mine) {
-      setText($('.me .hp b'), String(Math.max(0, Math.ceil(mine.hp))));
+      setText($('.me .hp b'), String(Math.max(0, Math.ceil(this.interp.hpAt(mine.id, now) ?? mine.hp)))); // 描く時刻の HP（頭上の HP バーと同じ）
       setCss($('.me .bd i'), 'width', `${Math.min(100, (mine.bad / C.HUD_BAD_MAX) * 100)}%`); setText($('.me .bd span'), `悪行 ${mine.bad.toFixed(1)}`);
       setText($('.me .nm'), meR?.name ?? '');
       meP.classList.toggle('wanted', s.teams[myTeam]?.wanted === mine.id);

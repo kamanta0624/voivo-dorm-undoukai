@@ -147,6 +147,7 @@ export const CONFIG = {
   PLAYER_SPEED: 170, // px/秒
   ATTACK_DAMAGE: 20,
   ATTACK_RANGE: 50,
+  AA_SHOT_REACH: 1.4, // 通常攻撃の弾（aa）が飛ぶ距離＝射程×これ（撃ち始める距離・射程の円は射程のまま）。2026-11-27 shot1 で仮置き
   ATTACK_ARC: Math.PI / 2, // 前方扇形の角度
   ATTACK_COOLDOWN_MELEE: 1, // 通常攻撃（オート・手動とも）の間隔: 近接
   ATTACK_COOLDOWN_RANGED: 1.5, // 遠距離（弾のモード）

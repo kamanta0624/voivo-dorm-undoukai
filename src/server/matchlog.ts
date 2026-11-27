@@ -18,6 +18,7 @@ type CharRec = {
   taken: { char: number; boss: number; penalty: number }; // 被ダメ（相手キャラ・アシスト／大将／スロットの罰）
   kills: number; deaths: number; assists: number; assistKills: number; tokuGain: number; tokuLoss: number; bad: number; skills: number; ults: number;
   deathRooms: (string | null)[]; states: Record<string, number>;
+  shots: { hit: number; miss: number; wall: number }; // 通常攻撃の弾の結果（当たった／届かずに消えた／壁で止まった）
   series: { bossDmg: number[]; tokuGain: number[]; tokuLoss: number[] }; // 1秒ごと（添字＝試合の秒）
 };
 type Spin = { t: number; team: number; out: 'win' | 'pen' | 'miss'; reels: number[]; act: string | null; sym: { kind: string; char: string | null } | null; tier: number | null; pen: string | null };
@@ -42,7 +43,7 @@ export class MatchRec {
   private ch(p: any): CharRec {
     let c = this.chars.get(p.id);
     if (!c) {
-      c = { id: p.id, char: p.char, team: p.team, human: !p.bot, dmg: { char: 0, boss: 0, courier: 0, wall: 0 }, taken: { char: 0, boss: 0, penalty: 0 }, kills: 0, deaths: 0, assists: 0, assistKills: 0, tokuGain: 0, tokuLoss: 0, bad: 0, skills: 0, ults: 0, deathRooms: [], states: Object.fromEntries(BOT_STATES.map((s) => [s, 0])), series: { bossDmg: [], tokuGain: [], tokuLoss: [] } };
+      c = { id: p.id, char: p.char, team: p.team, human: !p.bot, dmg: { char: 0, boss: 0, courier: 0, wall: 0 }, taken: { char: 0, boss: 0, penalty: 0 }, kills: 0, deaths: 0, assists: 0, assistKills: 0, tokuGain: 0, tokuLoss: 0, bad: 0, skills: 0, ults: 0, shots: { hit: 0, miss: 0, wall: 0 }, deathRooms: [], states: Object.fromEntries(BOT_STATES.map((s) => [s, 0])), series: { bossDmg: [], tokuGain: [], tokuLoss: [] } };
       this.chars.set(p.id, c);
     }
     c.char = p.char; if (!p.bot) c.human = true;
@@ -95,6 +96,7 @@ export class MatchRec {
   wall(p: any, n: number) { if (this.on && p && !p.assist) this.ch(p).dmg.wall += n; }
   skill(p: any) { if (this.on && !p.assist) this.ch(p).skills++; }
   ult(p: any) { if (this.on && !p.assist) this.ch(p).ults++; }
+  aaShot(p: any, out: 'hit' | 'miss' | 'wall') { if (this.on && !p.assist) this.ch(p).shots[out]++; }
   // スロット: 回転の止まり（当落・出目）→ 当選なら払い出し（そろった図柄・段階）、罰なら種類。当選・罰はイベントにも
   spin(room: any, team: number, out: Spin['out'], reels: number[], act: string | null) {
     if (!this.on) return;

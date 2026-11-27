@@ -70,12 +70,12 @@ export class Predictor {
 // 他キャラの描画: サーバー時刻付きのスナップショットを溜め、少し過去の時刻の位置を補間する
 export class Interp {
   measure: ClientMeasure | null = null;
-  buf: { t: number; pos: Map<string, { x: number; y: number }> }[] = [];
+  buf: { t: number; pos: Map<string, { x: number; y: number; hp?: number }> }[] = [];
   offset: number | null = null; // 受信時刻 - サーバー時刻 の最小値（遅延の揺らぎを除く）
 
-  push(t: number, recvMs: number, items: { id: string; x: number; y: number }[]) {
+  push(t: number, recvMs: number, items: { id: string; x: number; y: number; hp?: number }[]) {
     if (this.buf.length && t <= this.buf[this.buf.length - 1].t) return;
-    this.buf.push({ t, pos: new Map(items.map((i) => [i.id, { x: i.x, y: i.y }])) });
+    this.buf.push({ t, pos: new Map(items.map((i) => [i.id, { x: i.x, y: i.y, hp: i.hp }])) });
     while (this.buf.length > 2 && this.buf[1].t < t - 2) this.buf.shift();
     const o = recvMs / 1000 - t;
     this.offset = this.offset === null ? o : Math.min(this.offset + C.NET_OFFSET_DRIFT, o);
@@ -84,6 +84,32 @@ export class Interp {
   // 描画するサーバー時刻
   renderTime(nowMs: number) {
     return nowMs / 1000 - (this.offset ?? 0) - C.NET_INTERP_DELAY;
+  }
+
+  // 描く時刻の HP（その時刻までに届いた最後のスナップショットの値）。被弾の演出を弾・他キャラと同じ時刻で出すため
+  hpAt(id: string, nowMs: number): number | null {
+    const T = this.renderTime(nowMs);
+    let v: number | null = null;
+    for (const s of this.buf) { if (s.t > T) break; const p = s.pos.get(id); if (p?.hp !== undefined) v = p.hp; }
+    return v;
+  }
+
+  // 描く時刻を過ぎたか（サーバー時刻 t の出来事を、弾・他キャラと同じ時刻で出すため）
+  reached(t: number, nowMs: number) { return this.offset === null || t <= this.renderTime(nowMs); }
+
+  // 弾: 描く時刻に飛んでいる弾の id と位置（push で渡した id が prefix で始まるもの）。まだ撃たれていない弾・消えた後の弾は返さない。消えた弾は次のスナップショットの時刻まで直前の位置に置く
+  shotsAt(prefix: string, nowMs: number, f: (id: string, x: number, y: number) => void) {
+    const T = this.renderTime(nowMs);
+    let i = -1;
+    for (let j = 0; j < this.buf.length; j++) if (this.buf[j].t <= T) i = j;
+    if (i < 0) return;
+    const a = this.buf[i], b = this.buf[i + 1];
+    for (const [id, p] of a.pos) {
+      if (!id.startsWith(prefix)) continue;
+      const q = b?.pos.get(id);
+      if (q && Math.hypot(q.x - p.x, q.y - p.y) <= C.NET_SNAP * 2) { const k = (T - a.t) / (b!.t - a.t); f(id, p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k); }
+      else f(id, p.x, p.y);
+    }
   }
 
   at(id: string, nowMs: number): { x: number; y: number } | null {

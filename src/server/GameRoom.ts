@@ -1345,7 +1345,7 @@ export class GameRoom extends Room {
     this.cancelRecall(p); // 攻撃でリコール中断
     const a = aim ?? p.face, toC = courier ?? p.aim === 'courier';
     if (SKILLS[p.char]?.attack?.(this, p, a)) return; // 技による通常攻撃の上書き
-    const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC });
+    const aaShot = (s: Shot) => Object.assign(s, { aa: true, courier: toC, left: p.assist ? s.left : s.left * C.AA_SHOT_REACH }); // キャラの通常攻撃の弾は射程より遠くまで飛ぶ（アシストの弾は射程まで）
     let dmg = p.assist ? C.ATTACK_DAMAGE * lvMult(C.POWER_MULT, p.tier) : charAtk(p.char);
     let range = C.ATTACK_RANGE, arc = C.ATTACK_ARC, fx: string | undefined;
     if (p.ult && !p.ult.pending) {
@@ -1764,13 +1764,14 @@ export class GameRoom extends Room {
       const owner = this.players.get(s.owner);
       s.steer?.(s, dt);
       let step = Math.min(s.sp * dt, s.left), done = (!owner || (owner.assist && !owner.alive)) && !s.boom; // 持ち主がいない（倒れたアシストを含む）弾は消える
+      let out: 'hit' | 'miss' | 'wall' | null = done ? null : 'miss'; // 通常攻撃の弾の結果（記録用）
       while (step > 0 && !done) {
         const d = Math.min(8, step);
         s.x += (s.vx / s.sp) * d; s.y += (s.vy / s.sp) * d; s.left -= d; step -= d;
-        if (this.walls.some((w) => inRect(s.x, s.y, w))) { done = true; break; }
+        if (this.walls.some((w) => inRect(s.x, s.y, w))) { done = true; out = 'wall'; break; }
         const hit = this.enemyThings(s.team).find((t) => (!s.aa || s.courier || t.k !== 'c') && Math.hypot(t.x - s.x, t.y - s.y) <= t.r + C.BULLET_RADIUS); // 通常攻撃の弾はコバコを狙うときだけコバコに当たる
         if (hit) {
-          done = true;
+          done = true; out = 'hit';
           if (s.boom) break;
           if (s.onHit) s.onHit(hit);
           else this.hitThing(owner!, hit, s.dmg, s.aa);
@@ -1779,6 +1780,7 @@ export class GameRoom extends Room {
       }
       if (!(done || s.left <= 0)) continue;
       this.shots = this.shots.filter((x) => x !== s);
+      if (s.aa && owner && out) this.rec.aaShot(owner, out);
       if (s.boom && this.phase === 'playing') this.explode(s.team, s.x, s.y, s.boom, s.dmg); // 大将の弾: 着弾地点で爆発
     }
   }
