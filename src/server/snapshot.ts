@@ -5,6 +5,9 @@ import { CONFIG as C } from '../shared/config';
 import { SKILLS, ENTS } from './skills';
 import { thingId } from './GameRoom';
 import type { Snapshot } from '../shared/protocol';
+import { Packr } from 'msgpackr';
+
+const packr = new Packr({ useRecords: false }); // Colyseus の送信と同じ詰め方（スナップショットの大きさの計測だけに使う。sync2）
 
 export function sendSnapshots(room: GameRoom) {
   const obs = room.seeWalls; // 敵の表示は視界の壁（透過壁を通す）
@@ -52,6 +55,7 @@ export function sendSnapshots(room: GameRoom) {
       shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),
       fx: v.fx, broken: room.broken, ...(cracks ? { cracks } : {}), bossRooms: room.bossRooms, ...(room.reveal.has(client.sessionId) ? { reveal: true } : {}),
     };
+    if (room.measure && room.phase === 'playing' && room.measure.tick.n % 10 === 0) room.measure.client(client.sessionId).bytes.add(packr.pack(snap).length + 3); // 大きさの計測（sync2。10tick に1回。詰める手間を本番で増やしすぎない）。+3: 見出し（種類の番号・'s'）
     client.send('s', snap);
   }
 }
