@@ -284,7 +284,10 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .lbl.home{font-size:calc(var(--z) * 9px);opacity:.9}
 #fx .skill{position:absolute;border:2px solid #fff;border-radius:6px;background:#335;color:#fff;font:bold calc(var(--z) * 6px)/1.2 sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
 #fx .skill{isolation:isolate}
-#fx .skill i{position:absolute;inset:0;background:conic-gradient(#000b var(--p), transparent 0)}
+#fx .skill i{position:absolute;inset:0;overflow:hidden} /* CT の暗い扇形（上から時計回り）: 右半分・左半分の窓の中で、半分だけ暗い大きな板を rotate で回す（transform だけ。conic-gradient を毎フレーム描き直さない。dom1） */
+#fx .skill i u{position:absolute;top:0;bottom:0;overflow:hidden}#fx .skill i u.a{left:50%;right:0}#fx .skill i u.b{left:0;right:50%}
+#fx .skill i em{position:absolute;top:-100%;width:300%;height:300%;transform:rotate(0deg);will-change:transform}
+#fx .skill i u.a em{left:-150%;background:linear-gradient(to right,#000b 50%,transparent 50%)}#fx .skill i u.b em{left:-50%;background:linear-gradient(to right,transparent 50%,#000b 50%)}
 #fx .skill b,#fx .skill span{position:relative}
 #fx .skill s{display:none;position:absolute;left:0;right:0;bottom:0;height:var(--g);background:#ffb020aa} /* そらのチャージのゲージ（下から溜まる。100%超えは色が変わる）。CT の暗い扇形はこの上に重なる */
 #fx .skill s.over{background:linear-gradient(#ff4020cc,#ffb020aa)}
@@ -379,7 +382,7 @@ kohow.className = 'kohow';
 fx.appendChild(kohow);
 // HUD（DOM。文字をドットと一緒に縮小しない）
 const hudEl = document.createElement('div');
-hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="rsbtn">リザルト</button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
+hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i><u class="a"><em></em></u><u class="b"><em></em></u></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="rsbtn">リザルト</button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
@@ -2028,7 +2031,7 @@ class GameScene extends Phaser.Scene {
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
       setText($('.skill .sn'), sk.name);
       setText($('.skill b'), hud ? hud : cd > 0 ? String(Math.ceil(cd)) : 'OK');
-      setCss($('.skill i'), '--p', `${(cd / sk.ct) * 360}deg`);
+      { const a = Math.min(360, (cd / sk.ct) * 360), ea = $('.skill .a em'), eb = $('.skill .b em'); this.setTf(ea, `rotate(${Math.min(a, 180)}deg)`); this.setTf(eb, `rotate(${Math.max(0, a - 180)}deg)`); } // 0〜180度は右の板、180〜360度は左の板
       setCss(skEl, 'border-color', cd > 0 || hud ? '#888' : '#ffe066');
       // そらのチャージ: 技ボタンのゲージと％（本人だけ。撤退中は0%）。スナップショットの値のまま（間を足すと届いたときに数字が戻ることがある）
       const ch = mine.st?.solarCharge;
