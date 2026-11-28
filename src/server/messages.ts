@@ -28,6 +28,7 @@ export const HANDLERS = {
     if (p.inputs.length > C.NET_QUEUE_MAX) { p.inputs.shift(); if (room.measure && room.phase === 'playing') room.measure.client(client.sessionId).dropped++; }
   },
   // Q を押した: 押している間リコールを溜める
+  snapFull: (room: GameRoom, client: Client) => { room.snapSent.delete(client.sessionId); }, // 差分（sync2）: 受け取りの準備ができる前（main の読み込み中）に届いた分は捨てられるので、準備ができたら全部送り直す
   resultReq: (room: GameRoom, client: Client) => { const r = room.rec.summary(); if (room.phase === 'ended' && r) client.send('result', r); }, // 試合結果画面のデータ: 結果画面の間に入室・再接続した人は、受け取る準備ができてから求める
   qdown: (room: GameRoom, client: Client, m?: { seq?: number }) => {
     const p = room.players.get(room.owners.get(client.sessionId) ?? '');

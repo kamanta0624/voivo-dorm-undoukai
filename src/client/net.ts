@@ -39,6 +39,7 @@ export function connect(sc: GameScene) {
     room.onMessage('netFinish', (m: any) => { if (m.id === sc.measureId) sc.finishMeasure(); });
     room.onMessage('s', (s: Snapshot) => {
       // 差分（sync2）: 省かれた項目は前のスナップショット・キャラごとの前の値で埋める（以後は全部そろった形として扱う）
+      if (!sc.snapFull) { if (!('roster' in s)) return; sc.snapFull = true; } // 全部そろったスナップショットが届くまでは使わない（snapFull を送った後に最初の全部が届く）
       for (const k of SNAP_KEEP) if (!(k in s)) (s as any)[k] = sc.snap?.[k];
       for (const p of s.players as any[]) { if ('char' in p) sc.pKeep.set(p.id, Object.fromEntries(SNAP_PKEEP.map((k) => [k, p[k]]))); else Object.assign(p, sc.pKeep.get(p.id)); }
       if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== sc.measureId) {
@@ -66,6 +67,7 @@ export function connect(sc: GameScene) {
       for (const f of s.fx ?? []) sc.fxQueue.push(HIT_FX_KIND(f, s.me) ? { ...f, at: s.t } : f); // 当たった時の演出（汗・他人の斬撃・爆発）は弾・他キャラと同じ時刻（NET_INTERP_DELAY 前）で出す
       (window as any).snap = s;
     });
+    sendC2S(room, 'snapFull'); // 受け取りの準備ができたので全部送ってもらう（それまでに届いた差分は捨てられている。sync2）
     room.onMessage('notice', (m: any) => sc.notify(m.text));
     room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
     room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
