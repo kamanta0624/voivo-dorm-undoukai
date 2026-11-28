@@ -1394,6 +1394,7 @@ export class GameScene extends Phaser.Scene {
       const r = fx.style, b = this.game.canvas.getBoundingClientRect();
       r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
       r.setProperty('--z', String(this.game.scale.zoom));
+      { const F = C.HUD_SCALE * 0.85 * this.game.scale.zoom * (devicePixelRatio || 1); r.setProperty('--rp', `${Math.ceil(13 * F) / F}px`); } // リールの帯のコマの間隔: 拡大（.tk の HUD_SCALE × .mh の 0.85×--z）後に実画素の整数になる値（13px の端数でドット絵の拾い方が変わらないように。reel1）
       this.sideFit(b);
       this.lobbyTachieFit(); // 選択画面の立ち絵も枠の大きさに合わせ直す
     }

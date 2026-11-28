@@ -83,7 +83,7 @@ export function modernHud(sc: GameScene, s: any, t: number, k: number, tm: any, 
     if ((tv as any)._h !== tvh) { (tv as any)._h = tvh; tv.innerHTML = tvh; }
   }
   if (sc.mfxIdleAt[t] && now >= sc.mfxIdleAt[t]) { sc.mfxIdleAt[t] = 0; f.idle(now); }
-  if (s.phase === 'playing') f.frame(now);
+  f.run(s.phase === 'playing'); // リールは試合中だけ回す
   const v = fresh ? JSON.stringify([m.mode, m.backLeft, m.holds, m.cur, m.lv]) : sc.mfxView[k];
   if (v !== sc.mfxView[k]) {
     sc.mfxView[k] = v;
