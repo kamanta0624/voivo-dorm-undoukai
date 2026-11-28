@@ -67,6 +67,12 @@ export type SnapPlayer = {
   assist: boolean; tier: number; ult: { form: string; tier: number; left: number | null } | null;
   boost: boolean; slow: boolean; weak: boolean; cdMax: number;
 };
+// スナップショットの差分（sync2）: SNAP_KEEP は前に送った中身から変わった時だけ載せる項目。SNAP_PKEEP はキャラごとに、変わった時だけ載せる項目（初めて送るキャラは全部）
+// 省いた項目は、クライアントが受け取った時に前の値で埋める（net.ts）。入室・再接続・試合の作り直しでは全部送り直す（room.snapSent を消す）
+export const SNAP_KEEP = ['roster', 'materials', 'items', 'broken', 'bossRooms'] as const;
+export const SNAP_PKEEP = ['char', 'team', 'bot', 'assist', 'tier', 'maxHp', 'cdMax'] as const;
+// 敵（視界の制限つきで見ている人の相手の陣営）には送らない項目。クライアントは自キャラ・味方の分だけ使う
+export const SNAP_FOE_DROP = ['rage', 'bad', 'cd', 'cdMax', 'ack', 'cage', 'spd', 'aim', 'tgt', 'skillCd', 'still', 'lock', 'stunned', 'respawnIn'] as const;
 export type Snapshot = {
   practice?: { mode: string; lv: number[]; foe: string | null };
   e2eFists?: number;

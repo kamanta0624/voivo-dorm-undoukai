@@ -2200,8 +2200,17 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const bots0 = [...b.players.values()].filter((p: any) => p.bot).length, s1 = join(b, 's1', nm);
   ok('対戦中の常設の部屋へ観戦で入れる（参加者にならず Bot はそのまま）。/status は対戦中・観戦者数', !b.owners.has('s1') && [...b.players.values()].filter((p: any) => p.bot).length === bots0 && OG.status([b]).rooms[0].state === 'playing' && OG.status([b]).rooms[0].humans === 1 && OG.status([b]).rooms[0].spec === 1);
   b.sendSnapshots(); ok('観戦者のスナップショット: me なし・フォグなし（全員）・実況のフォーカスと視点', s1.got.me === null && s1.got.players.length === b.players.size && s1.got.spec.view === 'all' && 'focus' in s1.got.spec);
+  { // sync2: 変わらない項目は2回目から省き、試合の作り直し・再接続では全部送る。敵には自分・味方だけが使う項目を送らない
+    const pc = b.clients.find((c: any) => b.owners.get(c.sessionId) === 'p0'), me = b.players.get('p0'), foe = [...b.players.values()].find((p: any) => p.team !== me.team && p.alive);
+    const fxy = { x: foe.x, y: foe.y }; Object.assign(foe, { x: me.x + 30, y: me.y }); b.snapSent.clear(); b.sendSnapshots(); const f1 = pc.got; b.sendSnapshots(); const f2 = pc.got;
+    const fp = (s: any) => s.players.find((p: any) => p.id === foe.id), mp = (s: any) => s.players.find((p: any) => p.id === 'p0');
+    ok('差分（sync2）: 1回目は全部、2回目は roster・壁・資材とキャラの変わらない項目を省く。位置・HP は毎回', 'roster' in f1 && 'broken' in f1 && !('roster' in f2) && !('broken' in f2) && 'char' in mp(f1) && !('char' in mp(f2)) && 'x' in mp(f2) && 'hp' in mp(f2));
+    ok('敵に送らない項目（sync2）: 見えている敵に skillCd・cd・spd・ack・aim・tgt なし。自キャラにはある', !!fp(f1) && ['skillCd', 'cd', 'spd', 'ack', 'aim', 'tgt'].every((k) => !(k in fp(f1))) && ['skillCd', 'cd', 'spd', 'ack'].every((k) => k in mp(f1)) && 'ult' in fp(f1) && 'st' in fp(f1));
+    b.snapSent.delete(pc.sessionId); b.sendSnapshots(); ok('差分（sync2）: 送った記録を消すと（再接続・入室）全部送り直す', 'roster' in pc.got && 'char' in mp(pc.got));
+    Object.assign(foe, fxy);
+  }
   b.messages.spec(s1, { view: 1 }); b.sendSnapshots(); b.messages.spec(b.clients[0], { view: 'all' });
-  ok('観戦者の視点「組の視界」: その組の視界の分だけ送る。参加者の視点の指定は無視', s1.got.spec.view === 1 && s1.got.players.length < b.players.size && s1.got.players.filter((p: any) => p.team === 1).length === C.TEAM_SIZE && !b.specView.has(b.clients[0].sessionId));
+  ok('観戦者の視点「組の視界」: その組の視界の分だけ送る。参加者の視点の指定は無視', s1.got.spec.view === 1 && s1.got.players.length < b.players.size && s1.got.players.filter((p: any) => b.players.get(p.id).team === 1).length === C.TEAM_SIZE && !b.specView.has(b.clients[0].sessionId));
   for (let i = 2; i <= C.SPECTATOR_MAX; i++) join(b, 's' + i);
   ok(`観戦者は${C.SPECTATOR_MAX}人まで。超えたら「観戦席が満員です」`, auth(b).err === '観戦席が満員です' && OG.status([b]).rooms[0].spec === C.SPECTATOR_MAX);
   // 結果画面で参加者全員が「戻る」→ 観戦者を入室順に参加者へ（陣営は人数の少ない側、参加者 TEAM_SIZE×2 まで。残りは観戦のまま）
