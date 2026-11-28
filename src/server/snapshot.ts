@@ -27,8 +27,8 @@ export function sendSnapshots(room: GameRoom) {
   for (const k of SNAP_KEEP) keep[k] = JSON.stringify(keepSrc[k]);
   for (const client of room.clients) {
     const me = room.players.get(room.owners.get(client.sessionId) ?? '');
-    let sent = room.snapSent.get(client.sessionId);
-    if (!sent) room.snapSent.set(client.sessionId, (sent = { k: {}, p: new Map() }));
+    let sent = room.snapSent.get(client.sessionId), full = false;
+    if (!sent) { room.snapSent.set(client.sessionId, (sent = { k: {}, p: new Map() })); full = true; } // 送った記録が無い（入室・snapFull・再接続・試合の作り直しの後）: 全部入りに印を付ける
     const cn = room.crackSent.get(client.sessionId) ?? 0, cracks = cn < room.crackLog.length ? room.crackLog.slice(cn) : null; // 壁の段階（小破・中破）は変わった分だけ
     room.crackSent.set(client.sessionId, room.crackLog.length);
     const sv = me ? null : room.specView.get(client.sessionId) ?? 'all'; // 観戦者の視点
@@ -61,7 +61,8 @@ export function sendSnapshots(room: GameRoom) {
       fx: v.fx, broken: room.broken, ...(cracks ? { cracks } : {}), bossRooms: room.bossRooms, ...(room.reveal.has(client.sessionId) ? { reveal: true } : {}),
     };
     // 変わった時だけ送る（sync2 1章）: 前に送った中身と同じ項目は省く（クライアントが前の値を使う）。キャラごとの変わらない項目も同じ
-    for (const k of SNAP_KEEP) { if (sent.k[k] === keep[k]) delete (snap as any)[k]; else sent.k[k] = keep[k]; }
+    for (const k of SNAP_KEEP) { if (k in sent.k && sent.k[k] === keep[k]) delete (snap as any)[k]; else sent.k[k] = keep[k]; } // 初めては値が無くても載せる（全部入りに全項目がそろう）
+    if (full) snap.full = true; // クライアントは全部入りが届くまで差分を使わない（sync2）
     for (const p of snap.players as any[]) {
       if (me && v !== all && p.team !== me.team) for (const k of SNAP_FOE_DROP) delete p[k]; // 敵には描画・表示に使わない項目を送らない（sync2 2章。改造クライアントで敵のクールタイム等が見えないように）
       const key = JSON.stringify(SNAP_PKEEP.map((k) => p[k]));

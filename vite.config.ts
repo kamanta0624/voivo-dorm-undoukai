@@ -17,7 +17,7 @@ export default defineConfig({
   define: { __BUILD__: JSON.stringify(BUILD), __GAME_PORT__: GAME_PORT },
   plugins: [{ name: 'build-txt', generateBundle() { this.emitFile({ type: 'asset', fileName: 'build.txt', source: BUILD }); } }], // dist/build.txt: 配信中のビルド（サーバーの /status が返し、旧版のクライアントを再読み込みさせる）
   server: {
-    watch: { ignored: [`${process.cwd()}/.claude/worktrees/**`] }, // この下の worktree を見張らない（worktree のビルド・録画のたびに、main の開発版につないだ端末が読み直されていた。QUEUE 進め方 13）。worktree の中で立てた時は自分のファイルを見張る（**/.claude/worktrees/** だと自分も外れる）
+    watch: { ignored: [`${process.cwd()}/.claude/worktrees/**`, `${process.cwd()}/verify/evidence/**`] }, // この下の worktree と証拠フォルダ（数GB。e2e・録画のたびに増える）を見張らない（worktree のビルド・録画のたびに、main の開発版につないだ端末が読み直されていた。QUEUE 進め方 13）。worktree の中で立てた時は自分のファイルを見張る（**/.claude/worktrees/** だと自分も外れる）
     https: process.env.HTTPS ? { key: readFileSync('certs/key.pem'), cert: readFileSync('certs/cert.pem') } : undefined,
     ...(process.env.CLIENT_PORT ? { port: Number(process.env.CLIENT_PORT), strictPort: true } : {}),
     proxy: { '/colyseus': { target: `http://localhost:${GAME_PORT}`, ws: true, rewrite: (p) => p.replace(/^\/colyseus/, '') }, '/status': `http://localhost:${GAME_PORT}`, '/admin': `http://localhost:${GAME_PORT}` }, // /status・/admin はゲームサーバー（src/server/outgame.ts）

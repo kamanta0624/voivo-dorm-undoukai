@@ -7,7 +7,7 @@
     "dev": "concurrently -k -n server,client \"tsx watch src/server/index.ts\" \"vite --host\"",
     "typecheck": "tsc",
     "assets": "sh tools/build_assets.sh",
-    "test:server": "tsx verify/server.ts && tsx verify/net.ts && tsx verify/netmeasure.ts && tsx verify/netfix.ts && tsx verify/input.ts && tsx verify/commentary.ts && tsx verify/slot_modern.ts",
+    "test:server": "tsx verify/server.ts && tsx verify/net.ts && tsx verify/netmeasure.ts && tsx verify/netfix.ts && tsx verify/input.ts && tsx verify/commentary.ts && tsx verify/slot_modern.ts && tsx verify/snapmerge.ts",
     "cm:vvproj": "tsx tools/commentary.ts vvproj",
     "cm:audio": "tsx tools/commentary.ts audio",
     "voice:vvproj": "tsx tools/voice.ts vvproj",
