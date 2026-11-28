@@ -5,6 +5,7 @@ export type C2S = {
   rq: { n: number }; // 往復の遅延の計測の返事（sync1）
   input: { seq: number; dx: number; dy: number; rt?: number };
   resultReq: void;
+  snapFull: void; // スナップショットを全部送り直してもらう（受け取りの準備ができた時。sync2）
   qdown: { seq?: number } | void;
   qup: void;
   spec: { view: 'all' | 'focus' | 0 | 1 };
@@ -33,6 +34,7 @@ export const CHECK: { [K in keyof C2S]: (m: unknown) => boolean } = {
   rq: (m) => obj(m) && fin(m.n),
   input: (m) => obj(m) && fin(m.seq) && fin(m.dx) && fin(m.dy) && Math.abs(m.dx) <= 1 && Math.abs(m.dy) <= 1 && optFin(m.rt), // dx・dy は -1〜1（スティックも正規化して送る）
   resultReq: none,
+  snapFull: none,
   qdown: (m) => m === undefined || (obj(m) && optFin(m.seq)),
   qup: none,
   spec: (m) => obj(m) && ['all', 'focus', 0, 1].includes(m.view as never),
