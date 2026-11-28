@@ -74,7 +74,7 @@ export type SnapPlayer = {
 export const SNAP_KEEP = ['roster', 'materials', 'items', 'broken', 'bossRooms'] as const;
 export const SNAP_PKEEP = ['char', 'team', 'bot', 'assist', 'tier', 'maxHp', 'cdMax'] as const;
 // 敵（視界の制限つきで見ている人の相手の陣営）には送らない項目。クライアントは自キャラ・味方の分だけ使う
-export const SNAP_FOE_DROP = ['rage', 'bad', 'cd', 'cdMax', 'ack', 'cage', 'spd', 'aim', 'tgt', 'skillCd', 'still', 'lock', 'stunned', 'respawnIn'] as const;
+export const SNAP_FOE_DROP = ['rage', 'bad', 'cd', 'cdMax', 'ack', 'cage', 'spd', 'aim', 'tgt', 'skillCd', 'still', 'lock', 'stunned', 'respawnIn', 'recall'] as const; // recall: クライアントは敵の溜めを描いていない（noon1）
 export type Snapshot = {
   practice?: { mode: string; lv: number[]; foe: string | null };
   e2eFists?: number;
