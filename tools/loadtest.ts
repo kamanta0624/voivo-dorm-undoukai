@@ -50,7 +50,7 @@ const steps = (process.argv[2] ?? '1,2,4,8,12').split(',').map(Number), SEC = Nu
 const { Client } = await import('@colyseus/sdk');
 const { PICKABLE } = await import('../src/shared/chars');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const child = spawn(process.execPath, [...process.execArgv, process.argv[1], '--server', String(PORT)], { stdio: ['pipe', 'pipe', 'inherit'] });
+const child = spawn(process.execPath, [...process.execArgv, process.argv[1], '--server', String(PORT)], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, E2E_ROOMS: '1' } }); // E2E_ROOMS: e2e の部屋（負荷試験の部屋）を作れるように。E2E_HOOKS は付けない（Bot の編成を変えない）
 const lines: any[] = [];
 createInterface({ input: child.stdout! }).on('line', (l) => { try { lines.push(JSON.parse(l)); } catch {} });
 const next = async () => { const n = lines.length; for (let i = 0; i < 600 && lines.length === n; i++) await sleep(100); if (lines.length === n) throw new Error('サーバーが応答しない'); return lines[n]; };

@@ -23,7 +23,8 @@ const server = defineServer({
     if (process.env.SERVE_DIST) app.use(express.static('dist')); // 公開（launchd）: ビルド済みクライアントを同じポートで配信
   },
 });
-await server.listen(Number(process.env.GAME_PORT) || CONFIG.PORT); // GAME_PORT: 公開中のサーバーと別のポートで動かすとき（開発・検証）
+// GAME_HOST: 待ち受けるアドレス。既定は公開（SERVE_DIST＝launchd）だけ 127.0.0.1（cloudflared からだけ受ける。sec1 F）、開発は全インターフェース（LAN の端末から http で直接つなぐ）
+await server.listen(Number(process.env.GAME_PORT) || CONFIG.PORT, process.env.GAME_HOST ?? (process.env.SERVE_DIST ? '127.0.0.1' : undefined)); // GAME_PORT: 公開中のサーバーと別のポートで動かすとき（開発・検証）
 // 常設の部屋を作る（以後、e2e 以外の部屋は作らせない）
 for (let i = 0; i < CONFIG.ROOMS; i++) rooms.push(matchMaker.getLocalRoomById((await matchMaker.createRoom('game', {})).roomId) as GameRoom);
 GameRoom.sealed = true;
