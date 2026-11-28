@@ -3,7 +3,7 @@
 //   dir の src を E2E_HOOKS=1 SERVE_DIST=1 で別ポートに立て、dir/dist に圧縮なしでビルドしたクライアント（関数名が残る）をスマホの画面（852×393 DPR3）の Chromium と WebKit で同時に開く
 //   終了コード 0=合格、1=不合格（不合格の項目と、書いている要素・関数を表示）。計測の注入は verify/perfgate_probe.js
 import { spawn, execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, webkit, type Page, type BrowserContext } from 'playwright-core';
 
@@ -117,6 +117,7 @@ for (const r of results) {
   if (r.errors.length) fails.push(`[ページのエラー] ${r.engine}: ${[...new Set(r.errors)].slice(0, 3).join(' / ')}`);
 }
 mkdirSync(resolve(OUT, '..'), { recursive: true });
+{ const d = `${HERE}/verify/evidence`; if (existsSync(d)) { const old = readdirSync(d).filter((f) => /^perfgate-.*\.json$/.test(f)).sort(); for (const f of old.slice(0, Math.max(0, old.length - 2))) rmSync(`${d}/${f}`, { force: true }); } } // 既定の置き場の perfgate-*.json は、今回の分と合わせて直近3個だけ残す（QUEUE 進め方 14）
 writeFileSync(OUT, JSON.stringify({ dir: DIR, build: readFileSync(`${DIR}/dist/build.txt`, 'utf8').trim(), table, results, fails }, null, 1));
 const cols = ['engine', 'scene', 'fps', 'mut', 'mutTf', 'forced', 'maxElFrac', 'recalc', 'layout', 'layers', 'fullLayers', 'draw', 'texKB', 'frameMs'];
 console.log(cols.join('\t'));
