@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { GameRoom, thingId } from '../src/server/GameRoom';
 import { CONFIG as C } from '../src/shared/config';
+import { CHARS } from '../src/shared/chars';
 
 function setup() {
   const r = new GameRoom(); r.setSimulationInterval = (() => {}) as any; r.lock = (() => {}) as any;
@@ -19,12 +20,13 @@ function setup() {
 const finish = (r: GameRoom) => { r.updateEnts(.05); r.finishContactTick(); };
 const target = (r: GameRoom) => r.enemyThings(0).find((t) => thingId(t) === 'p:b')!;
 
-// 停止・低速: 終点判定と同じ結果。相対速度0、最接近時刻の両端、接線も確認。
+// 停止・低速: 終点判定と同じ結果。相対速度0、最接近時刻の両端、接線も確認。境目 R は相手の体の箱（カプセルの半径）＋ touch（hitbox1）。接線は相手が上（カプセルの下端が近い側）
+const [R, K, HI] = (() => { const { r, b } = setup(), t = target(r), sh = r.hitShape(t); return [sh.r + (CHARS.bii.skill as any).touch, b.y - r.body(t).y, sh.hi]; })(); // K: 足元と体の中心の差（判定は体の中心から測る）、HI: カプセルの線分の上端（足元から）
 for (const [label, start, end, expected] of [
-  ['stopped-in', [49, 0], [49, 0], true], ['stopped-out', [51, 0], [51, 0], false],
+  ['stopped-in', [R - 1, 0], [R - 1, 0], true], ['stopped-out', [R + 1, 0], [R + 1, 0], false],
   ['slow-in', [45, 0], [44, 0], true], ['slow-out', [60, 0], [58, 0], false],
   ['past-segment', [70, 0], [60, 0], false], ['future-segment', [60, 0], [70, 0], false],
-  ['tangent', [-100, 50], [100, 50], true], ['near-miss', [-100, 50.01], [100, 50.01], false],
+  ['tangent', [-100, -R - K], [100, -R - K], true], ['near-miss', [-100, -R - K - 0.01], [100, -R - K - 0.01], false],
 ] as const) {
   const { r, a, b, has, effect } = setup(); b.x = a.x + start[0]; b.y = a.y + start[1];
   r.beginContactTick(); b.x = a.x + end[0]; b.y = a.y + end[1]; finish(r);
@@ -69,7 +71,7 @@ for (const event of ['respawn', 'recall', 'boss', 'wall', 'appearance'] as const
     r.bases[1] = [{ x: 1300, y: 900 }, { x: 1700, y: 900 }]; r.beginContactTick(); r.moveBoss(boss);
     finish(r); assert.equal(has('boss:1'), false);
   } else if (event === 'wall') {
-    Object.assign(a, { x: 1510, y: 851 }); Object.assign(b, { x: 1500, y: 900 });
+    Object.assign(a, { x: 1510, y: 900 + K - HI - R + 0.5 }); Object.assign(b, { x: 1500, y: 900 }); // 始点・終点は境目のすぐ外、途中（真下）は内側
     r.walls = [{ x: 1490, y: 890, w: 20, h: 20 }]; r.beginContactTick(); r.unstick();
     assert.ok(r.contactTick!.jumped.has('p:b')); assert.equal(b.x, 1520); finish(r); assert.equal(has(), false);
   } else {
