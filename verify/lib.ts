@@ -1,7 +1,7 @@
 // 実クライアント(http://localhost:5173)を Playwright の実キー入力で操作するための補助
 // GAME_PORT・CLIENT_PORT: 別のポートで起動した dev（公開中のサーバーとぶつけないとき）に繋ぐ
 import { chromium, Page, Browser } from 'playwright-core';
-import { mkdirSync, appendFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, appendFileSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { CONFIG as C } from '../src/shared/config';
 import { findPath } from '../src/server/pathfind';
 
@@ -9,6 +9,8 @@ export const GAME_PORT = Number(process.env.GAME_PORT) || 2567, CLIENT_PORT = Nu
 export const RUN = Date.now().toString(36); // この実行の e2e の部屋
 export const OUT = `verify/evidence/${new Date().toISOString().replace(/[:.]/g, '-')}`; // 実行ごとに分ける
 mkdirSync(OUT, { recursive: true });
+// 実行ごとの日時名のフォルダは直近3個だけ残す（溜まると数GBになる。作業名のフォルダ verify/evidence/<名前> には触らない）
+{ const runs = readdirSync('verify/evidence').filter((d) => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(d)).sort(); for (const d of runs.slice(0, -3)) rmSync(`verify/evidence/${d}`, { recursive: true, force: true }); }
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let failed = 0;
