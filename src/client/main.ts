@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
-import { Room, CloseCode } from '@colyseus/sdk';
+import { Room } from '@colyseus/sdk';
 import { CONFIG as C, wallRects, seeRects, seeThrough, roomLayout } from '../shared/config';
 import { CHARS as DEFS, PICKABLE, BOSS_CHAR, visionRadius, eyeRadius, walkOf, charStats, moveWalls, aaRange } from '../shared/chars';
 import { cage, lineOfSight } from '../shared/geom';
@@ -18,20 +18,23 @@ import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
 import { openResult, closeResult, resultOpen } from './result';
 import { powerText, assistText } from '../shared/slot_modern';
+import { sendC2S, type C2S } from '../shared/protocol';
+import { connect, sendInputs } from './net';
+import * as Hud from './hud';
 
 type React = { diffs: string[]; kill: string | null; sad: string | null; relief: string | null; surprise: string | null; angry: string | null; joy: string | null; tap: (string | string[] | null)[]; parts: number[] }; // tap の配列は同じ部位を触るたびに順番に替わる // 余白の立ち絵の反応（react1。chars.json の react）
 type Tachie = { fit?: 'full' | 'knee'; cm?: number; top?: number; foot?: number; base?: number; knee?: number; crate?: number[] }; // 選択画面・余白の立ち絵の出し方（chars.json の tachie。tachie2）
 type Char = { name: string; select: string; ko: string; koed: string | null; boss?: number; bg?: string; react?: React; tachie?: Tachie };
-const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
+export const CHARS = Object.fromEntries(Object.entries(CHARS_JSON).filter(([k]) => k !== '_')) as Record<string, Char>;
 const DOT_FRAMES = ['idle', 'walk1', 'walk2', 'half', 'close', 'banzai'];
 const COURIER_CHAR = 'kobako'; // ブイブイ・コバコのドット
 const DOT_KEYS = [...Object.keys(CHARS), COURIER_CHAR, ...Object.keys(C.ASSIST.units)];
-const charName = (k: string) => CHARS[k]?.name ?? C.ASSIST.units[k]?.name ?? k; // アシストは chars.json にいない
+export const charName = (k: string) => CHARS[k]?.name ?? C.ASSIST.units[k]?.name ?? k; // アシストは chars.json にいない
 const DOT = (key: string, frame = 'idle') => `assets/gen/dot/${key}/${frame}.png`;
-const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動ける場面（カウント中と終了後は部屋の中だけ）
+export const MOVE_PHASES = ['countdown', 'playing', 'ended']; // 自キャラが動ける場面（カウント中と終了後は部屋の中だけ）
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const css16 = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
-const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.png`;
+export const css16 = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+export const TACHIE = (key: string, slot: string) => `assets/gen/tachie/${key}/${slot}.png`;
 const CRATE = 'assets/crate/crate.png'; // 低身長組の足元の木箱（ニコニ・コモンズ nc298408）
 // 選択画面・余白の立ち絵の大きさと位置（枠の高さ Hp に対する px）: h=絵の高さ、top=絵の上端（枠の上端から）、crate=木箱（left は絵の左端から）。身長に比例（tachie2）
 function tachieFit(k: string, Hp: number) {
@@ -42,10 +45,10 @@ function tachieFit(k: string, Hp: number) {
   return { h, top, crate: c ? { left: (c[0] / 100) * h, top: top + (c[1] / 100) * h, size: (c[2] / 100) * h } : null };
 }
 
-const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), ずんだもん軍(緑)
+export const TEAM_COLOR = [0xff8c28, 0x3cc850]; // あんこもん軍(オレンジ), ずんだもん軍(緑)
 const NEUTRAL_COLOR = 0xcccccc; // 中立（コバコ）
 const teamColor = (t: number) => TEAM_COLOR[t] ?? NEUTRAL_COLOR;
-const TEAM_NAME = ['だいだい組', 'みどり組'];
+export const TEAM_NAME = ['だいだい組', 'みどり組'];
 const TITLE = 'ブイブイブレイカーズ';
 // 待機画面（キャラ選択）の色。ステータスの棒: stat=HP・速度・技CT、melee=近接モードの攻撃・射程、shot=遠距離（弾）モードの攻撃・射程、empty=空き。ロール・性能の色分けは未指定（後で足す）
 // 選択バーのカード1枚の幅（論理px。全員分が収まらなければ横にスクロール）、選択バー表示中の立ち絵の高さ（画面の%。左上の窓・右上の組の一覧に顔が被らない大きさ）
@@ -57,14 +60,14 @@ const ITEM_COLOR: Record<string, number> = { heal: 0x66ff99, box_ult: 0xff66ff, 
 const ITEM_LABEL: Record<string, string> = { heal: '回復', box_ult: 'パワーアップ箱', box_assist: 'アシスト箱' };
 const PAYOUT_LABEL: Record<string, string> = { ult: 'パワーアップ', assist: 'アシスト' };
 // バフ／デバフ欄: サーバーの buffs の key → [名前, 良い効果か]。技名は技名定義から。ここにない key は出さない
-const BUFF: Record<string, [string, boolean]> = {
+export const BUFF: Record<string, [string, boolean]> = {
   upgrade: [DEFS.ierutan.skill.name, true], boost: ['加速（アシスト）', true], dance: [DEFS.sayo.skill.name, true], overload: [DEFS.bii.skill.name, true], overloadPose: ['ポーズ', true],
   cloak: ['透明化', true], drill: [DEFS.metan.skill.name, true], lockon: ['ロックオン', true], rush: [DEFS.aru.skill.name, true], solar: [DEFS.sora.skill.name, true],
   mochi: ['ずんだ餅', false], pen_slow: ['移動速度低下（罰）', false], pen_weak: ['攻撃力低下（罰）', false],
 };
-const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
+export const PENALTY_LABEL: Record<string, string> = { dmg: `全員にダメージ（最大HPの${C.SLOT.penalty.dmg * 100}%）`, slow: `全員の移動速度低下（×${C.SLOT.penalty.slow}、${C.SLOT.penalty.dur}秒）`, weak: `全員の攻撃力低下（×${C.SLOT.penalty.weak}、${C.SLOT.penalty.dur}秒）` };
 // 当たった時の演出（通常攻撃の汗、自分以外の斬撃、大将の弾などの爆発）: 弾・他キャラと同じ時刻で出す。自分の斬撃は自キャラ（今の位置）に合わせてすぐ出す
-const HIT_FX_KIND = (f: any, me: string) => f.kind === 'sweat' || (f.kind === 'slash' && f.who !== me) || (f.kind === 'aura' && f.color === 'dash');
+export const HIT_FX_KIND = (f: any, me: string | null) => f.kind === 'sweat' || (f.kind === 'slash' && f.who !== me) || (f.kind === 'aura' && f.color === 'dash');
 const T = MAP.tileSize;
 const MINI = 0.6; // ミニマップ: 1タイルあたりのpx
 const MM_TOP = 86; // ミニマップの上端（論理座標）。右上の顔パネル（みどり組の側）の下
@@ -132,7 +135,7 @@ type SkillFx = { kind: string; t0: number; [k: string]: any };
 // 立ち絵の層（DOM）。ドットとは別に高解像度で表示する
 // ビルドの識別子（gitの短縮ハッシュ＋ビルド日時、vite.config.ts で埋め込む）を画面の隅に常に出す
 const ver = document.getElementById('ver')!; // タイトル画面（title.ts）が作る
-const fx = document.createElement('div');
+export const fx = document.createElement('div');
 fx.id = 'fx';
 fx.style.cssText = 'position:fixed;pointer-events:none;overflow:hidden';
 document.body.appendChild(fx);
@@ -363,7 +366,7 @@ html.touch #fx .skill b{font-size:max(13px,calc(var(--z) * 11px))}
 `, (q) => q.includes('#fx') && !q.includes('#lobby')); // 戦闘画面（#fx）の文字だけ UI_FONT_SCALE（選択画面 #lobby は対象外）
 document.head.appendChild(css);
 { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = ufCss(MFX_CSS); document.head.append(st); } // スロットの演出の CSS（slot_modern_fx）を戦闘画面の文字の大きさで先に置く（ModernFx は同じ id があれば置かない。slot.html は元のまま）
-const mapEl = document.createElement('div'); // マップに付く DOM（札・頭上の一時表示）の層。#fx の最初に置き、HUD などほかの表示より必ず後ろにする
+export const mapEl = document.createElement('div'); // マップに付く DOM（札・頭上の一時表示）の層。#fx の最初に置き、HUD などほかの表示より必ず後ろにする
 mapEl.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
 fx.appendChild(mapEl);
 const down = document.createElement('div');
@@ -386,10 +389,10 @@ hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><di
 fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
-const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hudEl.querySelector<HTMLElement>(q)!; $cache.set(q, e); } return e; };
+export const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hudEl.querySelector<HTMLElement>(q)!; $cache.set(q, e); } return e; };
 // 毎フレームの style の書き込みは、最後に書いた値と違う時だけ書く（render_policy 5）。ほかの場所から同じ style を書く要素には使わない
 const styled = new WeakMap<HTMLElement, Record<string, string>>();
-const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; el.style.setProperty(k, v); } };
+export const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; el.style.setProperty(k, v); } };
 // 練習パネル（handoff_practice1。練習の部屋の試合中だけ）: タイマーの位置のボタンで開閉
 // 左端の縦長のタブ「練習」と、左から出る引き出し（fb1124）。引き出しの中は縦1列。タブは引き出しの右端に付いたまま
 hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
@@ -399,9 +402,9 @@ hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
 <b>パワーアップ 相手</b><div class="r"><button data-pw="foe" data-d="-1">−</button><span class="lv lv1"></span><button data-pw="foe" data-d="1">＋</button></div>
 <b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.ASSIST_TAGS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><div class="r"><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
 <div class="r end"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div><button class="prbtn">練習</button></div>`);
-const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
+export const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
-const commentary = new Commentary(fx);
+export const commentary = new Commentary(fx);
 commentary.load();
 // スマホ（指で操作する端末）: タッチUIを出し、ブラウザのスクロール・拡大・長押しメニュー・選択を止める
 const TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -411,12 +414,17 @@ if (TOUCH) {
   for (const t of ['gesturestart', 'dblclick', 'contextmenu']) document.addEventListener(t, (e) => e.preventDefault());
   document.addEventListener('touchmove', (e) => { if (!(e.target as Element).closest?.('#fx .prp, #title')) e.preventDefault(); }, { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない。練習パネルの中と、タイトル画面（クレジット・更新情報のポップアップを含む）は縦にスクロールできる
 }
+// 結果画面の放置の警告（resultidle1）: 結果の画面（#result）を開いていても見えるよう、その上に出す
+const idleWarn = document.createElement('div');
+idleWarn.textContent = '10秒後ロビーに戻ります';
+idleWarn.style.cssText = 'position:fixed;left:50%;top:10%;transform:translateX(-50%);z-index:12;display:none;padding:.4em 1.2em;border-radius:6px;border:2px solid #ffe066;background:#000c;color:#ffe066;font:bold max(14px,2.4vh) sans-serif;pointer-events:none;white-space:nowrap';
+document.body.appendChild(idleWarn);
 const rotate = document.createElement('div');
 rotate.id = 'rotate';
 rotate.textContent = '横にして遊んでね';
 document.body.appendChild(rotate);
 
-class GameScene extends Phaser.Scene {
+export class GameScene extends Phaser.Scene {
   room!: Room;
   snap: any = null;
   snapAt = 0; // スナップショットを受信した時刻(ms)
@@ -439,12 +447,14 @@ class GameScene extends Phaser.Scene {
   pingPending: number | null = null;
   sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
   tags = new Map<string, Phaser.GameObjects.Image>(); tagSeen = new Set<string>(); // 頭上の強さの札（キャラの id ごと）と、このフレームに置いた札
+  snapFull = false; // 全部そろったスナップショットを受け取ったか（sync2。それまでの差分は使わない）
+  pKeep = new Map<string, any>(); // キャラ id → 変わった時だけ届く項目の最後の値（sync2。net.ts で省かれた分を埋める）
   shotData = new Map<number, any>(); // 弾の id → 最後に届いた弾の情報（seen: そのスナップショットの時刻）
   kunais = new Map<number, Phaser.GameObjects.Image>(); kunaiSeen = new Set<number>(); // クナイの弾の絵（弾の id ごと）と、このフレームに見えた弾
   finishMeasure() {
     if (!this.measure || this.measureSent || !this.room?.connection.isOpen) return;
     this.measureSent = true;
-    this.room.send('netReport', { id: this.measureId, value: this.measure.report() });
+    sendC2S(this.room, 'netReport', { id: this.measureId, value: this.measure.report() });
     this.interp.measure = null;
   }
   interp = new Interp(); // 他キャラ・大将の補間
@@ -466,7 +476,7 @@ class GameScene extends Phaser.Scene {
   slotHtml = ['', ''];
   mfx: (ModernFx | null)[] = [null, null]; mfxKey = ''; mfxIdleAt = [0, 0]; mfxView = ['', '']; mfxMask = ''; mfxMaskVis = ''; mfxSnap: any = null; mfxMyTeam = -1; mfxKeyNow = ''; mfxTm: any[] = [null, null]; mfxVis: { raw: { x: number; y: number }[][]; ver: number; wx: number; wy: number; svg: string } | null = null; mfxMine = -1; // モダンのスロット（mfxMask・mfxMaskVis: 最後に渡した演出の範囲。mfxVis: 視界の SVG の使い回し）（陣営ごと。演出は自陣だけ画面に出す）
   lastSeenBoss: { x: number; y: number } | null = null; // 敵の大将を最後に見た位置
-  ctl = new Controls((t, m) => this.room?.send(t, t === 'qdown' ? { seq: this.pred.seq } : m)); // キーボード・タッチの入力 → サーバーへ送るコマンド。帰還（qdown）には送り終えた移動入力の番号を付ける
+  ctl = new Controls((t, m) => { if (this.room) sendC2S(this.room, t, (t === 'qdown' ? { seq: this.pred.seq } : m) as never); }); // キーボード・タッチの入力 → サーバーへ送るコマンド。帰還（qdown）には送り終えた移動入力の番号を付ける
   stickId: number | null = null; // 仮想スティックを動かしている指（Touch.identifier）
   stickAt = { x: 0, y: 0 }; // 仮想スティックの中心（触れた位置、画面のpx）
   hiddenAt = 0; // バックグラウンドに入った時刻(ms)
@@ -477,6 +487,7 @@ class GameScene extends Phaser.Scene {
   perf = new URLSearchParams(location.search).has('perf') ? { n: 0, ray: 0, rayMax: 0, frame: 0, frameMax: 0 } : null; // ?perf=1: 視界の計算・描画の時間を計る
   skillFx: SkillFx[] = [];
   fxQueue: any[] = []; // 受信した技のエフェクト（スナップショットごとに届く）
+  evQueue: { at?: number; f: () => void }[] = []; // 受信した単発の出来事（撃破・キルログなど）。補間の時刻が at に来てから出す（sync1）
   // マップの絵（床・壁・家具。静的な層）。1枚のテクスチャ。壁が壊れたらその周りだけ描き直し、その矩形だけ GPU へ送る（mapSub。全体を毎回送ると重い）
   mapTex!: Phaser.Textures.CanvasTexture;
   mapSubCv = document.createElement('canvas'); // 部分転送の矩形を切り出す小さな canvas
@@ -625,11 +636,11 @@ class GameScene extends Phaser.Scene {
     });
     document.getElementById('okbtn')!.onclick = () => { // OK? → 出撃ボタン（練習は「開始」。相手はサーバーがランダムに選ぶ） → 出撃済み
       if (this.selMode === 'confirm') this.selMode = 'sortie';
-      else if (this.selMode === 'sortie') { this.selMode = 'go'; this.room?.send('go', { char: this.selChar }); }
+      else if (this.selMode === 'sortie') { this.selMode = 'go'; if (this.room && this.selChar) sendC2S(this.room, 'go', { char: this.selChar }); }
       this.lobbyRender();
     };
     document.getElementById('backsel')!.onclick = () => { // 出撃済み → 未出撃、出撃ボタン → OK?、OK? → 選択バー
-      if (this.selMode === 'go') { this.selMode = 'sortie'; this.room?.send('unpick'); }
+      if (this.selMode === 'go') { this.selMode = 'sortie'; if (this.room) sendC2S(this.room, 'unpick'); }
       else this.selMode = this.selMode === 'sortie' ? 'confirm' : 'browse';
       this.lobbyRender();
     };
@@ -645,13 +656,13 @@ class GameScene extends Phaser.Scene {
       hint.querySelector('button')!.onclick = () => { hint.remove(); try { localStorage.setItem('pwaHintClosed', '1'); } catch {} };
       lobby.appendChild(hint);
     }
-    document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t) this.room?.send('team', { team: Number(t) }); };
-    $('.back').onclick = () => { this.backSent = true; this.room?.send('back'); };
+    document.getElementById('roster')!.onclick = (e) => { const t = (e.target as HTMLElement).dataset.t; if (t && this.room) sendC2S(this.room, 'team', { team: Number(t) }); };
+    $('.back').onclick = () => { this.backSent = true; if (this.room) sendC2S(this.room, 'back'); };
     $('.rsbtn').onclick = () => { const s = this.snap, mine = s?.players.find((p: any) => p.id === s.me); if (this.result && s) openResult(this.result, { myTeam: mine ? mine.team : null, title: s.winner === 2 ? '引き分け' : !mine ? `${TEAM_NAME[s.winner]}の勝ち` : s.winner === mine.team ? '勝利' : '敗北', colors: TEAM_COLOR.map(css16), names: TEAM_NAME, players: Object.fromEntries(s.roster.map((r: any) => [r.id, r.bot ? 'Bot' : r.name ?? ''])) }); };
     // タイトルへ（待機画面・結果画面）: 部屋を出る（試合後は Bot が引き継ぐ）
     for (const b of [document.getElementById('totitle')!, $('.totitle')]) b.onclick = () => { this.toTitle = true; this.finishMeasure(); this.room?.leave(); };
     // 練習パネル: 操作はサーバーへ（pr）。表示は tick の practiceHud
-    const pr = (m: any) => this.room?.send('pr', m), prp = $('.prp'), prw = $('.prw');
+    const pr = (m: any) => { if (this.room) sendC2S(this.room, 'pr', m); }, prp = $('.prp'), prw = $('.prw');
     $('.prbtn').onclick = () => prw.classList.toggle('open'); // 押すたびに開閉（引き出しの外を触っても閉じない）
     $('.pfoe').onchange = (e) => pr({ op: 'foe', char: (e.target as HTMLSelectElement).value });
     prp.onclick = (e) => {
@@ -664,88 +675,7 @@ class GameScene extends Phaser.Scene {
       if (b.classList.contains('pback')) { pr({ op: 'back' }); prw.classList.remove('open'); }
     };
 
-    // 入室はタイトル画面（title.ts）が済ませている（再読み込みしたタブは再接続、?e2e=<値> はテスト専用の部屋）
-    const e2e = new URLSearchParams(location.search).get('e2e'), tokenKey = e2e ? 'rtE2e' : 'rt';
-    const room: Room = (window as any).__room;
-    {
-      this.room = room;
-      (window as any).room = room; // 検証用
-      sessionStorage.setItem(tokenKey, room.reconnectionToken);
-      if ((window as any).__rejoin) this.ctl.sendAim();
-      // 通信の再接続（自動）。戻ったら照準モードを送り直す。再接続できなければ入り直す
-      room.onReconnect(() => { sessionStorage.setItem(tokenKey, room.reconnectionToken); this.ctl.sendAim(); });
-      // 切れたら再読み込み（保存した合言葉で戻る）。キック・BAN（reason）と「タイトルへ」はタイトル画面へ
-      room.onLeave((code: number, reason?: string) => {
-        if (code !== CloseCode.CONSENTED) return location.reload();
-        sessionStorage.removeItem(tokenKey);
-        if (reason === 'kick' || reason === 'ban') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : '部屋から外されました');
-        if (reason === 'kick' || reason === 'ban' || this.toTitle) location.reload();
-      });
-      addEventListener('pagehide', () => { this.finishMeasure(); if (this.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) { this.hiddenAt = performance.now(); return; }
-        if (room.connection.isOpen && performance.now() - this.hiddenAt >= C.RESUME_RECONNECT_SEC * 1000) room.connection.close(CloseCode.MAY_TRY_RECONNECT); // 止まっていた接続を張り直す
-      });
-      room.onMessage('netPong', (m: any) => {
-        if (this.measure && !this.measureSent && m.id === this.measureId && m.at === this.pingPending) {
-          this.measure.rtt.add(performance.now() - m.at); this.pingPending = null;
-        }
-      });
-      room.onMessage('netFinish', (m: any) => { if (m.id === this.measureId) this.finishMeasure(); });
-      room.onMessage('s', (s: any) => {
-        if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== this.measureId) {
-          this.measureId = s.netMeasure; this.measure = new ClientMeasure(); this.measureSent = false; this.measureFrameAt = null;
-          this.pingAt = -Infinity; this.pingPending = null;
-        }
-        if (s.phase !== 'playing' && this.snap?.phase === 'playing') this.finishMeasure();
-        this.snap = s;
-        this.snapAt = performance.now();
-        if ((s.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me)?.char ?? this.sideChar : null) !== this.sideChar) this.sideFit(); // 余白の立ち絵・色（自キャラが変わった時だけ）
-        if (s.sortie != null || s.phase === 'intro') this.warmup(s); // 出撃の秒数（常設の部屋）の間に、戦闘画面で使う画像を先に読み込む
-        this.sortieVoice(s); // 出撃セリフ（本人の端末だけ）
-        this.powerFx(s); // パワーアップ中の余白の演出
-        if (s.cracks) this.applyCracks(s.cracks); // 壁の段階（小破・中破）: 変わった分だけ届くので、フレームを待たず受け取った時に割れ目を重ねる（マップの絵は描き直さない）
-        this.interp.push(s.t, this.snapAt, [...s.players, ...s.bosses.map((b: any) => ({ ...b, id: 'boss' + b.team })), ...s.couriers.map((c: any) => ({ ...c, id: 'c' + c.id })), ...s.shots.map((sh: any) => ({ x: sh.x, y: sh.y, id: 'shot:' + sh.id }))]); // 自キャラも移動不可の状態（突撃など）では補間で描く
-        for (const sh of s.shots) this.shotData.set(sh.id, { ...sh, seen: s.t }); // 弾の種類・向き（描く時刻の位置は interp から）
-        for (const [id, d] of this.shotData) if (d.seen < s.t - 2) this.shotData.delete(id); // 2秒前から届いていない弾を片付ける（描く時刻はそれより新しい）
-        if (this.measure && !this.measureSent && s.phase === 'playing') this.measure.snapshot(this.snapAt, this.interp.offset!);
-        const m = s.players.find((p: any) => p.id === s.me);
-        if (m) {
-          if (!m.alive || !MOVE_PHASES.includes(s.phase) || m.lock) this.pred.reset(m.x, m.y);
-          else this.pred.reconcile(m.x, m.y, m.ack, m.spd, this.obstacles(s, m));
-        }
-        if (s.phase === 'waiting' && this.reactKoBy.size) this.reactKoBy.clear(); // 立ち絵の反応の「同じ相手」は試合ごとに数える
-        for (const f of s.fx ?? []) this.fxQueue.push(HIT_FX_KIND(f, s.me) ? { ...f, at: s.t } : f); // 当たった時の演出（汗・他人の斬撃・爆発）は弾・他キャラと同じ時刻（NET_INTERP_DELAY 前）で出す
-        (window as any).snap = s;
-      });
-      room.onMessage('notice', (m: any) => this.notify(m.text));
-      room.onMessage('cm', (u: any) => commentary.receive(u)); // 実況（全員に同じもの）
-      room.onMessage('cmStop', () => commentary.clear()); // 決着の瞬間: 喋っている途中のセリフを打ち切る
-      room.onMessage('kill', (k: any) => this.killLog(k.kc ?? BOSS_CHAR[k.kt], k.kt, k.vc, k.vt));
-      room.onMessage('assist', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 召喚の通知（両陣営）
-      room.onMessage('slot', (m: any) => this.slotWin(m.team, m.chain, m.kind, m.tier, m.char));
-      room.onMessage('assistUp', (m: any) => this.notify(`${TEAM_NAME[m.team]}のアシスト強化: ${charName(m.char)}（${C.ASSIST_TAGS[m.tier]}）`)); // 両陣営
-      room.onMessage('penalty', (m: any) => this.notify(`${TEAM_NAME[m.team]}に罰: ${PENALTY_LABEL[m.kind]}`)); // 両陣営
-      room.onMessage('mslot', (m: any) => this.mslotEv(m));
-      room.onMessage('mslotWin', (m: any) => this.mslotWin(m));
-      room.onMessage('mpenalty', (m: any) => this.mslotToast(m.team, `ペナルティ（${m.n === 1 ? '転落' : '引き戻し失敗'}）\n全員にダメージ・攻撃ダウン・速度ダウン`, true));
-      room.onMessage('ko', (k: any) => {
-        const mine = this.snap?.players.find((p: any) => p.id === this.snap.me);
-        if (mine) this.cutin(mine.char, k.victimChar, k.how);
-        this.react('kill');
-      });
-      room.onMessage('koed', (k: any) => {
-        this.koedBy = { kc: k.kc, how: k.how };
-        // 立ち絵の反応: 同じ相手に2回目以降→怒る、出会い頭（倒した相手が最初に当てた時に見えていなかった・交戦の始まりから REACT.surpriseSec 秒以内）→驚く、それ以外→悲しむ。差分のない出来事は飛ばして次へ
-        const n = k.kid ? (this.reactKoBy.get(k.kid) ?? 0) + 1 : 0;
-        if (k.kid) this.reactKoBy.set(k.kid, n);
-        if (!(n >= 2 && this.react('angry')) && !((k.unseen || (k.sec !== null && k.sec <= C.REACT.surpriseSec)) && this.react('surprise'))) this.react('sad');
-      });
-      room.onMessage('recalled', (m: any) => { if (m.r <= C.REACT.relief) this.react('relief'); }); // 残りHPが少ない状態で帰還
-      room.onMessage('bossHit', () => { const t = performance.now(); if (t - this.reactJoyAt >= C.REACT.joyEvery * 1000 && this.react('joy')) this.reactJoyAt = t; }); // 大将に当てた（REACT.joyEvery 秒に1回まで）
-      room.onMessage('result', (r: any) => (this.result = r)); // 試合結果画面のデータ（決着後に1回）
-      room.send('resultReq'); // 結果画面の間に入室・再接続した時の分（受け取る準備ができてから）
-    }
+    connect(this); // 接続後の受信（net.ts。refac3）
   }
 
   // ミニマップの下絵を塗る
@@ -859,7 +789,7 @@ class GameScene extends Phaser.Scene {
     btn('.rc', () => this.ctl.qDown(), () => this.ctl.qUp());
     btn('.aimb', () => this.ctl.cycleAim());
     // 観戦者の視点の切り替え（全体・実況追従・組の視界）
-    for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) btn(`.spec [data-v="${b.dataset.v}"]`, () => { const v = b.dataset.v!; this.room?.send('spec', { view: v === '0' || v === '1' ? Number(v) : v }); });
+    for (const b of $('.spec').querySelectorAll<HTMLElement>('button')) btn(`.spec [data-v="${b.dataset.v}"]`, () => { const v = b.dataset.v!; if (this.room) sendC2S(this.room, 'spec', { view: (v === '0' || v === '1' ? Number(v) : v) as C2S['spec']['view'] }); });
     const mm = $('.mm');
     let held: number | null = null;
     const at = (e: PointerEvent) => { const b = mm.getBoundingClientRect(); this.mmCam = { x: Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * C.MAP_W, y: Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * C.MAP_H }; };
@@ -1055,60 +985,7 @@ class GameScene extends Phaser.Scene {
     return [...moveWalls(m?.char, this.walls), ...(m?.cage ? cage(m.cage) : [])];
   }
 
-  // 徳のゲージとスロット（左＝陣営0、右＝陣営1）。クラシック・モダンとも保留つきの表示（modernHud）
-  tokuHud(s: any) {
-    [0, 1].forEach((t, k) => {
-      const tm = s.teams[t], chars = s.roster.filter((r: any) => r.team === t).map((r: any) => r.char);
-      this.modernHud(s, t, k, tm, chars);
-    });
-  }
 
-  // モダンのスロット（handoff_slot3）: 徳のゲージの下にリール・保留・モード（slot_modern_fx）。リールの絵柄は試合の編成（モダン: 奇数＝陣営のプレイヤー、偶数＝アシスト、7＝大将。クラシック: SLOT.syms）
-  // 演出（リーチ・全回転）は自陣だけ、演出の層（.mfxl）に出す。編成が変わったら作り直す
-  modernHud(s: any, t: number, k: number, tm: any, chars: string[]) {
-    // 編成・HUD の文字は受信したスナップショットが変わった時だけ組み立てる（毎フレーム作り直さない）
-    if (s !== this.mfxSnap) { this.mfxSnap = s; this.mfxMyTeam = s.players.find((p: any) => p.id === s.me)?.team ?? -1; this.mfxKeyNow = `${this.mfxMyTeam}:${s.roster.map((r: any) => `${r.team}${r.char}`).join()}`; }
-    const myTeam = this.mfxMyTeam, key = this.mfxKeyNow;
-    if (key !== this.mfxKey) {
-      this.mfxKey = key; this.mfxMine = myTeam; this.slotHtml = ['', '']; this.mfxView = ['', '']; this.mfxMask = ''; this.mfxTm = [null, null];
-      $('.mfxl').replaceChildren();
-      this.mfx = [0, 1].map((team) => {
-        const el = $(`.tk .s${team}`), cs = s.roster.filter((r: any) => r.team === team).map((r: any) => r.char), ass = Object.keys(C.ASSIST.units);
-        el.innerHTML = '<div class="tkg"></div><div class="mh"></div>';
-        const syms = C.SLOT_MODE === 'modern' ? C.SLOT_MODERN.reel.syms.map((x) => (x === 'boss' ? BOSS_CHAR[team] : x.startsWith('assist:') ? ass[Number(x.slice(7))] : cs[Number(x.slice(7))] ?? cs[0]))
-          : C.SLOT.syms.flatMap((x) => (x === 'boss' ? [BOSS_CHAR[team]] : x.startsWith('assist:') ? [ass[Number(x.slice(7))]] : cs[Number(x.slice(7))] ? [cs[Number(x.slice(7))]] : [])); // クラシック: プレイヤー＋アシスト＋7（大将）。いないプレイヤーの絵柄は外す（サーバーの slotSyms と同じ並び）
-        const f = new ModernFx(el.querySelector<HTMLElement>('.mh')!, team === myTeam ? $('.mfxl') : document.createElement('div'), syms, cs, css16(TEAM_COLOR[team]));
-        { const row = document.createElement('div'); row.className = 'mfx-row'; f.modeEl.replaceWith(row); row.append(f.modeEl, f.label); } // リーチ！・当選！はリールの横ではなく保留の丸の下（「大当たり N連」と同じ行）。文字を大きくして隣の組のリールに隠れたため（font1）
-        f.idle(performance.now());
-        return f;
-      });
-    }
-    const f = this.mfx[t]!, m = tm.m, now = performance.now(), fresh = tm !== this.mfxTm[k]; // fresh: この陣営の値が新しいスナップショットで届いた
-    this.mfxTm[k] = tm;
-    if (fresh) {
-      const rf = tm.reflect ? `<span class="rf">反省中×${tm.reflect} +${(C.REFLECT_TOKU * tm.reflect * tm.reflect).toFixed(2)}/秒</span>` : '';
-      const html = `<div class="tg" style="--c:${css16(TEAM_COLOR[t])}"><i></i></div><div class="tv"></div>`, g = $(`.tk .s${k} .tkg`); // 骨組みは陣営が変わった時だけ作り、ゲージは transform・文字は変わった時だけ書く
-      if (html !== this.slotHtml[k]) { this.slotHtml[k] = html; g.innerHTML = html; }
-      this.setTf(g.querySelector('i')!, `scaleX(${Math.max(0, Math.min(1, tm.toku / C.TOKU_MAX))})`);
-      const tv = g.querySelector<HTMLElement>('.tv')!, tvh = `徳 ${tm.toku.toFixed(1)}${rf}`;
-      if ((tv as any)._h !== tvh) { (tv as any)._h = tvh; tv.innerHTML = tvh; }
-    }
-    if (this.mfxIdleAt[t] && now >= this.mfxIdleAt[t]) { this.mfxIdleAt[t] = 0; f.idle(now); }
-    if (s.phase === 'playing') f.frame(now);
-    const v = fresh ? JSON.stringify([m.mode, m.backLeft, m.holds, m.cur, m.lv]) : this.mfxView[k];
-    if (v !== this.mfxView[k]) {
-      this.mfxView[k] = v;
-      const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
-      f.holds(m.holds.map(h), m.cur && h(m.cur));
-      if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり${m.chain > 1 ? ` ${m.chain}連` : ''}` : ''; // 連チャンの回数（強さの段と同じ数）
-      else f.mode(m.mode, m.backLeft, `パワーアップ${powerText(C.SLOT_MODERN, m.lv.power)}・アシスト${assistText(C.SLOT_MODERN, m.lv.assist)}`);
-    }
-    if (t === this.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
-      const fe = $('.fever'), on = m.mode === 'ct' && s.phase === 'playing', txt = `${t === 0 ? '→' : '←'}攻め時！？`, disp = on ? 'block' : 'none';
-      if (fe.style.display !== disp) fe.style.display = disp;
-      if (fe.textContent !== txt) fe.textContent = txt;
-    }
-  }
 
   // モダンのスロットの回転・結果・先バレ（サーバーの mslot）。演出と先バレは自陣だけ
   mslotEv(m: any) {
@@ -1268,25 +1145,9 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  // キルログ: 倒した側 → 倒された側。1行ずつ KILL_LOG_SEC 秒で消え、KILL_LOG_MAX 件を超えたら古い順に消える
-  killLog(kc: string, kt: number, vc: string, vt: number) {
-    const el = document.createElement('div');
-    el.innerHTML = `${this.icon(kc, kt)}<span>${charName(kc)}</span><span style="color:${css16(TEAM_COLOR[kt])}">▶</span>${this.icon(vc, vt)}<span>${charName(vc)}</span>`; // アイコンの横にキャラ名
-    const box = $('.kills');
-    box.appendChild(el);
-    setTimeout(() => el.remove(), C.KILL_LOG_SEC * 1000);
-    while (box.children.length > C.KILL_LOG_MAX) box.firstElementChild!.remove();
-  }
+  killLog(kc: string, kt: number, vc: string, vt: number) { return Hud.killLog(this, kc, kt, vc, vt); } // 中身は hud.ts（refac3）
 
-  // 画面中央の大きな表示。key が変わったときだけ作り直す（出るときのアニメーションのため）
-  banner(key: string, text = '', sub = '', color = '#fff') {
-    const el = $('.banner');
-    if (key === this.bannerKey) return;
-    this.bannerKey = key;
-    el.style.display = key ? 'block' : 'none';
-    el.style.setProperty('--c', color);
-    el.innerHTML = key ? `<b>${text}</b>${sub ? `<small>${sub}</small>` : ''}` : '';
-  }
+  banner(key: string, text = '', sub = '', color = '#fff') { return Hud.banner(this, key, text, sub, color); } // 中身は hud.ts（refac3）
 
   // 開始の演出: ゲーム画面上の味方4人の横並び（万歳、カメラは寄せる）→ 1人ずつ立ち絵と名前ロゴのカットイン
   introOld(s: any, myTeam: number, sinceSnap: number) {
@@ -1354,100 +1215,13 @@ class GameScene extends Phaser.Scene {
   // 味方: アイコンの下部に体力バー、反省中は復活までの残り秒数を重ねる。アシストは一番左のアイコンの下に（アイコン＋体力バー）。敵: アイコンだけ
   buffHtml = '';
   buffTopOf: string | null = null; // バフ欄の位置を測った時の .r0 の中身
-  rosterHud(s: any, myTeam: number, sinceSnap: number) {
-    const c = css16(TEAM_COLOR[myTeam]), hp: number[] = [], bar = (p: any) => (hp.push(p ? Math.min(1, p.hp / p.maxHp) : 1), '<span class="hp"><i></i></span>'); // HP バーの長さは骨組みと分けて transform で（HP が変わるたびに HTML を作り直さない）
-    const tag = (t: string) => `<em class="pt">${t}</em>`, ut = (r: any) => (r.ult !== null && r.ult !== undefined && r.alive ? tag(C.POWER_TAGS[Math.min(r.ult, C.POWER_TAGS.length - 1)]) : ''); // 強さの札: パワーアップ中は 1〜MAX、アシストは★
-    const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
-      const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
-      return `<div class="mem" style="--c:${c}">${this.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}${ut(r)}</div>`;
-    }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.alive && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${this.icon(p.char, myTeam)}${bar(p)}${tag(C.ASSIST_TAGS[Math.min(p.tier, C.ASSIST_TAGS.length - 1)])}</div>`).join(''); // アシスト（撃破されたら消える）
-    const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => `<div class="mem">${this.icon(r.char, 1 - myTeam, !r.alive)}${ut(r)}</div>`).join('') + '</div>';
-    const html = myTeam === 0 ? [allies, foes] : [foes, allies];
-    html.forEach((h, k) => { if (h !== this.rosterHtml[k]) { this.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
-    $(`.r${myTeam}`).querySelectorAll<HTMLElement>('.hp i').forEach((e, i) => this.setTf(e, `scaleX(${Math.max(0, hp[i] ?? 1)})`));
-  }
 
-  // バフ／デバフ欄（自キャラだけ。常に左上の組のアイコン列の下）: 時間制限つきの状態を名前＋残り秒数で。良い効果は緑、悪い効果は赤。指名手配中は悪行ポイント
-  buffHud(s: any, mine: any, myTeam: number, sinceSnap: number) {
-    const items: [string, string, boolean][] = []; // 名前, 値, 良い効果か
-    if (mine?.alive && s.phase === 'playing') {
-      for (const [k, v] of Object.entries((s.buffs ?? {}) as Record<string, number>)) {
-        const b = BUFF[k], left = v - sinceSnap;
-        if (b && left > 0) items.push([b[0], `${Math.ceil(left)}`, b[1]]);
-      }
-      if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ${powerText(C.SLOT_MODERN, mine.ult.tier + 1)}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
-      if (s.teams?.[myTeam]?.wanted === s.me) items.push(['指名手配', `悪行${(mine.bad ?? 0).toFixed(1)}`, false]);
-    }
-    const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
-    const el = $('.buffs'), r0 = $('.r0');
-    if (html !== this.buffHtml) { this.buffHtml = html; el.innerHTML = html; }
-    // 位置: 左上の一覧（.r0）の下に自分の情報パネル（上に WANTED の分を空ける）、その下にバフ欄。一覧の中身・パネルの表示が変わった時と、リサイズ等の後だけ測る（毎フレーム測ると DOM を書いた後なので強制レイアウトになる）
-    const meP = $('.me'), meOn = !!mine && s.phase !== 'waiting', key = `${this.rosterHtml[0]}|${meOn}`;
-    if (key !== this.buffTopOf || this.fxFit > 0) {
-      this.buffTopOf = key;
-      const z = this.game.scale.zoom, top = r0.getBoundingClientRect().bottom - fx.getBoundingClientRect().top + 4; // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
-      setCss(meP, 'display', meOn ? 'block' : 'none');
-      const meTop = top + 13 * z; // WANTED の表記の高さ
-      meP.style.top = `${meTop}px`;
-      el.style.top = `${meOn ? meTop + meP.offsetHeight + 4 : top}px`;
-    }
-  }
 
-  // 開始カウント・GAME START・形勢・終了前の残り秒数とカウント・リザルト
-  staging(s: any, mine: any, myTeam: number, sinceSnap: number) {
-    const now = performance.now();
-    if (s.phase === 'playing' && (this.prevPhase === 'countdown' || this.prevPhase === 'intro')) this.timed = { key: 'start', text: C.INTRO_MODE === 'old' ? 'GAME START' : '0', sub: '', color: '#ffe066', until: now + C.GAME_START_MS };
-    if (s.phase === 'playing' && mine && s.timeLeft < this.prevTimeLeft) {
-      for (const a of C.SITUATION_AT) if (this.prevTimeLeft > a && s.timeLeft <= a) {
-        const d = s.teams[myTeam].bossHpRatio - s.teams[1 - myTeam].bossHpRatio;
-        const [text, color] = d >= C.SITUATION_DIFF ? ['優勢', '#ffd040'] : d <= -C.SITUATION_DIFF ? ['劣勢', '#6aa8ff'] : ['接戦', '#fff'];
-        this.timed = { key: `sit${a}`, text, sub: `残り${a / 60}分`, color, until: now + C.SITUATION_MS };
-      }
-      for (const a of C.END_WARN_AT) if (this.prevTimeLeft > a && s.timeLeft <= a) this.timed = { key: `warn${a}`, text: `残り${a}秒`, sub: '', color: '#ff8060', until: now + C.SITUATION_MS };
-    }
-    this.prevPhase = s.phase;
-    this.prevTimeLeft = s.timeLeft;
-    const left = Math.max(0, s.timeLeft - (s.phase === 'playing' ? sinceSnap : 0));
-    if (s.phase === 'ended') {
-      const res = s.winner === 2 ? '引き分け' : !mine ? `${TEAM_NAME[s.winner]}の勝ち` : s.winner === myTeam ? '勝利' : '敗北';
-      this.banner('result', res, `${TEAM_NAME[0]} ${Math.round(s.teams[0].bossHpRatio * 100)}% − ${Math.round(s.teams[1].bossHpRatio * 100)}% ${TEAM_NAME[1]}`, res === '勝利' ? '#ffd040' : res === '敗北' ? '#6aa8ff' : '#fff');
-    } else if (s.phase === 'countdown') {
-      const n = Math.max(1, Math.ceil((s.phaseLeft - sinceSnap) * (C.INTRO_MODE === 'old' ? C.INTRO_SPEED : 1))); // 旧開幕は倍速でも 3・2・1、新開幕は実秒数
-      this.banner(`cnt${n}`, String(n), C.INTRO_MODE === 'old' ? '部屋から出られるのは GAME START の後' : '', '#fff');
-    } else if (s.phase === 'intro' && this.introBanner) {
-      this.banner(`intro_${this.introBanner[0]}`, this.introBanner[1], '', '#ffe066');
-    } else if (s.phase === 'playing' && left > 0 && left <= C.END_COUNT) this.banner(`end${Math.ceil(left)}`, String(Math.ceil(left)), '', '#ff8060');
-    else if (this.timed && now < this.timed.until) this.banner(this.timed.key, this.timed.text, this.timed.sub, this.timed.color);
-    else this.banner('');
-  }
 
-  // KOした時のカットイン（プレイは止めない）。how: 倒した手段
-  cutin(me: string, foe: string, how: string) {
-    fx.querySelector('.cut')?.remove(); // 同時KOは最後の1体だけ出す
-    const el = document.createElement('div');
-    el.className = 'cut';
-    el.style.setProperty('--d', `${C.CUTIN_MS}ms`);
-    el.innerHTML = `<img class="me" src="${TACHIE(me, 'ko')}"><img class="foe" src="${TACHIE(foe, 'select')}"><div class="how"><b>撃破</b><span>${CHARS[foe].name}</span><span>${how}</span></div>`;
-    fx.appendChild(el);
-    setTimeout(() => el.remove(), C.CUTIN_MS);
-  }
+  cutin(me: string, foe: string, how: string) { return Hud.cutin(this, me, foe, how); } // 中身は hud.ts（refac3）
 
-  // ワールド座標に付く一時表示（ダメージ数値・+1・注意）
-  popup(text: string, x: number, y: number, cls: string) {
-    const el = document.createElement('div');
-    el.className = `pop ${cls}`;
-    el.textContent = text;
-    el.style.setProperty('--d', `${C.POPUP_MS}ms`);
-    mapEl.appendChild(el);
-    this.pops.push({ el, x, y, until: performance.now() + C.POPUP_MS });
-  }
 
-  notify(text: string) {
-    const el = document.createElement('div');
-    el.textContent = text;
-    $('.notes').appendChild(el);
-    setTimeout(() => el.remove(), C.NOTIFY_MS);
-  }
+  notify(text: string) { return Hud.notify(this, text); } // 中身は hud.ts（refac3）
 
   // ワールド座標 → fx 内の座標(px)
   // ワールド座標 → #fx 上の位置（transform で動かす。left/top を毎フレーム書くとレイアウトが起きる）。anchor: 要素のどこを合わせるか
@@ -1508,22 +1282,11 @@ class GameScene extends Phaser.Scene {
     if (this.selChar === k) return;
     this.selChar = k;
     this.lobbyRender();
-    if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; this.room?.send('pick', { char: this.selChar }); }, PICK_SEND_MS);
+    if (!this.pickTimer) this.pickTimer = window.setTimeout(() => { this.pickTimer = 0; if (this.room && this.selChar) sendC2S(this.room, 'pick', { char: this.selChar }); }, PICK_SEND_MS);
   }
 
   // 練習パネルの表示: 試合中だけ左端のタブと引き出しを出す（タイマーは隠す）。相手・動き・パワーアップはサーバーの値
   prModes: HTMLElement[] | null = null; prMode = ''; // 練習パネルの動きのボタン（参照は一度だけ取る）と、光らせている動き
-  practiceHud(s: any) {
-    const on = !!s.practice && s.phase === 'playing', prw = $('.prw');
-    setCss(prw, 'display', on ? 'block' : 'none');
-    setCss($('.timer'), 'visibility', s.practice ? 'hidden' : '');
-    if (!on) { if (prw.classList.contains('open')) prw.classList.remove('open'); return; }
-    const P = s.practice, lv = (t: number) => (t < 0 ? 'なし' : C.POWER_TAGS[t]);
-    setText($('.lv0'), lv(P.lv[0])); setText($('.lv1'), lv(P.lv[1]));
-    if (P.mode !== this.prMode) { this.prMode = P.mode; (this.prModes ??= [...$('.prp').querySelectorAll<HTMLElement>('[data-mode]')]).forEach((b) => b.classList.toggle('on', b.dataset.mode === P.mode)); } // 値が変わった時だけ書く
-    const sel = $('.pfoe') as HTMLSelectElement;
-    if (P.foe && document.activeElement !== sel && sel.value !== P.foe) sel.value = P.foe;
-  }
 
   // 選択画面の立ち絵: 身長に比例した大きさと位置、低身長組は足元の木箱（tachieFit。リサイズの後にも合わせ直す）
   lobbyTachieFit() {
@@ -1638,31 +1401,32 @@ class GameScene extends Phaser.Scene {
     if (!s) return;
     const dt = dtMs / 1000;
     const now = performance.now();
-    this.interp.measure = s.phase === 'playing' && !this.measureSent ? this.measure : null;
-    if (this.interp.measure) {
-      this.interp.measure.beginFrame(this.measureFrameAt === null ? null : now - this.measureFrameAt);
-      this.measureFrameAt = now;
-      if (now - this.pingAt >= 1000 && (this.pingPending === null || now - this.pingPending > 10000)) {
-        this.pingAt = this.pingPending = now;
-        this.room.send('netPing', { id: this.measureId, at: now });
-      }
-    }
-    const k = this.keys;
-    const { dx, dy } = this.ctl.move({ up: k.W.isDown, down: k.S.isDown, left: k.A.isDown, right: k.D.isDown });
-    if (dx || dy) this.face = Math.atan2(dy, dx);
-    // 入力は NET_STEP ごとに番号を付けて送り、同時に自キャラを予測で動かす
-    const me0 = s.players.find((p: any) => p.id === s.me);
-    this.acc = Math.min(this.acc + dtMs, 250);
-    while (this.acc >= C.NET_STEP * 1000) {
-      this.acc -= C.NET_STEP * 1000;
-      const move = !!me0 && me0.alive && MOVE_PHASES.includes(s.phase) && !me0.stunned && !me0.lock; // 移動不可の状態（突撃など）は予測で動かさない
-      this.room.send('input', { ...this.pred.step(dx, dy, me0?.spd ?? 0, this.obstacles(s, me0), move), rt: this.interp.renderTime(performance.now()) }); // rt: この画面の時刻（サーバーの近接AAの巻き戻し判定）
-    }
+    const { dx, dy } = this.upInput(s, dtMs, now);
+    if (this.evQueue.length) { const later: GameScene['evQueue'] = []; for (const e of this.evQueue) { if (e.at !== undefined && !this.interp.reached(e.at, now)) later.push(e); else e.f(); } this.evQueue = later; } // 単発の出来事（sync1）
+    this.upWalls(s);
+    const { labelSeen, sinceSnap, myTeam, thingPos, mine } = this.upSelf(s, dtMs, now);
+    const { seen, fin, F, K, dying, feet } = this.upUnits(s, dx, dy, now, labelSeen, sinceSnap, time);
+    this.upCamera(s, sinceSnap, myTeam, labelSeen, dx, dt, dy, thingPos, mine, feet);
+    const { fxG } = this.upFx(thingPos, s, seen, now, dying, fin, sinceSnap, F, K, time, mine, myTeam);
+    this.upShots(now, fxG, time);
+    this.upGround(myTeam, s, labelSeen, thingPos, mine, time);
+    this.upVision(myTeam, s, sinceSnap, dtMs, mine);
+    this.upHud(s, myTeam, sinceSnap, now, labelSeen, mine);
+  }
+
+  // update の段（refac3）: 入力: 計測の ping・入力の送信と予測（net.ts）、試合の切り替わり・待機画面
+  upInput(s: any, dtMs: number, now: number) {
+    const { dx, dy } = sendInputs(this, s, dtMs, now); // 計測の ping・入力の送信と予測（net.ts。refac3）
     this.practice = !!s.practice;
     if ((this.lastPhase === 'ended' || (this.practice && this.lastPhase === 'playing')) && s.phase === 'waiting') { this.resetMatch(); this.selMode = 'browse'; this.lobbyKey = ''; commentary.clear(); } // 連戦（練習は「選択画面へ」）は選択バー（未出撃）から。名簿が前と同じでも描き直す。実況は打ち切る
     this.lastPhase = s.phase;
     this.lobbyUpdate(s);
 
+    return { dx, dy };
+  }
+
+  // update の段（refac3）: 壁の反映: 大将の候補部屋、壁破壊（タイル・ミニマップ・移動予測の壁）
+  upWalls(s: any) {
     if (s.bossRooms && s.bossRooms.join() !== this.homesKey) { this.homesKey = s.bossRooms.join(); this.applyHomes(s.bossRooms); }
     // 壁破壊の反映（タイル・ミニマップ・移動予測の壁）
     if (s.broken.length > this.brokenN) {
@@ -1684,6 +1448,10 @@ class GameScene extends Phaser.Scene {
     }
     this.cullCracks();
 
+  }
+
+  // update の段（refac3）: 自キャラ: 移動予測の位置・陣営・描画位置の引き方
+  upSelf(s: any, dtMs: number, now: number) {
     // 自キャラの移動予測
     const mine = s.players.find((p: any) => p.id === s.me);
     if (mine) {
@@ -1708,6 +1476,11 @@ class GameScene extends Phaser.Scene {
       return null;
     };
 
+    return { labelSeen, sinceSnap, myTeam, thingPos, mine };
+  }
+
+  // update の段（refac3）: ユニットの描画: キャラ・大将・コバコ・札
+  upUnits(s: any, dx: any, dy: any, now: number, labelSeen: any, sinceSnap: any, time: number) {
     // ユニット描画（受信したものだけ）
     const seen = new Set<string>();
     const feet = this.feet.clear();
@@ -1751,7 +1524,7 @@ class GameScene extends Phaser.Scene {
       if (e.hp !== undefined && hpV < e.hp) {
         const ratio = (e.hp - hpV) / maxHp;
         e.flashUntil = time + C.HIT_FLASH_MS;
-        this.popup(String(Math.round(e.hp - hpV)), cx, cy - h - 6, 'dmg');
+        Hud.popup(this, String(Math.round(e.hp - hpV)), cx, cy - h - 6, 'dmg');
         if (ratio >= C.HIT_FX.mid) this.hits.push({ x: cx, y: cy - h / 2, ratio, big: ratio >= C.HIT_FX.big, t0: time, seed: Math.random() * 6.283 });
         if (ratio >= C.HIT_FX.big) { e.shakeUntil = time + C.HIT_FX.shakeMs; if (isMe) this.cameras.main.shake(C.HIT_FX.shakeMs, C.HIT_FX.cam); }
       }
@@ -1814,6 +1587,11 @@ class GameScene extends Phaser.Scene {
     }
     for (const [id, im] of this.tags) if (!this.tagSeen.has(id)) { im.destroy(); this.tags.delete(id); } // 描かなかったキャラの札を片付ける
     this.tagSeen.clear();
+    return { seen, fin, F, K, dying, feet };
+  }
+
+  // update の段（refac3）: カメラ・観戦者のボタン・画面に固定の表示・自キャラの射程の円
+  upCamera(s: any, sinceSnap: any, myTeam: any, labelSeen: any, dx: any, dt: number, dy: any, thingPos: any, mine: any, feet: any) {
     // カメラ: 開始演出は味方の横並びに寄せる。ミニマップを押している間はその位置（離したら即座に自キャラへ）。撤退中は WASD で視点だけ動かす（壁に関係なく）。それ以外は自キャラに追従
     const camera = this.cameras.main, meUnit = this.units.get(s.me);
     const freeCam = !!mine && !mine.alive && s.phase === 'playing' && (mine.ko === null || mine.ko + sinceSnap >= C.RESPAWN_BASE); // 撃破の演出（絞り切るまで）はカメラを自キャラの位置のまま
@@ -1865,6 +1643,10 @@ class GameScene extends Phaser.Scene {
       if (cd > 0) feet.fillStyle(0x000000, 0.6).fillRect(this.me.x - 10, this.me.y + 5, 20, 3).fillStyle(0xffffff).fillRect(this.me.x - 10, this.me.y + 5, 20 * Math.min(1, cd / mine.cdMax), 3);
     }
 
+  }
+
+  // update の段（refac3）: fx: 技の範囲・撃破・着弾・予告・状態のエフェクト・本人だけの描画
+  upFx(thingPos: any, s: any, seen: any, now: number, dying: any, fin: any, sinceSnap: any, F: any, K: any, time: number, mine: any, myTeam: any) {
     const fxG = this.fxG.clear();
     const sweatPos = (id: string | undefined) => {
       if (!id) return null;
@@ -1886,7 +1668,7 @@ class GameScene extends Phaser.Scene {
       const f = target ? { ...f0, ...target } : f0.kind === 'slash' && f0.who === s.me ? { ...f0, x: this.me.x, y: this.me.y } : f0; // 自分の斬撃は画面の自キャラの位置から（向き・射程・角度はサーバーの値）
       const dv = `${f.d > 0 ? '+' : '−'}${Math.abs(f.d).toFixed(2).replace(/0$/, '')}`;
       if ((f.kind === 'slash' && !(f.color && FX_VIEW[f.color])) || f.kind === 'sweat') this.aaFx(f); // 通常攻撃の斬撃・汗（color の描画があれば技の fx の層で描く）
-      else if (f.kind === 'toku') this.popup(`徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）
+      else if (f.kind === 'toku') Hud.popup(this, `徳${dv}`, f.x, f.y - 34, f.d > 0 ? (f.hi ? 'plus hi' : 'plus') : 'dmg'); // 徳の増減を頭上に（すべて「徳±XX」だけ。高ポイントはピンク）
       else this.skillFx.push({ ...f, t0: time });
     }
     this.fxQueue = later;
@@ -1956,6 +1738,11 @@ class GameScene extends Phaser.Scene {
       selfView(fxG, { me: this.me, s, myTeam, time, pos: (id: string) => this.interp.at(id, now) });
     this.aimArrow(fxG, mine);
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'fx') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(fxG, e, time, teamColor(e.team), thingPos);
+    return { fxG };
+  }
+
+  // update の段（refac3）: 弾
+  upShots(now: number, fxG: any, time: number) {
     this.kunaiSeen.clear();
     this.interp.shotsAt('shot:', now, (k, x, y) => { // 弾も他キャラと同じ時刻（NET_INTERP_DELAY 前）で描く
       const sh = this.shotData.get(Number(k.slice(5)));
@@ -1968,6 +1755,10 @@ class GameScene extends Phaser.Scene {
     });
     for (const [id, im] of this.kunais) if (!this.kunaiSeen.has(id)) { im.destroy(); this.kunais.delete(id); } // 消えた弾の絵を片付ける
 
+  }
+
+  // update の段（refac3）: 地面: 大将の候補部屋の縁取り・資材・アイテム・地面の場の物
+  upGround(myTeam: any, s: any, labelSeen: any, thingPos: any, mine: any, time: number) {
 
     const g = this.g.clear();
     // 自陣の大将の候補部屋の縁取り
@@ -1979,6 +1770,10 @@ class GameScene extends Phaser.Scene {
     }
     for (const kind in ENT_VIEW) if (ENT_VIEW[kind].layer === 'ground') for (const e of s.ents) if (e.kind === kind) ENT_VIEW[kind].draw(g, e, time, teamColor(e.team), thingPos);
 
+  }
+
+  // update の段（refac3）: 視界（フォグ）
+  upVision(myTeam: any, s: any, sinceSnap: any, dtMs: number, mine: any) {
     // 視界（観戦者はフォグなし）
     const vg = this.visG;
     const fogTeam = mine ? myTeam : s.spec?.view === 0 || s.spec?.view === 1 ? s.spec.view : null; // 観戦者の「組の視界」はその組の視界で
@@ -2001,26 +1796,31 @@ class GameScene extends Phaser.Scene {
       if (this.perf) { const q = this.perf, ray = performance.now() - t0; q.n++; q.ray += ray; q.rayMax = Math.max(q.rayMax, ray); q.frame += dtMs; q.frameMax = Math.max(q.frameMax, dtMs); (window as any).perf = q; }
     } else if (this.visDrawn) { vg.clear(); this.visDrawn = null; }
 
+  }
+
+  // update の段（refac3）: HUD: タイマー・リザルトの戻る・技のアイコン・ミニマップ・ラベル・KO・自分の情報・計測
+  upHud(s: any, myTeam: any, sinceSnap: any, now: number, labelSeen: any, mine: any) {
     // HUD: タイマー、大将HPバー
     const sec = Math.ceil(s.timeLeft);
     setText($('.timer'), `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
-    this.practiceHud(s);
+    Hud.practiceHud(this, s);
     [0, 1].forEach((t) => { const el = $(`.b${t} i`); setCss(el, 'width', `${s.teams[t].bossHpRatio * 100}%`); setCss(el, 'background', css16(TEAM_COLOR[t])); }); // 左＝陣営0、右＝陣営1
     // リザルトの「戻る」: 押した人数／全人数（Botは押した扱い）
     const back = $('.back') as HTMLButtonElement;
     const backDisp = s.phase === 'ended' && mine ? 'block' : 'none';
     setCss(back, 'display', backDisp); setCss($('.totitle'), 'display', backDisp);
     if (this.resultPh === 'ended' && s.phase !== 'ended') { this.result = null; this.resultAsked = false; if (resultOpen()) closeResult(); } // 次の試合へ進んだら捨てる（'result' は phase が ended になるより先に届くことがあるので、ended から離れた時だけ）
-    if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; this.room?.send('resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
+    if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; if (this.room) sendC2S(this.room, 'resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
     this.resultPh = s.phase;
     setCss($('.rsbtn'), 'display', s.phase === 'ended' && this.result ? 'block' : 'none');
+    setCss(idleWarn, 'display', s.phase === 'ended' && mine && !this.backSent && s.back?.idle !== undefined && s.back.idle - sinceSnap <= C.RESULT_IDLE_SEC - C.RESULT_WARN_SEC ? 'block' : 'none'); // 押していない本人だけ（押したら消える。書くのは出す時と消す時だけ）
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
-    this.rosterHud(s, myTeam, sinceSnap);
-    this.buffHud(s, mine, myTeam, sinceSnap);
-    if (s.phase !== 'waiting') this.tokuHud(s);
+    Hud.rosterHud(this, s, myTeam, sinceSnap);
+    Hud.buffHud(this, s, mine, myTeam, sinceSnap);
+    if (s.phase !== 'waiting') Hud.tokuHud(this, s);
     setCss($('.tk'), 'display', s.phase === 'waiting' ? 'none' : 'flex');
     if (C.INTRO_MODE === 'old') this.introOld(s, myTeam, sinceSnap);
-    this.staging(s, mine, myTeam, sinceSnap);
+    Hud.staging(this, s, mine, myTeam, sinceSnap);
     // 技のアイコンとクールタイム
     const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
     setCss(skEl, 'display', sk ? 'flex' : 'none');
@@ -2105,6 +1905,7 @@ class GameScene extends Phaser.Scene {
     setCss($('#info'), 'display', this.perf ? 'block' : 'none');
     if (this.perf) setText($('#info'), `視界の計算 平均${(this.perf.ray / this.perf.n).toFixed(2)}ms 最大${this.perf.rayMax.toFixed(1)}ms／フレーム間隔 平均${(this.perf.frame / this.perf.n).toFixed(1)}ms 最大${this.perf.frameMax.toFixed(0)}ms`);
   }
+
 }
 
 // 論理解像度を整数倍で表示（#wrap はノッチなどを除いた範囲）

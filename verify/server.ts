@@ -20,6 +20,9 @@ const ok = (name: string, cond: boolean, detail: any = '') => {
 const T = C.TILE;
 
 // 部屋を作り、a（陣営0）と b（陣営1）だけを中央ホールに置く。Botは盤外で無効化
+// e2e の部屋（options.e2e）を作る確認だけ E2E_HOOKS を立てる（sec1: E2E_HOOKS なしでは作れない。e2e のフックはモジュールを読んだ時に決まるので、ここで立ててもフックは増えない）
+const withE2e = <X>(f: () => X): X => { const s0 = process.env.E2E_HOOKS; process.env.E2E_HOOKS = '1'; try { return f(); } finally { if (s0 === undefined) delete process.env.E2E_HOOKS; else process.env.E2E_HOOKS = s0; } };
+
 function mk(a: string, b?: string) {
   const r: any = new (GameRoom as any)();
   r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
@@ -434,7 +437,7 @@ console.log('--- 開始演出の横並び・戻る（連戦）');
   const row = [0, 1].map((t) => [...r.players.values()].filter((p: any) => p.team === t));
   ok('開始演出: 各陣営の4人が開始部屋（食堂）の中に横一列に並ぶ', row.every((l, t) => l.length === 4 && l.every((p: any) => p.y === l[0].y && inRoom(p, C.START_ROOMS[t])) && l.every((p: any, i: number) => !i || p.x - l[i - 1].x === C.INTRO_GAP)));
   r.beginPlay(); r.breakWalls([[11, 33]]); r.teams[0].toku = 9; r.materials = [{ id: 99, x: 0, y: 0 }]; r.endMatch(0);
-  ok('リザルト: 押した人数／全人数（Botは押した扱い）', JSON.stringify(r.backCount()) === JSON.stringify({ n: 6, total: 8 }));
+  ok('リザルト: 押した人数／全人数（Botは押した扱い）', r.backCount().n === 6 && r.backCount().total === 8);
   r.messages.back({ sessionId: 'h1' });
   ok('人間の1人だけ押した段階では戻らない', r.phase === 'ended' && r.backCount().n === 7);
   r.messages.back({ sessionId: 'h2' });
@@ -525,7 +528,7 @@ console.log('--- 開始人数・途中参加（e2e から移動）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
   Object.defineProperty(r, 'clients', { value: [] });
-  r.onCreate({ e2e: 't' }); r.onJoin({ sessionId: 'h' }); // 途中参加（Bot と入れ替わる）は e2e の部屋だけ。常設の部屋は観戦（spectate1）
+  withE2e(() => r.onCreate({ e2e: 't' })); r.onJoin({ sessionId: 'h' }); // 途中参加（Bot と入れ替わる）は e2e の部屋だけ。常設の部屋は観戦（spectate1）
   ok('入室で待機画面（1人）', r.phase === 'waiting' && r.players.size === 1);
   r.startMatch(); r.beginPlay();
   const ps = [...r.players.values()];
@@ -1109,7 +1112,7 @@ classic(false);
 console.log('--- 通信の切断と再接続（スマホのバックグラウンド等）');
 {
   const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; r.unlock = () => {};
-  Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 't' }); // 途中参加は e2e の部屋だけ（常設の部屋は対戦中に入れない。人間がいなくなれば待機に戻る）
+  Object.defineProperty(r, 'clients', { value: [] }); withE2e(() => r.onCreate({ e2e: 't' })); // 途中参加は e2e の部屋だけ（常設の部屋は対戦中に入れない。人間がいなくなれば待機に戻る）
   let allowed: any = null; r.allowReconnection = (c: any, sec: number) => { allowed = { id: c.sessionId, sec }; };
   r.onJoin({ sessionId: 'h' }); r.startMatch(); r.beginPlay();
   const P = r.players.get('h'); P.aim = 'lowhp';
@@ -1604,7 +1607,7 @@ console.log('--- 待機画面の開始の流れ（出撃・選択猶予）');
   ok(`開始が決まってから${C.SORTIE_SEC}秒は選択画面のまま（キャラ・陣営・出撃は変えられない）。過ぎたら戦闘画面へ`, mid3 === 'waiting' && o.r.phase === 'intro' && o.p(0).ok && o.p(1).char === 'metan' && o.p(1).team === 1);
   const q = lobby(1); q.r.messages.go(q.h(0), { char: 'sayo' }); q.r.dropped.add('h0'); q.run(C.SORTIE_SEC + 0.1);
   ok('出撃の秒数の間に人間がいなくなったら始めない', q.r.phase === 'waiting' && q.r.sortieLeft === null);
-  const e2 = new (GameRoom as any)(); e2.setSimulationInterval = () => {}; e2.lock = () => {}; e2.unlock = () => {}; Object.defineProperty(e2, 'clients', { value: [] }); e2.onCreate({ e2e: 'x' }); e2.onJoin({ sessionId: 'h0' }); e2.messages.go({ sessionId: 'h0' }, { char: 'sayo' });
+  const e2 = new (GameRoom as any)(); e2.setSimulationInterval = () => {}; e2.lock = () => {}; e2.unlock = () => {}; Object.defineProperty(e2, 'clients', { value: [] }); withE2e(() => e2.onCreate({ e2e: 'x' })); e2.onJoin({ sessionId: 'h0' }); e2.messages.go({ sessionId: 'h0' }, { char: 'sayo' });
   ok('e2e の部屋は出撃の秒数を挟まず、すぐ戦闘画面へ', e2.phase === 'intro');
 }
 
@@ -2080,7 +2083,10 @@ console.log('--- 近接AAの巻き戻し判定（lagcomp1）');
   const on = chase(true), off = chase(false), bot = chase(true, false);
   ok(`追いかけ（攻撃側281・相手187px/秒、今の距離 ${on.gapNow}px ＞ 届く距離 ${on.reach}px）: 画面の時刻（${C.NET_INTERP_DELAY}＋0.05秒前）まで巻き戻すと当たり、巻き戻さないと当たらない。Bot は巻き戻さない`, on.hit && !off.hit && !bot.hit && on.gapNow > on.reach, { on, off, bot });
   // 上限: 画面の時刻が NET_REWIND_MAX より古くても、その上限までしか戻さない
-  const z = mk('sayo', 'metan'); z.r.elapsed = 5; z.A.viewT = 1; ok(`巻き戻しは最大${C.NET_REWIND_MAX}秒`, Math.abs(z.r.lagT(z.A)! - (5 - C.NET_REWIND_MAX)) < 1e-9);
+  const z = mk('sayo', 'metan'); z.r.elapsed = 5; z.A.viewT = 1; z.A.rtts = [0.2]; ok(`巻き戻しは最大${C.NET_REWIND_MAX}秒`, Math.abs(z.r.lagT(z.A)! - (5 - C.NET_REWIND_MAX)) < 1e-9);
+  // sync1: サーバーが測った往復の遅延＋NET_INTERP_DELAY＋NET_REWIND_SLACK までしか戻さない（測れていなければ往復 0）
+  z.A.rtts = [0.01, 0.02]; const lim1 = 5 - z.r.lagT(z.A)!; z.A.rtts = []; const lim0 = 5 - z.r.lagT(z.A)!;
+  ok('巻き戻しは、測った往復の遅延（直近の最大）＋補間の遅延＋許容まで（測れていなければ往復 0）', Math.abs(lim1 - (0.02 + C.NET_INTERP_DELAY + C.NET_REWIND_SLACK)) < 1e-9 && Math.abs(lim0 - (C.NET_INTERP_DELAY + C.NET_REWIND_SLACK)) < 1e-9, { lim1, lim0 });
   // 自分の斬撃は who を付けて送る（クライアントが画面の自キャラの位置に描く）
   const w = mk('sayo', 'metan'); w.r.fx = []; w.A.cooldownUntil = 0; w.r.attack('a', 0); const sl = w.r.fx.find((x: any) => x.kind === 'slash');
   ok('斬撃のエフェクトに攻撃した人の id を付ける（自分の斬撃は画面の自キャラの位置に描く）', sl?.who === 'a');
@@ -2174,7 +2180,7 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const join = (r: any, sid: string, name?: string) => { const c = { sessionId: sid, auth: auth(r, { bid: 'b' + sid }), send: (t: string, m: any) => { if (t === 's') c.got = m; }, leave: (code: number, why: string) => (c.left = [code, why]) } as any; r.clients.push(c); r.onJoin(c, { name }); return c; };
   // 常設の部屋: 空になっても残す。作り終えたら（sealed）e2e 以外の部屋は作れない
   const a = room(), b = room();
-  GameRoom.sealed = true; let sealed = false; try { room(); } catch { sealed = true; } const e = room({ e2e: 'x' }); GameRoom.sealed = false;
+  GameRoom.sealed = true; let sealed = false; try { room(); } catch { sealed = true; } const e = withE2e(() => room({ e2e: 'x' })); GameRoom.sealed = false;
   ok(`常設の部屋は空になっても残し（autoDispose なし）、${C.ROOMS}つ作った後は e2e の部屋しか作れない`, a.pub && !a.autoDispose && sealed && !e.pub && e.autoDispose);
   ok('/status: 部屋ごとの状態・人数（待機中）', JSON.stringify(OG.status([a, b]).rooms.map((x: any) => [x.no, x.state, x.humans, x.max])) === JSON.stringify([[1, 'waiting', 0, C.ROOM_FULL], [2, 'waiting', 0, C.ROOM_FULL]]));
   // 名前: 部品の組み合わせ（そのまま）、それ以外は付け直す、重複は末尾に番号
@@ -2194,14 +2200,33 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   const bots0 = [...b.players.values()].filter((p: any) => p.bot).length, s1 = join(b, 's1', nm);
   ok('対戦中の常設の部屋へ観戦で入れる（参加者にならず Bot はそのまま）。/status は対戦中・観戦者数', !b.owners.has('s1') && [...b.players.values()].filter((p: any) => p.bot).length === bots0 && OG.status([b]).rooms[0].state === 'playing' && OG.status([b]).rooms[0].humans === 1 && OG.status([b]).rooms[0].spec === 1);
   b.sendSnapshots(); ok('観戦者のスナップショット: me なし・フォグなし（全員）・実況のフォーカスと視点', s1.got.me === null && s1.got.players.length === b.players.size && s1.got.spec.view === 'all' && 'focus' in s1.got.spec);
+  { // sync2: 変わらない項目は2回目から省き、試合の作り直し・再接続では全部送る。敵には自分・味方だけが使う項目を送らない
+    const pc = b.clients.find((c: any) => b.owners.get(c.sessionId) === 'p0'), me = b.players.get('p0'), foe = [...b.players.values()].find((p: any) => p.team !== me.team && p.alive);
+    const fxy = { x: foe.x, y: foe.y }; Object.assign(foe, { x: me.x + 30, y: me.y }); b.snapSent.clear(); b.sendSnapshots(); const f1 = pc.got; b.sendSnapshots(); const f2 = pc.got;
+    const fp = (s: any) => s.players.find((p: any) => p.id === foe.id), mp = (s: any) => s.players.find((p: any) => p.id === 'p0');
+    ok('差分（sync2）: 1回目は全部、2回目は roster・壁・資材とキャラの変わらない項目を省く。位置・HP は毎回', 'roster' in f1 && 'broken' in f1 && !('roster' in f2) && !('broken' in f2) && 'char' in mp(f1) && !('char' in mp(f2)) && 'x' in mp(f2) && 'hp' in mp(f2));
+    ok('敵に送らない項目（sync2）: 見えている敵に skillCd・cd・spd・ack・aim・tgt なし。自キャラにはある', !!fp(f1) && ['skillCd', 'cd', 'spd', 'ack', 'aim', 'tgt'].every((k) => !(k in fp(f1))) && ['skillCd', 'cd', 'spd', 'ack'].every((k) => k in mp(f1)) && 'ult' in fp(f1) && 'st' in fp(f1));
+    b.snapSent.delete(pc.sessionId); b.sendSnapshots(); ok('差分（sync2）: 送った記録を消すと（再接続・入室）全部送り直す', 'roster' in pc.got && 'char' in mp(pc.got));
+    Object.assign(foe, fxy);
+  }
   b.messages.spec(s1, { view: 1 }); b.sendSnapshots(); b.messages.spec(b.clients[0], { view: 'all' });
-  ok('観戦者の視点「組の視界」: その組の視界の分だけ送る。参加者の視点の指定は無視', s1.got.spec.view === 1 && s1.got.players.length < b.players.size && s1.got.players.filter((p: any) => p.team === 1).length === C.TEAM_SIZE && !b.specView.has(b.clients[0].sessionId));
+  ok('観戦者の視点「組の視界」: その組の視界の分だけ送る。参加者の視点の指定は無視', s1.got.spec.view === 1 && s1.got.players.length < b.players.size && s1.got.players.filter((p: any) => b.players.get(p.id).team === 1).length === C.TEAM_SIZE && !b.specView.has(b.clients[0].sessionId));
   for (let i = 2; i <= C.SPECTATOR_MAX; i++) join(b, 's' + i);
   ok(`観戦者は${C.SPECTATOR_MAX}人まで。超えたら「観戦席が満員です」`, auth(b).err === '観戦席が満員です' && OG.status([b]).rooms[0].spec === C.SPECTATOR_MAX);
   // 結果画面で参加者全員が「戻る」→ 観戦者を入室順に参加者へ（陣営は人数の少ない側、参加者 TEAM_SIZE×2 まで。残りは観戦のまま）
   b.beginPlay(); b.endMatch(0); b.messages.back(b.clients[0]);
   const ps = [...b.players.values()], promoted = ps.filter((p: any) => p.id.startsWith('s')).map((p: any) => p.id);
   ok('結果画面で参加者の人間全員が「戻る」→ 観戦者が入室順に参加者になる（名前つき・人数の少ない陣営へ。8人で残りは観戦）', b.phase === 'waiting' && ps.length === C.TEAM_SIZE * 2 && JSON.stringify(promoted) === JSON.stringify(Array.from({ length: C.TEAM_SIZE * 2 - 1 }, (_, i) => 's' + (i + 1))) && b.players.get('s1').name === nm && b.owners.get('s1') === 's1' && [0, 1].every((t) => ps.filter((p: any) => p.team === t).length === C.TEAM_SIZE) && !b.owners.has('s' + C.SPECTATOR_MAX) && OG.status([b]).rooms[0].spec === 1, promoted);
+  // 結果画面の放置（resultidle1）: RESULT_IDLE_SEC 秒「戻る」を押さない人間は部屋から出す（'idle'。キックではない）→ 全員押した扱いで待機へ
+  {
+    const mk = (n: number) => { const h = room(), cs = Array.from({ length: n }, (_, i) => join(h, 'r' + i)); h.startMatch(); h.beginPlay(); h.endMatch(0); return { h, cs }; };
+    const run = (h: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { h.tick(0.05, false); for (const c of [...h.clients]) if (c.left && !c.gone) { c.gone = true; h.clients.splice(h.clients.indexOf(c), 1); h.onLeave(c); } } }; // leave を受けたら抜ける（本物と同じく onLeave）
+    { const { h, cs } = mk(2); h.messages.back(cs[0]); run(h, C.RESULT_IDLE_SEC - 1); const before = !cs[1].left && h.phase === 'ended'; h.sendSnapshots(); const idle = cs[1].got.back.idle; run(h, 1.5);
+      ok(`結果画面: 1人だけ「戻る」→ ${C.RESULT_IDLE_SEC}秒で押していない方を部屋から出し（'idle'・キックではない）、部屋は待機へ、押した方は待機に残る`, before && idle > 0 && idle <= 1.05 && JSON.stringify(cs[1].left) === JSON.stringify([4000, 'idle']) && !cs[0].left && h.phase === 'waiting' && h.players.has('r0') && !h.players.has('r1') && !h.kicked.has('r1')); }
+    { const { h, cs } = mk(2); h.messages.back(cs[0]); h.messages.back(cs[1]); ok('結果画面: 全員が「戻る」なら今までどおりすぐ待機へ', h.phase === 'waiting' && h.players.size === 2 && !cs.some((c) => c.left)); }
+    { const { h, cs } = mk(2); run(h, C.RESULT_IDLE_SEC + 1); ok('結果画面: 誰も押さなければ全員を出し、常設の部屋は空の待機に戻る', cs.every((c) => c.left?.[1] === 'idle') && h.phase === 'waiting' && h.players.size === 0 && h.clients.length === 0); }
+    { const e = withE2e(() => room({ e2e: 'idle' })), c = join(e, 'e0'); e.startMatch(); e.beginPlay(); e.endMatch(0); for (let i = 0; i < (C.RESULT_IDLE_SEC + 2) * 20; i++) e.tick(0.05, false); ok('結果画面の放置: e2e の部屋は今のまま（出さない）', !c.left && e.phase === 'ended'); }
+  }
   // 参加者の人間が0人で観戦者だけ → ABANDON_SEC 秒のカウントダウン、0で打ち切って待機画面へ（観戦者は参加者に）。再接続で解除
   {
     const h = room(), q0 = join(h, 'q0'); h.startMatch(); h.beginPlay(); const w = join(h, 'w1');
@@ -2484,7 +2509,7 @@ console.log('--- 練習モード（handoff_practice1）');
   for (const z of [...made, r]) z.onDispose();
   ok(`練習: 同時に作れる部屋は ${C.PRACTICE_ROOMS} まで`, refused && live + made.length === C.PRACTICE_ROOMS);
   // 通常の部屋は今までどおり（Bot で4人ずつ補充、開始演出から）
-  const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; Object.defineProperty(n, 'clients', { value: [] }); n.onCreate({ e2e: 'x' }); n.addPlayer('a', 0, false); n.startMatch();
+  const n: any = new (GameRoom as any)(); n.setSimulationInterval = () => {}; Object.defineProperty(n, 'clients', { value: [] }); withE2e(() => n.onCreate({ e2e: 'x' })); n.addPlayer('a', 0, false); n.startMatch();
   ok('通常の部屋: Bot で補充して開始演出から（練習の分岐に入らない）', !n.practice && n.players.size === C.TEAM_SIZE * 2 && n.phase === 'intro' && n.materials.length > 0 && n.couriers.length === 1);
   n.onDispose();
 }
@@ -2728,6 +2753,57 @@ console.log('--- 余白の立ち絵の反応の通知（react1）');
   // 帰還成功: 本人だけに帰還前の HP 割合
   const rc = room(); rc.a.hp = 30; rc.a.recallAt = rc.r.now - C.RECALL_HOLD; rc.r.updatePlayers(0.05); const re = rc.of('recalled');
   ok('recalled は帰還した本人だけ（帰還前のHPの割合）', re.length === 1 && re[0][0] === 'x' && Math.abs(re[0][2].r - 30 / rc.r.maxHp(rc.a)) < 1e-9, re);
+}
+
+console.log('--- 受信の検証・入力の予算・e2e 部屋の封鎖（sec1）');
+{
+  // 異常なメッセージ: どれを送っても例外にならず、その後 tick が進み、全プレイヤーの座標が有限
+  const z = mk('sayo', 'metan'); const cl = { sessionId: 'a' } as any; z.r.owners.set('a', 'a');
+  const bad: [string, any][] = [['input', null], ['input', 'x'], ['input', { seq: 1, dx: Infinity, dy: 0 }], ['input', { seq: 1, dx: NaN, dy: 0 }], ['input', { seq: 1e300, dx: 1, dy: 0 }], ['input', { seq: 1, dx: 5, dy: 0 }],
+    ['aim', undefined], ['aim', { mode: 3 }], ['pick', undefined], ['go', { char: {} }], ['team', { team: '1' }], ['spec', null], ['skillUp', 'x'], ['skillAim', { a: Infinity }], ['qdown', { seq: 'x' }], ['pr', null], ['netPing', { id: NaN }], ['netReport', null]];
+  let threw = '';
+  for (const [k, m] of bad) { try { (z.r.messages as any)[k](cl, m); } catch (e) { threw += `${k} `; } }
+  try { (z.r.messages as any)._(cl, { any: 1 }); } catch { threw += '_ '; } // 未知の名前の受け皿
+  const t0 = z.r.now; for (let i = 0; i < 20; i++) { z.r.now += 0.05; z.r.updatePlayers(0.05); }
+  const finite = [...z.r.players.values()].every((p: any) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  ok('異常なメッセージ（null・文字列・Infinity・NaN・範囲外・型違い・未知の名前）で例外にならず、tick が進み、座標が有限', !threw && z.r.now > t0 && finite && z.A.inputs.length <= 1, { threw, finite, q: z.A.inputs.length });
+  // 毎秒の受信数の上限: 超えた分は捨てる
+  const rl = mk('sayo'); const c2 = { sessionId: 'a' } as any; rl.r.owners.set('a', 'a'); delete rl.A.st.test;
+  for (let i = 0; i < C.NET_MSG_MAX_PER_SEC + 50; i++) rl.r.messages.input(c2, { seq: i, dx: 1, dy: 0 });
+  ok(`毎秒の受信は ${C.NET_MSG_MAX_PER_SEC} 個まで（超えた分は捨てる）`, rl.A.inputs.length <= C.NET_QUEUE_MAX && rl.A.inputs.at(-1)?.seq === C.NET_MSG_MAX_PER_SEC - 1, { last: rl.A.inputs.at(-1)?.seq });
+  // 連打: 毎tick 2個の入力を10秒送り続けた移動距離が、毎tick 1個の 1.1 倍以内
+  const run = (perTick: number) => { const q = mk('sayo'); q.r.walls = []; const c = { sessionId: 'a' } as any; q.r.owners.set('a', 'a'); Object.assign(q.A, { x: 400, y: 900 }); let seq = 0; const x0 = q.A.x;
+    for (let i = 0; i < 200; i++) { (q.r as any).messages.input({ sessionId: 'a', __i: Math.floor(i / 20) } as any, { seq: seq++, dx: 1, dy: 0 }); if (perTick > 1) (q.r as any).messages.input({ sessionId: 'a' } as any, { seq: seq++, dx: 1, dy: 0 }); q.r.now += 0.05; q.r.updatePlayers(0.05); }
+    return q.A.x - x0; };
+  const d1 = run(1), d2 = run(2);
+  ok(`入力の連打（毎tick 2個を10秒）の移動距離は、毎tick 1個の 1.1倍以内（予算 ${C.NET_INPUT_BUDGET}）`, d2 <= d1 * 1.1, { d1: Math.round(d1), d2: Math.round(d2) });
+  // 通信の詰まり: 0.2秒（4tick）入力が止まってからまとめて届いた時、予算なし（変更前と同じ動き）と同じ tick に同じ所まで処理する
+  const stall = (budget: number, gap = 4) => { const B0 = C.NET_INPUT_BUDGET; (C as any).NET_INPUT_BUDGET = budget;
+    const st = mk('sayo'); st.r.walls = []; st.r.owners.set('a', 'a'); Object.assign(st.A, { x: 400, y: 900 }); let sq = 0; const acks: number[] = [];
+    for (let i = 0; i < 80; i++) { if (i === 10 + gap) { for (let k = 0; k < gap + 1; k++) st.r.messages.input({ sessionId: 'a' } as any, { seq: sq++, dx: 1, dy: 0 }); } else if (i < 10 || i > 10 + gap) st.r.messages.input({ sessionId: 'a' } as any, { seq: sq++, dx: 1, dy: 0 }); st.r.now += 0.05; st.r.updatePlayers(0.05); acks.push(st.A.ack); }
+    (C as any).NET_INPUT_BUDGET = B0; return acks; };
+  const withB = stall(C.NET_INPUT_BUDGET), noB = stall(Infinity);
+  ok('通信の詰まり（0.2秒）の後、予算なし（変更前）と同じ tick に同じ入力まで処理する（追いつきが遅れない）', withB.join() === noB.join(), { withB: withB.slice(12, 20), noB: noB.slice(12, 20) });
+  const w1 = stall(C.NET_INPUT_BUDGET, 20), n1 = stall(Infinity, 20);
+  ok('長い詰まり（1秒）の後も、予算なしと同じ tick に同じ入力まで処理する（遅れが残らない）', w1.join() === n1.join() && w1.at(-1) === n1.at(-1), { withB: w1.slice(30, 50), noB: n1.slice(30, 50) });
+  // e2e の部屋: E2E_HOOKS なしでは作れない
+  const saved = process.env.E2E_HOOKS; delete process.env.E2E_HOOKS;
+  let rejected = false; try { const r: any = new (GameRoom as any)(); r.setSimulationInterval = () => {}; r.lock = () => {}; Object.defineProperty(r, 'clients', { value: [] }); r.onCreate({ e2e: 'x' }); } catch { rejected = true; }
+  if (saved !== undefined) process.env.E2E_HOOKS = saved;
+  ok('E2E_HOOKS なしでは e2e の部屋（options.e2e）を作れない', rejected);
+}
+
+console.log('--- 単発の出来事の時刻（sync1）');
+{
+  // 撃破の ko・kill の at が、倒れた絵が載る最初のスナップショットの t と同じ（クライアントは補間の時刻が at に来てから出す）
+  const z = mk('sayo', 'metan'); const log: [string, any][] = [];
+  z.r.clients.push({ sessionId: 'own', send: (t: string, m: any) => log.push([t, m]) }, { sessionId: 'spec', send: (t: string, m: any) => log.push(['spec:' + t, m]) });
+  z.r.owners.set('own', 'a'); Object.assign(z.B, { x: 1600, y: 900 });
+  z.r.tick(0.05); log.length = 0;
+  z.r.damagePlayer(z.B, 1e9, 'a'); z.r.sendSnapshots();
+  const ko = log.find(([t]) => t === 'ko')?.[1], kill = log.find(([t]) => t === 'kill')?.[1], snap = log.find(([t]) => t === 'spec:s')?.[1];
+  const dead = snap?.players.find((p: any) => p.id === 'b');
+  ok('ko・kill の at が、倒れた絵が載る最初のスナップショットの t と同じ', ko && kill && snap && ko.at === snap.t && kill.at === snap.t && dead && !dead.alive, { ko: ko?.at, kill: kill?.at, t: snap?.t, alive: dead?.alive });
 }
 
 console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
