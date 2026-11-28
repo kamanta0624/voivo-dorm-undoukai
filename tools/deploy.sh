@@ -4,6 +4,8 @@
 # cloudflared（launchd の com.vvsports.tunnel）は触らない。失敗したら直前のタグへ戻す手順を表示して止まる（メンテ中のまま）
 # 環境変数（試験用に別フォルダ・別ポートで動かすとき）: LIVE_DIR=公開側フォルダ PORT=ポート LABEL=launchd のラベル（ゲームサーバーは launchd で再起動する。未登録なら何もせず止まる）
 # FORCE=1: /status で試合中か判断できない（サーバーが止まっている・旧版）ときも進める
+# 負荷の関門（handoff_perfgate1）: 反映の前に、タグの中身を一時の作業ツリーに出して verify/perfgate.ts（開発側の基準）で測る。不合格なら反映しない（メンテにもしない）
+#   同じコミット・同じ基準で合格済みなら測り直さない（開発側の logs/perfgate_pass.txt）。PERFGATE_SKIP=1 で飛ばす（本人が明示した時だけ。CLAUDE.md）。PERFGATE_PORT: 測る時のポート（既定 2641）
 set -u
 # launchd の plist と同じ Node を使う（呼び出し元のシェルの PATH に依存しない）
 PATH="${HOME}/.nvm/versions/node/v24.22.1/bin:${PATH}"; export PATH
@@ -22,6 +24,26 @@ die() {
   exit 1
 }
 git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "タグがない: ${TAG}"; exit 1; }
+
+# 0. 負荷の関門（公開側にはまだ何も触らない）
+if [ "${PERFGATE_SKIP:-}" = 1 ]; then echo "関門を飛ばした（PERFGATE_SKIP=1）"
+else
+  SHA=$(git -C "${DEV}" rev-parse "${TAG}^{commit}")
+  RULES=$(cat "${DEV}/verify/perfgate.ts" "${DEV}/verify/perfgate_probe.js" "${DEV}/verify/perf_budget.json" | shasum | cut -c1-12)
+  PASS="${DEV}/logs/perfgate_pass.txt"
+  if grep -q "^${SHA} ${RULES}" "${PASS}" 2>/dev/null; then echo "関門: 合格済み（${SHA} 基準 ${RULES}）"
+  else
+    echo "関門: ${TAG}（${SHA}）を測る（約1分半）"
+    PG=$(mktemp -d "${TMPDIR:-/tmp}/perfgate.XXXXXX")
+    git -C "${DEV}" worktree add -q --detach "${PG}/w" "${SHA}" || { rm -rf "${PG}"; echo "中止: 関門の作業ツリーを作れない"; exit 1; }
+    ln -s "${DEV}/node_modules" "${PG}/w/node_modules" && rsync -a "${DEV}/public/assets/" "${PG}/w/public/assets/"
+    (cd "${DEV}" && npx tsx verify/perfgate.ts --dir "${PG}/w" --port "${PERFGATE_PORT:-2641}" --out "${DEV}/logs/perfgate-${SHA}.json"); RC=$?
+    git -C "${DEV}" worktree remove --force "${PG}/w"; rm -rf "${PG}"
+    [ "${RC}" = 0 ] || { echo "中止: 関門（perfgate）が不合格。反映していない（公開版はそのまま）。上の不合格の項目と、書いている要素・関数を直してから、もう一度"; exit 1; }
+    mkdir -p "${DEV}/logs" && echo "${SHA} ${RULES} $(date '+%F %T')" >> "${PASS}"
+    echo "関門: 合格（${PASS} に記録）"
+  fi
+fi
 launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || { echo "launchd に未登録: ${LABEL}（先に tools/launchd.sh install）"; exit 1; }
 
 # 1. 試合中の部屋があれば中止（/status の state が playing）
