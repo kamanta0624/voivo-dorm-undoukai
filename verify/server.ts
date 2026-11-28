@@ -434,7 +434,7 @@ console.log('--- 開始演出の横並び・戻る（連戦）');
   const row = [0, 1].map((t) => [...r.players.values()].filter((p: any) => p.team === t));
   ok('開始演出: 各陣営の4人が開始部屋（食堂）の中に横一列に並ぶ', row.every((l, t) => l.length === 4 && l.every((p: any) => p.y === l[0].y && inRoom(p, C.START_ROOMS[t])) && l.every((p: any, i: number) => !i || p.x - l[i - 1].x === C.INTRO_GAP)));
   r.beginPlay(); r.breakWalls([[11, 33]]); r.teams[0].toku = 9; r.materials = [{ id: 99, x: 0, y: 0 }]; r.endMatch(0);
-  ok('リザルト: 押した人数／全人数（Botは押した扱い）', JSON.stringify(r.backCount()) === JSON.stringify({ n: 6, total: 8 }));
+  ok('リザルト: 押した人数／全人数（Botは押した扱い）', r.backCount().n === 6 && r.backCount().total === 8);
   r.messages.back({ sessionId: 'h1' });
   ok('人間の1人だけ押した段階では戻らない', r.phase === 'ended' && r.backCount().n === 7);
   r.messages.back({ sessionId: 'h2' });
@@ -2202,6 +2202,16 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
   b.beginPlay(); b.endMatch(0); b.messages.back(b.clients[0]);
   const ps = [...b.players.values()], promoted = ps.filter((p: any) => p.id.startsWith('s')).map((p: any) => p.id);
   ok('結果画面で参加者の人間全員が「戻る」→ 観戦者が入室順に参加者になる（名前つき・人数の少ない陣営へ。8人で残りは観戦）', b.phase === 'waiting' && ps.length === C.TEAM_SIZE * 2 && JSON.stringify(promoted) === JSON.stringify(Array.from({ length: C.TEAM_SIZE * 2 - 1 }, (_, i) => 's' + (i + 1))) && b.players.get('s1').name === nm && b.owners.get('s1') === 's1' && [0, 1].every((t) => ps.filter((p: any) => p.team === t).length === C.TEAM_SIZE) && !b.owners.has('s' + C.SPECTATOR_MAX) && OG.status([b]).rooms[0].spec === 1, promoted);
+  // 結果画面の放置（resultidle1）: RESULT_IDLE_SEC 秒「戻る」を押さない人間は部屋から出す（'idle'。キックではない）→ 全員押した扱いで待機へ
+  {
+    const mk = (n: number) => { const h = room(), cs = Array.from({ length: n }, (_, i) => join(h, 'r' + i)); h.startMatch(); h.beginPlay(); h.endMatch(0); return { h, cs }; };
+    const run = (h: any, sec: number) => { for (let i = 0; i < Math.round(sec / 0.05); i++) { h.tick(0.05, false); for (const c of [...h.clients]) if (c.left && !c.gone) { c.gone = true; h.clients.splice(h.clients.indexOf(c), 1); h.onLeave(c); } } }; // leave を受けたら抜ける（本物と同じく onLeave）
+    { const { h, cs } = mk(2); h.messages.back(cs[0]); run(h, C.RESULT_IDLE_SEC - 1); const before = !cs[1].left && h.phase === 'ended'; h.sendSnapshots(); const idle = cs[1].got.back.idle; run(h, 1.5);
+      ok(`結果画面: 1人だけ「戻る」→ ${C.RESULT_IDLE_SEC}秒で押していない方を部屋から出し（'idle'・キックではない）、部屋は待機へ、押した方は待機に残る`, before && idle > 0 && idle <= 1.05 && JSON.stringify(cs[1].left) === JSON.stringify([4000, 'idle']) && !cs[0].left && h.phase === 'waiting' && h.players.has('r0') && !h.players.has('r1') && !h.kicked.has('r1')); }
+    { const { h, cs } = mk(2); h.messages.back(cs[0]); h.messages.back(cs[1]); ok('結果画面: 全員が「戻る」なら今までどおりすぐ待機へ', h.phase === 'waiting' && h.players.size === 2 && !cs.some((c) => c.left)); }
+    { const { h, cs } = mk(2); run(h, C.RESULT_IDLE_SEC + 1); ok('結果画面: 誰も押さなければ全員を出し、常設の部屋は空の待機に戻る', cs.every((c) => c.left?.[1] === 'idle') && h.phase === 'waiting' && h.players.size === 0 && h.clients.length === 0); }
+    { const e = room({ e2e: 'idle' }), c = join(e, 'e0'); e.startMatch(); e.beginPlay(); e.endMatch(0); for (let i = 0; i < (C.RESULT_IDLE_SEC + 2) * 20; i++) e.tick(0.05, false); ok('結果画面の放置: e2e の部屋は今のまま（出さない）', !c.left && e.phase === 'ended'); }
+  }
   // 参加者の人間が0人で観戦者だけ → ABANDON_SEC 秒のカウントダウン、0で打ち切って待機画面へ（観戦者は参加者に）。再接続で解除
   {
     const h = room(), q0 = join(h, 'q0'); h.startMatch(); h.beginPlay(); const w = join(h, 'w1');
