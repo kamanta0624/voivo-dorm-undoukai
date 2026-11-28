@@ -169,6 +169,7 @@ export class GameRoom extends Room {
   broken: number[][] = []; // 壊れた壁のタイル [x, y]
   wallDmg = new Map<number, number>(); // 小破・中破の壁（y * MAP.width + x → 進んだ段階 1〜WALL_HITS-1）
   crackLog: number[][] = []; // 小破・中破になった順 [x, y, 段階]（クライアントへは送っていない分だけ送る）
+  snapSent = new Map<string, { k: Record<string, string>; p: Map<string, string> }>(); // クライアントごとの送ったスナップショットの差分の元（sync2。途中参加・再接続・試合の作り直しは全部送り直す）
   crackSent = new Map<string, number>(); // クライアント（sessionId）ごとの送った crackLog の数（途中参加・再接続は0から）
   nextId = 1;
   materialTimer = 0;
@@ -246,7 +247,7 @@ export class GameRoom extends Room {
     Object.assign(this, { now: 0, phase: 'waiting', sortieLeft: null, finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], wallDmg: new Map(), crackLog: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
     this.backVotes.clear();
-    this.crackSent.clear();
+    this.crackSent.clear(); this.snapSent.clear();
     this.modern = C.SLOT_MODE === 'modern';
     this.cm = new Director(this);
     this.bossDmg = [{ player: 0, assist: 0 }, { player: 0, assist: 0 }];

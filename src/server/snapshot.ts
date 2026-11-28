@@ -4,7 +4,7 @@ import type { ModernSlot } from '../shared/slot_modern';
 import { CONFIG as C } from '../shared/config';
 import { SKILLS, ENTS } from './skills';
 import { thingId } from './GameRoom';
-import type { Snapshot } from '../shared/protocol';
+import { type Snapshot, SNAP_KEEP, SNAP_PKEEP, SNAP_FOE_DROP } from '../shared/protocol';
 import { Packr } from 'msgpackr';
 
 const packr = new Packr({ useRecords: false }); // Colyseus の送信と同じ詰め方（スナップショットの大きさの計測だけに使う。sync2）
@@ -22,8 +22,13 @@ export function sendSnapshots(room: GameRoom) {
   const wanted = room.teams.map((t) => room.players.get(t.wanted ?? '')).filter((p) => p?.alive).map((p) => ({ id: p!.id, team: p!.team, x: p!.x, y: p!.y }));
   const all = { players: [...room.players.values()], bosses: room.bosses, ents: room.ents, shots: room.shots, fx: room.fx, warns: room.warns };
   const roster = [...room.players.values()].filter((p) => !p.assist).map((p) => ({ id: p.id, team: p.team, bot: p.bot, char: p.char, alive: p.alive, ok: p.ok, name: p.name, ult: p.ult && !p.ult.pending ? p.ult.tier : null })); // ult: パワーアップ中の強さ（一覧の札。両陣営に送る）
+  const keep: Record<string, string> = {}; // 変わった時だけ送る項目（全員に同じ値）の今の中身（sync2 1章）
+  const keepSrc: Record<(typeof SNAP_KEEP)[number], unknown> = { roster, materials: room.materials, items: room.items, broken: room.broken, bossRooms: room.bossRooms };
+  for (const k of SNAP_KEEP) keep[k] = JSON.stringify(keepSrc[k]);
   for (const client of room.clients) {
     const me = room.players.get(room.owners.get(client.sessionId) ?? '');
+    let sent = room.snapSent.get(client.sessionId);
+    if (!sent) room.snapSent.set(client.sessionId, (sent = { k: {}, p: new Map() }));
     const cn = room.crackSent.get(client.sessionId) ?? 0, cracks = cn < room.crackLog.length ? room.crackLog.slice(cn) : null; // 壁の段階（小破・中破）は変わった分だけ
     room.crackSent.set(client.sessionId, room.crackLog.length);
     const sv = me ? null : room.specView.get(client.sessionId) ?? 'all'; // 観戦者の視点
@@ -55,6 +60,13 @@ export function sendSnapshots(room: GameRoom) {
       shots: v.shots.map((s) => ({ id: s.id, kind: s.kind, team: s.team, x: s.x, y: s.y, vx: s.vx, vy: s.vy })),
       fx: v.fx, broken: room.broken, ...(cracks ? { cracks } : {}), bossRooms: room.bossRooms, ...(room.reveal.has(client.sessionId) ? { reveal: true } : {}),
     };
+    // 変わった時だけ送る（sync2 1章）: 前に送った中身と同じ項目は省く（クライアントが前の値を使う）。キャラごとの変わらない項目も同じ
+    for (const k of SNAP_KEEP) { if (sent.k[k] === keep[k]) delete (snap as any)[k]; else sent.k[k] = keep[k]; }
+    for (const p of snap.players as any[]) {
+      if (me && v !== all && p.team !== me.team) for (const k of SNAP_FOE_DROP) delete p[k]; // 敵には描画・表示に使わない項目を送らない（sync2 2章。改造クライアントで敵のクールタイム等が見えないように）
+      const key = JSON.stringify(SNAP_PKEEP.map((k) => p[k]));
+      if (sent.p.get(p.id) === key) for (const k of SNAP_PKEEP) delete p[k]; else sent.p.set(p.id, key);
+    }
     if (room.measure && room.phase === 'playing' && room.measure.tick.n % 10 === 0) room.measure.client(client.sessionId).bytes.add(packr.pack(snap).length + 3); // 大きさの計測（sync2。10tick に1回。詰める手間を本番で増やしすぎない）。+3: 見出し（種類の番号・'s'）
     client.send('s', snap);
   }

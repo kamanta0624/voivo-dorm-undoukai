@@ -439,6 +439,7 @@ export class GameScene extends Phaser.Scene {
   pingPending: number | null = null;
   sweatFx: { target: string; sp: Phaser.GameObjects.Image; born: number }[] = [];
   tags = new Map<string, Phaser.GameObjects.Image>(); tagSeen = new Set<string>(); // 頭上の強さの札（キャラの id ごと）と、このフレームに置いた札
+  pKeep = new Map<string, any>(); // キャラ id → 変わった時だけ届く項目の最後の値（sync2。net.ts で省かれた分を埋める）
   shotData = new Map<number, any>(); // 弾の id → 最後に届いた弾の情報（seen: そのスナップショットの時刻）
   kunais = new Map<number, Phaser.GameObjects.Image>(); kunaiSeen = new Set<number>(); // クナイの弾の絵（弾の id ごと）と、このフレームに見えた弾
   finishMeasure() {

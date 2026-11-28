@@ -130,7 +130,7 @@ export function onAuth(room: GameRoom, _client: Client, options: any, ctx?: { ip
 }
 
 export function onJoin(room: GameRoom, client: Client, options?: { name?: string }) {
-  room.crackSent.delete(client.sessionId); // 壁の段階は最初から送る
+  room.crackSent.delete(client.sessionId); room.snapSent.delete(client.sessionId); // 壁の段階・スナップショットの差分は最初から送る
   if (room.phase === 'playing') room.measure?.client(client.sessionId);
   if (room.phase === 'waiting') {
     if (room.players.size >= C.TEAM_SIZE * 2) { room.specName.set(client.sessionId, options?.name ?? ''); return; } // 観戦
@@ -165,7 +165,7 @@ export function onDrop(room: GameRoom, client: Client) {
 
 // 再接続できた: 操作を本人に戻す（照準モードはクライアントが送り直す）
 export function onReconnect(room: GameRoom, client: Client) {
-  room.crackSent.delete(client.sessionId); // 壁の段階は最初から送り直す（ページを読み直した時もそろう）
+  room.crackSent.delete(client.sessionId); room.snapSent.delete(client.sessionId); // 壁の段階・スナップショットの差分は最初から送り直す（ページを読み直した時もそろう）
   const p = room.players.get(room.owners.get(client.sessionId) ?? '');
   if (p && room.kicked.has(p.id)) { room.dropped.delete(p.id); return client.leave(CloseCode.CONSENTED, OG.banned(p.ip ?? '', p.bid ?? '') ? 'ban' : 'kick'); }
   if (p) { Object.assign(p, { bot: false, dx: 0, dy: 0 }); room.dropped.delete(p.id); }
@@ -174,7 +174,7 @@ export function onReconnect(room: GameRoom, client: Client) {
 export function onLeave(room: GameRoom, client: Client) {
   const id = room.owners.get(client.sessionId);
   room.owners.delete(client.sessionId);
-  room.specName.delete(client.sessionId); room.specView.delete(client.sessionId);
+  room.specName.delete(client.sessionId); room.specView.delete(client.sessionId); room.snapSent.delete(client.sessionId);
   if (id) {
     room.dropped.delete(id);
     if (room.phase === 'waiting') room.players.delete(id);

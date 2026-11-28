@@ -3,7 +3,7 @@ import { CloseCode, type Room } from '@colyseus/sdk';
 import { CONFIG as C } from '../shared/config';
 import { BOSS_CHAR } from '../shared/chars';
 import { ClientMeasure } from '../shared/netmeasure';
-import { sendC2S, type Snapshot } from '../shared/protocol';
+import { sendC2S, type Snapshot, SNAP_KEEP, SNAP_PKEEP } from '../shared/protocol';
 import { type GameScene, MOVE_PHASES, HIT_FX_KIND, TEAM_NAME, PENALTY_LABEL, charName, commentary } from './main';
 
 // 接続後: 再接続・切断の扱いと、サーバーからのメッセージの受け取り（refac3 で main.ts の create から切り出し。中身は変えていない）
@@ -38,6 +38,9 @@ export function connect(sc: GameScene) {
     room.onMessage('rp', (m: any) => sendC2S(room, 'rq', { n: m.n })); // サーバーの往復の遅延の計測: すぐ返す（sync1）
     room.onMessage('netFinish', (m: any) => { if (m.id === sc.measureId) sc.finishMeasure(); });
     room.onMessage('s', (s: Snapshot) => {
+      // 差分（sync2）: 省かれた項目は前のスナップショット・キャラごとの前の値で埋める（以後は全部そろった形として扱う）
+      for (const k of SNAP_KEEP) if (!(k in s)) (s as any)[k] = sc.snap?.[k];
+      for (const p of s.players as any[]) { if ('char' in p) sc.pKeep.set(p.id, Object.fromEntries(SNAP_PKEEP.map((k) => [k, p[k]]))); else Object.assign(p, sc.pKeep.get(p.id)); }
       if (s.phase === 'playing' && s.netMeasure && s.netMeasure !== sc.measureId) {
         sc.measureId = s.netMeasure; sc.measure = new ClientMeasure(); sc.measureSent = false; sc.measureFrameAt = null;
         sc.pingAt = -Infinity; sc.pingPending = null;
