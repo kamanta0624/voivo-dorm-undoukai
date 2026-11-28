@@ -2225,7 +2225,7 @@ console.log('--- アウトゲーム（常設の部屋・入室の判定・名前
       ok(`結果画面: 1人だけ「戻る」→ ${C.RESULT_IDLE_SEC}秒で押していない方を部屋から出し（'idle'・キックではない）、部屋は待機へ、押した方は待機に残る`, before && idle > 0 && idle <= 1.05 && JSON.stringify(cs[1].left) === JSON.stringify([4000, 'idle']) && !cs[0].left && h.phase === 'waiting' && h.players.has('r0') && !h.players.has('r1') && !h.kicked.has('r1')); }
     { const { h, cs } = mk(2); h.messages.back(cs[0]); h.messages.back(cs[1]); ok('結果画面: 全員が「戻る」なら今までどおりすぐ待機へ', h.phase === 'waiting' && h.players.size === 2 && !cs.some((c) => c.left)); }
     { const { h, cs } = mk(2); run(h, C.RESULT_IDLE_SEC + 1); ok('結果画面: 誰も押さなければ全員を出し、常設の部屋は空の待機に戻る', cs.every((c) => c.left?.[1] === 'idle') && h.phase === 'waiting' && h.players.size === 0 && h.clients.length === 0); }
-    { const e = room({ e2e: 'idle' }), c = join(e, 'e0'); e.startMatch(); e.beginPlay(); e.endMatch(0); for (let i = 0; i < (C.RESULT_IDLE_SEC + 2) * 20; i++) e.tick(0.05, false); ok('結果画面の放置: e2e の部屋は今のまま（出さない）', !c.left && e.phase === 'ended'); }
+    { const e = withE2e(() => room({ e2e: 'idle' })), c = join(e, 'e0'); e.startMatch(); e.beginPlay(); e.endMatch(0); for (let i = 0; i < (C.RESULT_IDLE_SEC + 2) * 20; i++) e.tick(0.05, false); ok('結果画面の放置: e2e の部屋は今のまま（出さない）', !c.left && e.phase === 'ended'); }
   }
   // 参加者の人間が0人で観戦者だけ → ABANDON_SEC 秒のカウントダウン、0で打ち切って待機画面へ（観戦者は参加者に）。再接続で解除
   {
