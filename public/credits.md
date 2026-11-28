@@ -30,6 +30,8 @@
 - Moiky 様（キャラ立ち絵）
 ## ドット絵
 - 32dot立ち絵（キャラのドット絵の元素材）
+## マップチップ
+- 煮 (https://skima.jp/profile?id=378449)
 ## 使用ライブラリ
 - Phaser（MIT License）
 - Colyseus（MIT License）
