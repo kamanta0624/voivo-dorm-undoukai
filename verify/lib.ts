@@ -1,7 +1,8 @@
 // 実クライアント(http://localhost:5173)を Playwright の実キー入力で操作するための補助
 // GAME_PORT・CLIENT_PORT: 別のポートで起動した dev（公開中のサーバーとぶつけないとき）に繋ぐ
 import { chromium, Page, Browser } from 'playwright-core';
-import { mkdirSync, appendFileSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { mkdirSync, appendFileSync, readdirSync, statSync, lstatSync, rmSync } from 'node:fs';
+import { resolve, dirname, basename } from 'node:path';
 import { CONFIG as C } from '../src/shared/config';
 import { findPath } from '../src/server/pathfind';
 
@@ -9,8 +10,16 @@ export const GAME_PORT = Number(process.env.GAME_PORT) || 2567, CLIENT_PORT = Nu
 export const RUN = Date.now().toString(36); // この実行の e2e の部屋
 export const OUT = `verify/evidence/${new Date().toISOString().replace(/[:.]/g, '-')}`; // 実行ごとに分ける
 mkdirSync(OUT, { recursive: true });
-// 実行ごとの日時名のフォルダは直近3個だけ残す（溜まると数GBになる。作業名のフォルダ verify/evidence/<名前> には触らない）
-{ const runs = readdirSync('verify/evidence').filter((d) => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(d)).sort(); for (const d of runs.slice(0, -3)) rmSync(`verify/evidence/${d}`, { recursive: true, force: true }); }
+// 実行ごとの日時名のフォルダは直近3個だけ残す（溜まると数GBになる）。掃除はここだけが行う（QUEUE 進め方 16）。対象はこの実行が書き込む verify/evidence/ の直下で、日時名の形に一致するフォルダだけ
+// 消す前に1つずつ確かめる: 名前が日時名の形・置き場の直下（親が verify/evidence）・リンクでないフォルダ
+{
+  const base = resolve('verify', 'evidence'), RUN_DIR = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
+  const runs = readdirSync(base).filter((d) => RUN_DIR.test(d)).sort();
+  for (const d of runs.slice(0, -3)) {
+    const full = resolve(base, d), st = lstatSync(full);
+    if (RUN_DIR.test(basename(full)) && dirname(full) === base && st.isDirectory() && !st.isSymbolicLink()) rmSync(full, { recursive: true });
+  }
+}
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let failed = 0;
