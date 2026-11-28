@@ -34,14 +34,14 @@ export const CSS = `
 .mfx-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;-webkit-mask-size:100% 100%;mask-size:100% 100%}
 .mfx-fx img{position:absolute;image-rendering:pixelated}
 .mfx-bang{position:absolute;font:900 16px sans-serif;color:#fff;-webkit-text-stroke:.6px #000;animation:mfxpop .3s ease-out}
-.mfx-rainbow{position:absolute;inset:0;background:conic-gradient(from var(--a,0deg),#f336,#fd36,#3f66,#3cf6,#a3f6,#f336);animation:mfxspin 1.2s linear infinite}
+.mfx-rainbow{position:absolute;inset:0;overflow:hidden}
+.mfx-rainbow::before{content:'';position:absolute;left:50%;top:50%;width:${Math.ceil(Math.hypot(W, H))}px;height:${Math.ceil(Math.hypot(W, H))}px;margin:-${Math.ceil(Math.hypot(W, H)) / 2}px;background:conic-gradient(#f336,#fd36,#3f66,#3cf6,#a3f6,#f336);animation:mfxspin 1.2s linear infinite} /* 回すのは transform だけ（角度の変数を毎フレーム変えると再計算・描き直しになる。perf6）。正方形は画面の対角線の大きさ */
 @keyframes mfxreach{0%{border-color:#ff3030;box-shadow:0 0 5px #ff3030}100%{border-color:#ffd700;box-shadow:none}}
 @keyframes mfxflash{0%{box-shadow:0 0 16px 6px #fff;background:#fff}100%{box-shadow:none}}
 @keyframes mfxfade{0%,80%{opacity:1}100%{opacity:0}}
 @keyframes mfxin{0%{transform:translateX(-120%)}100%{transform:none}}
 @keyframes mfxpop{0%{transform:scale(2.5);opacity:0}100%{transform:none;opacity:1}}
-@keyframes mfxspin{to{--a:360deg}}
-@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes mfxspin{to{transform:rotate(360deg)}}
 `;
 
 // 視界の円（画面中央・半径 VISION_RADIUS×VISION_SCALE）とキルログ域。試合は setArea で実際の視界・キルログ域に差し替える
@@ -141,16 +141,16 @@ export class ModernFx {
     if (act === 'chibi') { // ちびキャラ: 左下の隅をトコトコ歩いて、止まって何かを見つける
       const im = el(`<img src="${DOT(char, 'walk1')}" style="left:-34px;top:${H - 44}px">`) as HTMLImageElement;
       const walk = sec * 0.6, t0 = performance.now();
-      const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.left = `${-34 + (60 * p) / walk}px`; im.src = DOT(char, Math.floor(p * 6) % 2 ? 'walk2' : 'walk1'); requestAnimationFrame(tick); } else { im.src = DOT(char, win ? 'banzai' : 'idle'); el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
+      let f0 = -1; const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.transform = `translateX(${(60 * p) / walk}px)`; const f = Math.floor(p * 6) % 2; if (f !== f0) { f0 = f; im.src = DOT(char, f ? 'walk2' : 'walk1'); } requestAnimationFrame(tick); } else { im.src = DOT(char, win ? 'banzai' : 'idle'); el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
       requestAnimationFrame(tick);
     } else if (act === 'fish') { // 魚群: 陣営のキャラの群れが下の端を横切る
       const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[i % this.chars.length], 'walk1')}" style="top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px">`) as HTMLImageElement);
-      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.left = `${W + i * F.gap - F.speed * p}px`; im.src = DOT(this.chars[i % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };
+      const fr = ims.map(() => -1), tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.transform = `translateX(${-F.speed * p}px)`; const f = Math.floor(p * 6 + i) % 2; if (f !== fr[i]) { fr[i] = f; im.src = DOT(this.chars[i % this.chars.length], f ? 'walk2' : 'walk1'); } }); requestAnimationFrame(tick); }; // 位置は transform（初めの位置は left）、絵はコマが変わった時だけ（perf6）
       requestAnimationFrame(tick);
     } else if (act === 'fishSp') { // 特別な魚群（special）: 大きな群れが画面全体の視界外（上下2列）を横切る
       const F = M.fishSp, t0 = performance.now(), sz = [32 * F.scale, 42 * F.scale];
-      const ims = F.rows.flatMap((y, r) => Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[(i + r) % this.chars.length], 'walk1')}" style="width:${sz[0]}px;height:${sz[1]}px;top:${y - sz[1] / 2 + (i % 2) * 8}px">`, this.special) as HTMLImageElement));
-      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, j) => { const i = j % F.n, r = Math.floor(j / F.n), x = r ? -sz[0] - i * F.gap + F.speed * p : W + i * F.gap - F.speed * p; im.style.left = `${x}px`; im.style.transform = r ? 'scaleX(-1)' : ''; im.src = DOT(this.chars[(i + r) % this.chars.length], Math.floor(p * 6 + i) % 2 ? 'walk2' : 'walk1'); }); requestAnimationFrame(tick); };
+      const ims = F.rows.flatMap((y, r) => Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[(i + r) % this.chars.length], 'walk1')}" style="left:0;width:${sz[0]}px;height:${sz[1]}px;top:${y - sz[1] / 2 + (i % 2) * 8}px">`, this.special) as HTMLImageElement));
+      const fr = ims.map(() => -1), tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, j) => { const i = j % F.n, r = Math.floor(j / F.n), x = r ? -sz[0] - i * F.gap + F.speed * p : W + i * F.gap - F.speed * p; im.style.transform = `translateX(${x}px)${r ? ' scaleX(-1)' : ''}`; const f = Math.floor(p * 6 + i) % 2; if (f !== fr[j]) { fr[j] = f; im.src = DOT(this.chars[(i + r) % this.chars.length], f ? 'walk2' : 'walk1'); } }); requestAnimationFrame(tick); }; // 位置は transform、絵はコマが変わった時だけ（perf6）
       requestAnimationFrame(tick);
     }
     // plain（リーチのみ）は HUD の「リーチ！」だけ
