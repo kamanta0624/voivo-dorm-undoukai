@@ -1624,6 +1624,7 @@ class GameScene extends Phaser.Scene {
     if (this.fxFit > 0) { // #fx をキャンバスに重ねる（リサイズ・拡大率の変更の後だけ測る。毎フレーム測ると強制レイアウトになる）
       this.fxFit--;
       alignCanvas(); // 実画素の境目にそろえる（ドットを均一に）
+      this.scale.updateBounds(); // Phaser が覚えているキャンバスの位置を、そろえた後の位置にする（ずれたままだと Phaser が0.5秒ごとに「動いた」と見て resize を出し、測り直しが止まらない。perf6）
       const r = fx.style, b = this.game.canvas.getBoundingClientRect();
       r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
       r.setProperty('--z', String(this.game.scale.zoom));

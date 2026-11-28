@@ -316,12 +316,12 @@ export class GameRoom extends Room {
       // 陣営 team の徳を v にする
       e2eToku: (_c: Client, m: { team: number; v: number }) => { if (this.teams[m.team]) this.teams[m.team].toku = m.v; },
       // 陣営 team のスロットを今すぐ回し直し、結果を決める（win: 当たり、reach: 2つそろい）。chain: チャンスアップの確率
-      e2eSlot: (_c: Client, m: { team: number; win?: boolean; pen?: boolean; reach?: boolean; chain?: number }) => {
+      e2eSlot: (_c: Client, m: { team: number; win?: boolean; pen?: boolean; reach?: boolean; chain?: number; act?: string }) => { // act: モダンの演出の種類を決める（chibi・fish・fishSp・allSpin など。verify/perfgate の場面）
         const sl = this.teams[m.team]?.slot;
         if (!sl) return;
         const ms = this.teams[m.team].m; // モダン: 次に回る保留を差し替える（pen＝転落、reach＝リーチのみの演出つき）
-        if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.reach ? 'plain' : null }); return; }
-        this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss', !m.win && !m.pen ? (m.reach ? 'plain' : null) : undefined);
+        if (ms) { ms.force({ outcome: m.win ? 'win' : m.pen ? 'fall' : 'miss', act: m.act ?? (m.reach ? 'plain' : null) }); return; }
+        this.startSpin(m.team, m.win ? 'win' : m.pen ? 'pen' : 'miss', m.act ?? (!m.win && !m.pen ? (m.reach ? 'plain' : null) : undefined));
         if (m.chain !== undefined) this.slotChance = m.chain;
       },
       // 自分の陣営にアシストを召喚する（near: 自分の隣に出す）
