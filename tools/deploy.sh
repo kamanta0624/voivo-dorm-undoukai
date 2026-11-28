@@ -24,6 +24,8 @@ die() {
   exit 1
 }
 git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "タグがない: ${TAG}"; exit 1; }
+# マップチップの元の PNG を公開しない（mapcrypt1。素材は開発側の public/assets/ を写すので、開発側に残っていれば止める）
+[ ! -e "${DEV}/public/assets/mapchip" ] || { echo "中止: ${DEV}/public/assets/mapchip/（マップチップの元の PNG）がある。公開版から取れてしまうので消し、npm run mapchip で包み（public/assets/mapchip.bin）を作る"; exit 1; }
 
 # 0. 負荷の関門（公開側にはまだ何も触らない）
 if [ "${PERFGATE_SKIP:-}" = 1 ]; then echo "関門を飛ばした（PERFGATE_SKIP=1）"

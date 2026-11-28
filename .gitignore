@@ -7,6 +7,7 @@ public/assets/gen/
 public/assets/tutorial/
 # マップチップ（煮 マップチップ素材基本セット01。再配布禁止なので管理外。元素材からコピー: CLAUDE.md）
 public/assets/mapchip/
+public/assets/mapchip.bin
 # ルール説明（public/rules.html）のマップ全体図。マップチップを含むので管理外。npm run assets で再生成（tools/render_rules_map.ts）。tools/deploy.sh が公開側へ写す
 public/assets/rules/
 # スロットの効果音（ニコニ・コモンズ nc498075・nc356453。assets_local/ から加工せずコピー。tools/deploy.sh が公開側へ写す）

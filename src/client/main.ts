@@ -12,7 +12,8 @@ import MAP from '../shared/map.json';
 import { Controls } from './input';
 import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
-import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from './mapchip/paint';
+import { paintMap, CHIP_FILES, Pics } from './mapchip/paint';
+import { CHIP_PACK, unpackChips } from './mapchip/pack';
 import { GUMI, TEAM_GUMI, VOICES } from '../shared/commentary';
 import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
@@ -534,7 +535,9 @@ export class GameScene extends Phaser.Scene {
   preload() {
     for (const k of DOT_KEYS) for (const f of DOT_FRAMES) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`);
     for (const [k, f] of DOT_EXTRA) this.load.image(`${k}_${f}`, `assets/gen/dot/${k}/${f}.png`); // 技の見た目用のコマ（client/skills）
-    for (const [k, f] of Object.entries(CHIP_FILES)) this.load.image(`chip_${k}`, CHIP_DIR + f); // マップチップ（public/assets/mapchip/、管理外）
+    // マップチップ: 包み（public/assets/mapchip.bin、管理外。mapcrypt1）を読み、戻した PNG を読み込みに足す（元の PNG は配らない）
+    this.load.binary('chippack', CHIP_PACK);
+    this.load.once('filecomplete-binary-chippack', (_k: string, _t: string, data: ArrayBuffer) => { const m = unpackChips(data); for (const [k, f] of Object.entries(CHIP_FILES)) { const b = m.get(f); if (b) this.load.image(`chip_${k}`, URL.createObjectURL(new Blob([b as BlobPart], { type: 'image/png' }))); } });
   }
 
   create() {
@@ -547,7 +550,7 @@ export class GameScene extends Phaser.Scene {
     // 素材がなければ単色で描き、画面の隅に出す
     const chipKeys = Object.keys(CHIP_FILES) as (keyof typeof CHIP_FILES)[];
     this.chips = chipKeys.every((k) => this.textures.exists(`chip_${k}`)) ? (Object.fromEntries(chipKeys.map((k) => [k, this.textures.get(`chip_${k}`).getSourceImage()])) as Pics) : null;
-    if (!this.chips) { const e = document.createElement('div'); e.textContent = 'マップチップの素材がない（public/assets/mapchip/）。単色で表示中'; e.style.cssText = 'position:absolute;left:4px;top:4px;color:#f88;font:12px sans-serif;background:#000a;padding:2px 6px;pointer-events:none'; fx.appendChild(e); }
+    if (!this.chips) { const e = document.createElement('div'); e.textContent = 'マップチップの素材がない（public/assets/mapchip.bin。npm run mapchip）。単色で表示中'; e.style.cssText = 'position:absolute;left:4px;top:4px;color:#f88;font:12px sans-serif;background:#000a;padding:2px 6px;pointer-events:none'; fx.appendChild(e); }
     this.mapTex = this.textures.createCanvas('map', MAP.width * T, MAP.height * T)!;
     paintMap(this.mapTex.context, this.chips, tiles); this.mapTex.refresh();
     this.add.image(0, 0, 'map').setOrigin(0).setDepth(0);

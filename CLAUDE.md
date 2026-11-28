@@ -8,7 +8,7 @@
 - docs/handoff/done/ への移動はメインのチェックアウトでのみ行う
 - セッションと worktree の削除は `claude stop <id>` → worktree のロックを持つ pid の終了を確認（最大30秒待つ）→ `claude rm <id>`。kill・強制削除はしない
 - `npm run assets` は `PY=~/MCP_Learning/image_gen_mcp/.venv/bin/python` が必要（psd_tools 入りの Python）
-- マップチップは `mkdir -p public/assets/mapchip && cp ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_/BaseChip_nimono.png ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_/オートタイル/Auto_{A02,B03,B04,C08}.png public/assets/mapchip/`（加工しない・コミットしない）
+- マップチップは `npm run mapchip`（元素材 ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_ から包み public/assets/mapchip.bin を作る。加工しない・コミットしない）。元の PNG を public に置かない（公開版から取れてしまう。煮の規約の流用防止: mapcrypt1）
 - 描画・演出・UI を作る・直す時は docs/render_policy.md に従う
 - tools/deploy.sh は反映の前に負荷の関門（verify/perfgate.ts、約1分半。基準は verify/perf_budget.json）を流し、不合格なら反映しない。関門を飛ばす PERFGATE_SKIP=1 は、本人が明示した時だけ使う。perf_budget.json の例外・N を足す・緩めるのも本人の了承がある時だけ（厳しくする方向は自由）
 - 関門が不合格の時：1. 反映を止める 2. 出力から、書いている要素と関数を特定する 3. docs/render_policy.md の決まりどおりに直す（見た目・仕様は変えない）4. 流し直し、合格したら反映へ 5. 3回直しても合格しない・見た目や仕様を変えないと合格しない時は、止めて本人に報告（計測の表・原因・案）。直した内容は render_policy の「過去の事故」に1件ずつ足す

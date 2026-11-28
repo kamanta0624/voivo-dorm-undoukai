@@ -3,8 +3,8 @@
 public/assets/gen/
 # ルール説明の背景（ゲーム画面のスクショ）
 public/assets/tutorial/
-# マップチップ（元素材は ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_）
-public/assets/mapchip/
+# マップチップの包み（npm run mapchip で元素材 ~/MCP_Learning/nimonooki_マップチップ素材基本セット01_ から作る。元の PNG は public に置かない: mapcrypt1）
+public/assets/mapchip.bin
 # ルール説明のマップ全体図（npm run assets で再生成）
 public/assets/rules/
 # スロットの効果音（元素材は assets_local/）

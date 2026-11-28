@@ -1,10 +1,10 @@
 // マップチップ試験（/maptest）: map.json の間取りをチップで描く（本体と同じ mapchip/paint.ts）。現行の単色描画と切り替えて比べる
 import MAP from '../shared/map.json';
 import { ROOMS, OUTSIDE_TONE, OUTSIDE_TONES, type OutsideTone } from '../client/mapchip/chips';
-import { paintMap, CHIP_DIR, CHIP_FILES, Pics } from '../client/mapchip/paint';
+import { paintMap, CHIP_FILES, Pics } from '../client/mapchip/paint';
+import { CHIP_PACK, loadChipImages } from '../client/mapchip/pack';
 
 const T = MAP.tileSize;
-const load = (src: string) => new Promise<HTMLImageElement>((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error(src)); i.src = src; });
 // 1倍の絵を作る（p なし: 現行の単色、p あり: チップ）。tone: 建物の外の色調
 function paint(p: Pics | null, tone: OutsideTone = OUTSIDE_TONE) {
   const c = document.createElement('canvas');
@@ -49,6 +49,6 @@ document.getElementById('labels')!.onclick = () => { labels = !labels; draw(); }
 document.querySelectorAll<HTMLButtonElement>('[data-z]').forEach((b) => (b.onclick = () => { zoom = Number(b.dataset.z); draw(); }));
 draw();
 const names = Object.keys(CHIP_FILES) as (keyof typeof CHIP_FILES)[];
-Promise.all(names.map((k) => load('/' + CHIP_DIR + CHIP_FILES[k])))
-  .then((imgs) => { chips = Object.fromEntries(names.map((k, i) => [k, imgs[i]])) as Pics; pics.tiled = paint(chips, tone); draw(); })
-  .catch((e) => { info.textContent = `素材を読めない: ${e.message}（public/assets/mapchip/ を確認。CLAUDE.md のコピー手順）`; });
+loadChipImages('/' + CHIP_PACK) // 本体と同じ包み（mapcrypt1）
+  .then((m) => { if (names.some((k) => !m.has(CHIP_FILES[k]))) throw new Error('包みにない絵がある'); chips = Object.fromEntries(names.map((k) => [k, m.get(CHIP_FILES[k])!])) as Pics; pics.tiled = paint(chips, tone); draw(); })
+  .catch((e) => { info.textContent = `素材を読めない: ${e.message}（public/assets/mapchip.bin を確認。npm run mapchip）`; });

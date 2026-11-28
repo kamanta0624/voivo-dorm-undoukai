@@ -1,6 +1,6 @@
 // ルール説明（public/rules.html）のマップ全体図を描く: tools/render_rules_map.ts <出力png>
 // 試合と同じ paintMap（src/client/mapchip/paint.ts）を、vite の開発サーバー経由でブラウザ（e2e と同じ Chrome）の canvas に描き、下端の空白だけ切って保存する（建物のある最後のタイル行の下端＋半タイル。手で置いた 3104×1480 と同じ切り方）
-// マップチップ（public/assets/mapchip/）が要る。新しい依存は使わない（vite・playwright-core は既存）
+// マップチップの包み（public/assets/mapchip.bin。npm run mapchip）が要る。新しい依存は使わない（vite・playwright-core は既存）
 import { writeFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
@@ -14,9 +14,9 @@ try {
   const page = await browser.newPage();
   await page.goto(url + 'patchnotes.md'); // 同じオリジンで import するため（HTML だとゲームが起動するので静的ファイルを開く）
   const png = await page.evaluate(async () => {
-    const MAP = (await import('/src/shared/map.json' as any)).default, { paintMap, CHIP_FILES } = await import('/src/client/mapchip/paint.ts' as any);
+    const MAP = (await import('/src/shared/map.json' as any)).default, { paintMap, CHIP_FILES } = await import('/src/client/mapchip/paint.ts' as any), { CHIP_PACK, loadChipImages } = await import('/src/client/mapchip/pack.ts' as any);
     const T = MAP.tileSize, names = Object.keys(CHIP_FILES);
-    const imgs = await Promise.all(names.map((k) => new Promise<HTMLImageElement>((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error('マップチップがない: ' + CHIP_FILES[k])); i.src = '/assets/mapchip/' + CHIP_FILES[k]; })));
+    const m = await loadChipImages('/' + CHIP_PACK), imgs = names.map((k) => { const i = m.get(CHIP_FILES[k]); if (!i) throw new Error('マップチップがない: ' + CHIP_FILES[k]); return i; });
     const c = document.createElement('canvas'); c.width = MAP.width * T; c.height = MAP.height * T;
     const g = c.getContext('2d')!;
     paintMap(g, Object.fromEntries(names.map((k, i) => [k, imgs[i]])), MAP.tiles);

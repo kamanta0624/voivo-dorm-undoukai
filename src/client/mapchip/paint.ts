@@ -1,10 +1,9 @@
-// マップのチップ描画（本体 main.ts と試験ページ /maptest で共通）。素材は public/assets/mapchip/（管理外。加工せず描画時に切り出す）
+// マップのチップ描画（本体 main.ts と試験ページ /maptest で共通）。素材は包み public/assets/mapchip.bin（管理外。mapchip/pack.ts。加工せず描画時に切り出す）
 import MAP from '../../shared/map.json';
 import { KIND, ROOMS, FLOOR_DEFAULT, OUTSIDE, OUTSIDE_TONE, OUTSIDE_TONES, RUGS, WALL, type OutsideTone } from './chips';
 import { ITEMS, PLACE } from './furniture';
 
 const T = MAP.tileSize; // 16px（チップと同じ）
-export const CHIP_DIR = 'assets/mapchip/';
 export const CHIP_FILES = { base: 'BaseChip_nimono.png', ceiling: WALL.ceiling, atrium: WALL.atrium, dark: WALL.dark, glass: WALL.glass };
 export type Pics = Record<keyof typeof CHIP_FILES, CanvasImageSource>;
 export const PLAIN = ['#1a1a1a', '#b9b2a2', '#4a423a']; // 素材がないときの単色（外・床・壁）
