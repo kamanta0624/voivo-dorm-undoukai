@@ -17,10 +17,17 @@ export const CSS = `
 .mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
 .mfx-sl.win{border-color:#ffd700;box-shadow:0 0 6px #ffd700}
 .mfx-sl.flash{animation:mfxflash .5s ease-out}
-.mfx-ic{position:relative;width:15px;height:15px;background:#000 no-repeat -9px -4px;image-rendering:pixelated;border:1px solid #555;box-sizing:border-box;contain:layout size} /* 回転中は番号（::after）が毎回変わってレイアウトが起きるので、範囲を枠の中だけにする */
-.mfx-ic[data-n]::after{content:attr(data-n);position:absolute;right:0;bottom:-1px;font:900 6px sans-serif;color:#fff;-webkit-text-stroke:.4px #000}
-.mfx-ic.good[data-n]::after{color:#ffd700}
+.mfx-ic{position:relative;width:15px;height:15px;background:#000;border:1px solid #555;box-sizing:border-box;overflow:hidden;contain:layout size} /* リール1本の窓。中の帯（絵柄を縦に並べた物）を transform だけで動かす（reel1） */
+.mfx-strip{position:absolute;left:0;top:0;display:flex;flex-direction:column}
+.mfx-c.top{order:-1} /* 止めた絵: そのコマを帯の先頭へ（帯はずらさない＝元の1枚の絵と同じ所に描く） */
+.mfx-sl.paused .mfx-strip{animation-play-state:paused}
+.mfx-strip.r0{animation:mfxreel0 var(--d) steps(var(--n)) var(--dl) infinite}.mfx-strip.r1{animation:mfxreel1 var(--d) steps(var(--n)) var(--dl) infinite} /* 回転: 2つの同じ動きを交互に使い、回し直しで頭から動かす */
+.mfx-c{position:relative;width:13px;height:13px;margin-bottom:calc(var(--rp, 13px) - 13px);overflow:hidden;background:#000 no-repeat -9px -4px;image-rendering:pixelated}
+.mfx-c::after{content:attr(data-n);position:absolute;right:0;bottom:-1px;font:900 6px sans-serif;color:#fff;-webkit-text-stroke:.4px #000}
+.mfx-c.good::after{color:#ffd700}
 .mfx-ic.pen{background:#400;color:#f66;text-align:center;line-height:13px;font-size:10px}
+.mfx-ic.pen::before{content:'×'}.mfx-ic.pen .mfx-strip{display:none}
+@keyframes mfxreel0{to{transform:translateY(calc(var(--n) * -1 * var(--rp, 13px)))}}@keyframes mfxreel1{to{transform:translateY(calc(var(--n) * -1 * var(--rp, 13px)))}} /* --rp: コマの間隔。拡大後に実画素の整数になる値（呼び出し側。なければ 13px） */
 .mfx-holds{display:flex;gap:3px;align-items:center}
 .mfx-h{position:relative;width:7px;height:7px;border-radius:50%;border:1px solid #000a}
 .mfx-h.cur{width:9px;height:9px;outline:1px solid #fff}
@@ -56,15 +63,14 @@ function maskUrl(holes: string) {
 export class ModernFx {
   sl: HTMLElement; reelEls: HTMLElement[]; holdsEl: HTMLElement; modeEl: HTMLElement; label: HTMLElement;
   normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
-  spinning = [false, false, false]; allSpin = false; allSpinFrom = 1; spinAt = 0;
-  shown = [NaN, NaN, NaN]; // 各リールに今出している番号（setReel の k）。同じなら書き直さない
+  strips: HTMLElement[] = []; rolls = 0; // リールの帯。rolls: 回し直しの回数（動きの名前を交互にする）
   sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
 
   constructor(public hud: HTMLElement, public layer: HTMLElement, public syms: string[], public chars: string[], color: string) {
     if (!document.getElementById('mfx-css')) { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = CSS; document.head.append(st); }
     hud.classList.add('mfx-hud');
     hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
-    this.sl = hud.querySelector('.mfx-sl')!; this.reelEls = [...hud.querySelectorAll<HTMLElement>('.mfx-ic')]; this.label = hud.querySelector('.mfx-label')!;
+    this.sl = hud.querySelector('.mfx-sl')!; this.reelEls = [...hud.querySelectorAll<HTMLElement>('.mfx-ic')]; this.reelStrips(); this.label = hud.querySelector('.mfx-label')!;
     this.holdsEl = hud.querySelector('.mfx-holds')!; this.modeEl = hud.querySelector('.mfx-mode')!;
     const mk = () => { const d = document.createElement('div'); d.className = 'mfx-fx'; layer.append(d); return d; };
     this.normal = mk(); this.special = mk();
@@ -78,36 +84,42 @@ export class ModernFx {
     this.special.style.maskImage = this.special.style.webkitMaskImage = sp;
   }
 
-  private setReel(i: number, k: number) {
-    const e = this.reelEls[i];
-    this.shown[i] = k;
-    if (k < 0) { e.className = 'mfx-ic pen'; e.textContent = '×'; delete e.dataset.n; e.style.backgroundImage = ''; (e as any)._bg = ''; return; }
-    const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1; // 回転中は番号を巡回
-    const cls = `mfx-ic${M.reel.group[no - 1] !== 'even' ? ' good' : ''}`, bg = `url(${DOT(this.syms[no - 1])})`; // 変わった所だけ書く
-    if (e.className !== cls) e.className = cls; if (e.textContent) e.textContent = ''; if (e.dataset.n !== String(no)) e.dataset.n = String(no); if ((e as any)._bg !== bg) { (e as any)._bg = bg; e.style.backgroundImage = bg; }
+  // 帯: 絵柄 1〜n を上から並べる（番号と good の色はコマごとに最初から持つ）。最初は止めて 1 を出す
+  private reelStrips() {
+    const n = this.syms.length, cells = this.syms.map((k, i) => `<div class="mfx-c${M.reel.group[i] !== 'even' ? ' good' : ''}" data-n="${i + 1}" style="background-image:url(${DOT(k)})"></div>`).join('');
+    this.strips = this.reelEls.map((e) => { e.innerHTML = `<div class="mfx-strip" style="--n:${n};--d:${n * C.SLOT_REEL_MS}ms">${cells}</div>`; return e.firstElementChild as HTMLElement; });
   }
-
-  // リールの回転（毎フレーム）。回っているリールは SLOT_REEL_MS ごとに絵柄が変わる。全回転は3つとも同じ絵柄
-  frame(now: number) {
-    const k = Math.floor((now - this.spinAt) / C.SLOT_REEL_MS);
-    this.spinning.forEach((s, i) => { const v = this.allSpin ? this.allSpinFrom + k : 1 + k + i * 3; if (s && v !== this.shown[i]) this.setReel(i, v); }); // 番号が変わった時だけ DOM を書く
+  // 止めて k 番を出す（k < 0 は罰の ×）。回転中は JS から書かない（CSS の動きだけ）
+  private setReel(i: number, k: number) {
+    const e = this.reelEls[i], st = this.strips[i];
+    e.classList.toggle('pen', k < 0); st.classList.remove('r0', 'r1');
+    if (k < 0) return;
+    const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1;
+    st.querySelector('.mfx-c.top')?.classList.remove('top'); st.children[no - 1].classList.add('top'); // 止めた絵は帯を動かさず並べ替えで出す（ずらすと端数でドット絵の拾い方が変わる。止める時だけ書く）
+  }
+  // from 番から回す（SLOT_REEL_MS ごとに次の絵柄へ。番号は巡回）
+  private roll(i: number, from: number) {
+    const e = this.reelEls[i], st = this.strips[i], n = this.syms.length, no = ((((from - 1) % n) + n) % n) + 1;
+    e.classList.remove('pen'); st.querySelector('.mfx-c.top')?.classList.remove('top'); st.style.setProperty('--dl', `${-(no - 1) * C.SLOT_REEL_MS}ms`);
+    st.classList.remove('r0', 'r1'); st.classList.add(`r${this.rolls % 2}`);
   }
 
   // 回転開始: リーチは2つそろえて3つ目だけ回す。全回転は3つ同じ絵柄で回す。結果まで回すだけ（結果は stop）
   spin(now: number, reels: number[], act: string | null) {
-    this.spinAt = now; this.allSpin = act === 'allSpin'; this.allSpinFrom = reels[0]; // 全回転はそろう絵柄から3つ同じまま回る this.label.textContent = '';
+    this.rolls++; // 全回転はそろう絵柄から3つ同じまま回る this.label.textContent = '';
     this.sl.classList.remove('win', 'reach');
-    if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.spinning = [false, false, true]; this.sl.classList.add('reach'); this.label.textContent = 'リーチ！'; }
-    else this.spinning = [true, true, true];
+    if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.roll(2, 7); this.sl.classList.add('reach'); this.label.textContent = 'リーチ！'; }
+    else for (let i = 0; i < 3; i++) this.roll(i, act === 'allSpin' ? reels[0] : 1 + i * 3);
   }
   stop(reels: number[], outcome: string) {
-    this.spinning = [false, false, false]; this.allSpin = false;
     reels.forEach((k, i) => this.setReel(i, k));
     this.sl.classList.remove('reach'); this.sl.classList.toggle('win', outcome === 'win');
     this.label.textContent = outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : outcome === 'pen' ? '罰' : '';
   }
   // 結果を見せたあと、次の抽選まで回して見せる
-  idle(now: number) { this.spinAt = now; this.spinning = [true, true, true]; this.label.textContent = ''; this.sl.classList.remove('win'); }
+  idle(now: number) { this.rolls++; for (let i = 0; i < 3; i++) this.roll(i, 1 + i * 3); this.label.textContent = ''; this.sl.classList.remove('win'); }
+  // 回転を止めておく／動かす（試合中だけ回す。値が変わった時だけ書く）
+  run(on: boolean) { if (this.sl.classList.contains('paused') === on) this.sl.classList.toggle('paused', !on); }
 
   // 保留4つ（先頭が次に回る）と、今回っている保留
   holds(hs: Hold[], cur: Hold | null) {

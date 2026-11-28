@@ -126,7 +126,6 @@ function loop(now: number) {
     if (!fixed) { $<HTMLInputElement>('#toku').value = String(slot.toku); }
     if (show && idleAt && now >= idleAt && !slot.cur) { idleAt = 0; fx.idle(now); }
   }
-  fx.frame(now);
   fx.holds(slot.holds, slot.cur?.hold ?? null);
   fx.mode(slot.mode, slot.backLeft, `パワーアップ${powerText(spec, slot.lv.power)}・アシスト${assistText(spec, slot.lv.assist)}`);
   $('#tokuV').textContent = slot.toku.toFixed(1);
