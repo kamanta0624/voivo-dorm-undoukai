@@ -14,6 +14,7 @@ import CHARS_JSON from '../shared/chars.json';
 import { Commentary } from './commentary';
 import { paintMap, CHIP_FILES, Pics } from './mapchip/paint';
 import { CHIP_PACK, unpackChips } from './mapchip/pack';
+import { HUD_LAYOUT, hudLayoutCss } from './hud_layout';
 import { GUMI, TEAM_GUMI, VOICES } from '../shared/commentary';
 import { ModernFx, CSS as MFX_CSS } from './slot_modern_fx';
 import { uf, ufCss } from './uifont';
@@ -388,6 +389,9 @@ fx.appendChild(kohow);
 const hudEl = document.createElement('div');
 hudEl.innerHTML = '<div class="bar b0"><i></i></div><div class="timer"></div><div class="bar b1"><i></i></div><div class="tk"><div class="side s0"></div><div class="side s1"></div></div><div class="mfxl"></div><div class="fever"></div><div class="roster r0"></div><div class="roster r1"></div><div class="buffs"></div><div class="kills"></div><div id="info"></div><div class="notes"></div><div class="skill"><s></s><i><u class="a"><em></em></u><u class="b"><em></em></u></i><span class="sn"></span><b></b><small></small><em class="seal">封印</em><span>R</span></div><div class="banner"></div><div class="intro"></div><button class="back"></button><button class="rsbtn">リザルト</button><button class="totitle">タイトルへ</button><button class="tb rc">帰還</button><button class="tb aimb"></button><div class="mm"></div><div class="me"><div class="wt">WANTED</div><div class="hp"><b></b></div><div class="bd"><i></i><span></span></div><div class="nm"></div></div><div class="spec"><button data-v="all">全体</button><button data-v="focus">実況</button><button data-v="0">' + TEAM_NAME[0] + '</button><button data-v="1">' + TEAM_NAME[1] + '</button></div><div class="aband"></div>';
 fx.appendChild(hudEl);
+// HUD の配置の調整（hudedit1。client/hud_layout.ts。値が無ければ何も足さない）。開発版で ?hudedit=1 の時だけエディタを読み込む（本番ビルドには入らない）
+{ const st = document.createElement('style'); st.textContent = hudLayoutCss(HUD_LAYOUT); document.head.append(st); }
+if (import.meta.env.DEV && new URLSearchParams(location.search).has('hudedit')) void import('./hudedit').then((m) => m.startHudEdit(fx));
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
 export const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hudEl.querySelector<HTMLElement>(q)!; $cache.set(q, e); } return e; };
