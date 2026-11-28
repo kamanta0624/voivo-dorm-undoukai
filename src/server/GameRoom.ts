@@ -231,7 +231,7 @@ export class GameRoom extends Room {
 
   // 現在の試合: 中央からの経路距離の合計が上限以下になる組み合わせから選ぶ
   onCreate(options?: { e2e?: string; practice?: boolean }) {
-    if (options?.e2e && !process.env.E2E_HOOKS) throw new ServerError(4403, 'e2e の部屋は作れません'); // e2e の部屋は E2E_HOOKS のサーバーだけ（sec1）
+    if (options?.e2e && !process.env.E2E_HOOKS && !process.env.E2E_ROOMS) throw new ServerError(4403, 'e2e の部屋は作れません'); // e2e の部屋は E2E_HOOKS のサーバーだけ（sec1）。E2E_ROOMS: 部屋を作れるだけで検証用の操作・Bot の固定編成は無し（tools/loadtest.ts の子のサーバー）
     this.practice = !!options?.practice && !options?.e2e;
     this.pub = !options?.e2e && !this.practice;
     if (this.practice && [...GameRoom.live].filter((r) => r.practice).length >= C.PRACTICE_ROOMS) throw new ServerError(4429, '練習の部屋がいっぱいです。しばらくしてから試してください');
