@@ -22,8 +22,8 @@ export function connect(sc: GameScene) {
     room.onLeave((code: number, reason?: string) => {
       if (code !== CloseCode.CONSENTED) return location.reload();
       sessionStorage.removeItem(tokenKey);
-      if (reason === 'kick' || reason === 'ban') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : '部屋から外されました');
-      if (reason === 'kick' || reason === 'ban' || sc.toTitle) location.reload();
+      if (reason === 'kick' || reason === 'ban' || reason === 'idle') sessionStorage.setItem('leaveMsg', reason === 'ban' ? '入室できません' : reason === 'idle' ? '結果画面で時間が切れたので部屋を出ました' : '部屋から外されました'); // idle: 結果画面の放置（resultidle1。再入室できる）
+      if (reason === 'kick' || reason === 'ban' || reason === 'idle' || sc.toTitle) location.reload();
     });
     addEventListener('pagehide', () => { sc.finishMeasure(); if (sc.snap?.phase === 'waiting') room.leave(); }); // 待機画面でタブを閉じたら待たせずに抜ける（試合中は再読み込みで戻れるよう再接続を待つ）
     document.addEventListener('visibilitychange', () => {

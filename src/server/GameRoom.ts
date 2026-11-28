@@ -158,6 +158,8 @@ export class GameRoom extends Room {
   dropped = new Set<string>(); // 再接続待ちのプレイヤーid（途中参加の入れ替え先にしない）
   kicked = new Set<string>(); // 管理ページでキックしたプレイヤーid（再接続待ちの間にキックされたら、戻ってきた時点で外す）
   backVotes = new Set<string>(); // リザルトで「戻る」を押した人間のプレイヤーid
+  idleOut = new Set<string>(); // 結果画面の時間切れで出したプレイヤーid（同じ人へ2回送らない）
+  endedAt = 0; // 結果画面になった時刻（now。常設の部屋の放置の判定。resultidle1）
   specName = new Map<string, string>(); // 観戦者（owners にない client）の名前。待機画面で参加者になるときに使う
   specView = new Map<string, 'all' | 'focus' | 0 | 1>(); // 観戦者の視点: 全体・実況追従・組の視界（陣営）
   e2eFists = new Map<string, number>(); // e2e: プレイヤーごとの花丸パンチの拳を出した回数（E2E_HOOKS のときだけ数え、本人のスナップショットに載せる）
@@ -246,7 +248,7 @@ export class GameRoom extends Room {
   setup() {
     Object.assign(this, { now: 0, phase: 'waiting', sortieLeft: null, finale: null, phaseLeft: 0, timeLeft: C.MATCH_TIME, winner: -1, bosses: [], teams: [], materials: [], items: [], ents: [], shots: [], couriers: [], courierAt: 0, warns: [], fx: [], tiles: [...MAP.tiles], walls: C.WALLS, seeWalls: C.SEE_WALLS, broken: [], wallDmg: new Map(), crackLog: [], materialTimer: 0, healAt: C.HEAL_SPOTS.map(() => null) });
     this.flushLog(); this.measure = null; this.lastTick = null;
-    this.backVotes.clear();
+    this.backVotes.clear(); this.idleOut.clear();
     this.crackSent.clear(); this.snapSent.clear();
     this.modern = C.SLOT_MODE === 'modern';
     this.cm = new Director(this);
@@ -493,6 +495,9 @@ export class GameRoom extends Room {
   // 結果画面: 技（R）の見た目だけ進める（ダメージ・徳・壁の破壊は起きない。部屋から出られないのは今のまま）
   updateEnded(dt: number) {
     this.now += dt;
+    if (this.pub && this.now - this.endedAt >= C.RESULT_IDLE_SEC) { // 常設の部屋: 結果画面で「戻る」を押さないまま時間が切れた人間を部屋から出す（onLeave で Bot 扱い → checkBack で待機へ）。練習・e2e の部屋は今のまま
+      for (const c of this.clients) { const p = this.players.get(this.owners.get(c.sessionId) ?? ''); if (p && !p.bot && !p.assist && !this.backVotes.has(p.id) && !this.idleOut.has(p.id)) { this.idleOut.add(p.id); c.leave(CloseCode.CONSENTED, 'idle'); } }
+    }
     for (const p of this.players.values()) {
       if (!p.alive) continue;
       SKILLS[p.char]?.ended?.(this, p, dt);
@@ -579,6 +584,7 @@ export class GameRoom extends Room {
     if (this.phase === 'ended') return;
     this.finale = null; this._killer = null;
     this.phase = 'ended';
+    this.endedAt = this.now;
     this.winner = winner;
     this.writeLog(kind);
     this.cm.end(winner, kind);
@@ -1557,7 +1563,7 @@ export class GameRoom extends Room {
   // 「戻る」を押した人数（Botは押した扱い）／全人数
   backCount() {
     const list = [...this.players.values()].filter((p) => !p.assist);
-    return { n: list.filter((p) => p.bot || this.backVotes.has(p.id)).length, total: list.length };
+    return { n: list.filter((p) => p.bot || this.backVotes.has(p.id)).length, total: list.length, ...(this.pub ? { idle: C.RESULT_IDLE_SEC - (this.now - this.endedAt) } : {}) }; // idle: 時間切れまでの秒（常設の部屋だけ）
   }
 
   statusView(p: Player) { return snap.statusView(this, p); } // 中身は snapshot.ts（refac1）

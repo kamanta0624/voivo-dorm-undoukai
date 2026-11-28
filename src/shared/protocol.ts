@@ -81,7 +81,7 @@ export type Snapshot = {
   spec?: { view: View | null; focus: unknown; abandon: number | null };
   netMeasure: number; me: string | null; t: number;
   roster: { id: string; team: number; bot: boolean; char: string; alive: boolean; ok: boolean; name?: string; ult: number | null }[];
-  buffs: Record<string, number> | null; introMess?: unknown; back: { n: number; total: number } | null; finale: unknown;
+  buffs: Record<string, number> | null; introMess?: unknown; back: { n: number; total: number; idle?: number } | null; finale: unknown;
   lobbyLeft: number | null; sortie: number | null; phase: string; phaseLeft: number; timeLeft: number; winner: number | null;
   teams: { toku: number; wanted: string | null; reflect: unknown; bossHpRatio: number; m: { mode: string; backLeft: number; holds: HoldView[]; cur: HoldView | null; lv: unknown } | { kind: string; holds: HoldView[]; cur: HoldView | null; chain: number } }[];
   wanted: { id: string; team: number; x: number; y: number }[];

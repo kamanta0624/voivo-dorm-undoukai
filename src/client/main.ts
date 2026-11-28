@@ -414,6 +414,11 @@ if (TOUCH) {
   for (const t of ['gesturestart', 'dblclick', 'contextmenu']) document.addEventListener(t, (e) => e.preventDefault());
   document.addEventListener('touchmove', (e) => { if (!(e.target as Element).closest?.('#fx .prp, #title')) e.preventDefault(); }, { passive: false }); // キャラ選択も画面内に収めるのでスクロールさせない。練習パネルの中と、タイトル画面（クレジット・更新情報のポップアップを含む）は縦にスクロールできる
 }
+// 結果画面の放置の警告（resultidle1）: 結果の画面（#result）を開いていても見えるよう、その上に出す
+const idleWarn = document.createElement('div');
+idleWarn.textContent = '10秒後ロビーに戻ります';
+idleWarn.style.cssText = 'position:fixed;left:50%;top:10%;transform:translateX(-50%);z-index:12;display:none;padding:.4em 1.2em;border-radius:6px;border:2px solid #ffe066;background:#000c;color:#ffe066;font:bold max(14px,2.4vh) sans-serif;pointer-events:none;white-space:nowrap';
+document.body.appendChild(idleWarn);
 const rotate = document.createElement('div');
 rotate.id = 'rotate';
 rotate.textContent = '横にして遊んでね';
@@ -1808,6 +1813,7 @@ export class GameScene extends Phaser.Scene {
     if (s.phase === 'ended' && !this.result && !this.resultAsked) { this.resultAsked = true; if (this.room) sendC2S(this.room, 'resultReq'); } // 保険: ended で結果が無ければ1回だけ求める
     this.resultPh = s.phase;
     setCss($('.rsbtn'), 'display', s.phase === 'ended' && this.result ? 'block' : 'none');
+    setCss(idleWarn, 'display', s.phase === 'ended' && mine && !this.backSent && s.back?.idle !== undefined && s.back.idle - sinceSnap <= C.RESULT_IDLE_SEC - C.RESULT_WARN_SEC ? 'block' : 'none'); // 押していない本人だけ（押したら消える。書くのは出す時と消す時だけ）
     if (s.back) { const t = this.backSent ? `待機中 ${s.back.n}/${s.back.total}` : `戻る（${s.back.n}/${s.back.total}）`; if (back.textContent !== t) back.textContent = t; back.disabled = this.backSent; }
     Hud.rosterHud(this, s, myTeam, sinceSnap);
     Hud.buffHud(this, s, mine, myTeam, sinceSnap);
