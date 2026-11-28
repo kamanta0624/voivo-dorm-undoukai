@@ -3,19 +3,21 @@ import { CONFIG as C } from '../shared/config';
 import { BOSS_CHAR } from '../shared/chars';
 import { powerText, assistText } from '../shared/slot_modern';
 import { ModernFx } from './slot_modern_fx';
-import { type GameScene, $, css16, TEAM_COLOR, TEAM_NAME, setCss, fx, TACHIE, setText, mapEl, BUFF, CHARS, charName } from './main';
+import { type GameScene, $, css16, TEAM_COLOR, TEAM_NAME, setCss, fx, TACHIE, setText, mapEl, BUFF, CHARS, charName, boxes } from './main';
 
 export function rosterHud(sc: GameScene, s: any, myTeam: number, sinceSnap: number) {
   const c = css16(TEAM_COLOR[myTeam]), hp: number[] = [], bar = (p: any) => (hp.push(p ? Math.min(1, p.hp / p.maxHp) : 1), '<span class="hp"><i></i></span>'); // HP バーの長さは骨組みと分けて transform で（HP が変わるたびに HTML を作り直さない）
+  const rs: string[] = []; // 復活までの秒（数字の要素の文字だけ書く。一覧ごと作り直さない。dom1）
   const tag = (t: string) => `<em class="pt">${t}</em>`, ut = (r: any) => (r.ult !== null && r.ult !== undefined && r.alive ? tag(C.POWER_TAGS[Math.min(r.ult, C.POWER_TAGS.length - 1)]) : ''); // 強さの札: パワーアップ中は 1〜MAX、アシストは★
   const allies = '<div class="rw">' + s.roster.filter((r: any) => r.team === myTeam).map((r: any) => {
     const p = s.players.find((q: any) => q.id === r.id), alive = p ? p.alive : r.alive;
-    return `<div class="mem" style="--c:${c}">${sc.icon(r.char, myTeam, !alive)}${alive ? bar(p) : `<b class="rs">${Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap))}</b>`}${ut(r)}</div>`;
+    return `<div class="mem" style="--c:${c}">${sc.icon(r.char, myTeam, !alive)}${alive ? bar(p) : (rs.push(String(Math.max(0, Math.ceil((p?.respawnIn ?? 0) - sinceSnap)))), '<b class="rs"></b>')}${ut(r)}</div>`;
   }).join('') + '</div>' + s.players.filter((p: any) => p.assist && p.alive && p.team === myTeam).map((p: any) => `<div class="mem as" style="--c:${c}">${sc.icon(p.char, myTeam)}${bar(p)}${tag(C.ASSIST_TAGS[Math.min(p.tier, C.ASSIST_TAGS.length - 1)])}</div>`).join(''); // アシスト（撃破されたら消える）
   const foes = '<div class="rw">' + s.roster.filter((r: any) => r.team !== myTeam).map((r: any) => `<div class="mem">${sc.icon(r.char, 1 - myTeam, !r.alive)}${ut(r)}</div>`).join('') + '</div>';
   const html = myTeam === 0 ? [allies, foes] : [foes, allies];
   html.forEach((h, k) => { if (h !== sc.rosterHtml[k]) { sc.rosterHtml[k] = h; $(`.r${k}`).innerHTML = h; } });
   $(`.r${myTeam}`).querySelectorAll<HTMLElement>('.hp i').forEach((e, i) => sc.setTf(e, `scaleX(${Math.max(0, hp[i] ?? 1)})`));
+  $(`.r${myTeam}`).querySelectorAll<HTMLElement>('.rs').forEach((e, i) => setText(e, rs[i] ?? ''));
 }
 
 // バフ／デバフ欄（自キャラだけ。常に左上の組のアイコン列の下）: 時間制限つきの状態を名前＋残り秒数で。良い効果は緑、悪い効果は赤。指名手配中は悪行ポイント
@@ -29,18 +31,20 @@ export function buffHud(sc: GameScene, s: any, mine: any, myTeam: number, sinceS
     if (mine.ult && mine.ult.left !== null && mine.ult.left - sinceSnap > 0) items.push([`パワーアップ${powerText(C.SLOT_MODERN, mine.ult.tier + 1)}`, `${Math.ceil(mine.ult.left - sinceSnap)}`, true]);
     if (s.teams?.[myTeam]?.wanted === s.me) items.push(['指名手配', `悪行${(mine.bad ?? 0).toFixed(1)}`, false]);
   }
-  const html = items.map(([n, v, good]) => `<span class="${good ? 'good' : 'bad'}">${n} ${v}</span>`).join('');
-  const el = $('.buffs'), r0 = $('.r0');
+  const html = items.map(([n, , good]) => `<span class="${good ? 'good' : 'bad'}"></span>`).join(''); // 骨組みは項目が変わった時だけ作り、文字（名前と秒）は項目ごとに変わった時だけ書く（欄ごと作り直さない。dom1）
+  const el = $('.buffs');
   if (html !== sc.buffHtml) { sc.buffHtml = html; el.innerHTML = html; }
-  // 位置: 左上の一覧（.r0）の下に自分の情報パネル（上に WANTED の分を空ける）、その下にバフ欄。一覧の中身・パネルの表示が変わった時と、リサイズ等の後だけ測る（毎フレーム測ると DOM を書いた後なので強制レイアウトになる）
-  const meP = $('.me'), meOn = !!mine && s.phase !== 'waiting', key = `${sc.rosterHtml[0]}|${meOn}`;
+  el.querySelectorAll<HTMLElement>('span').forEach((e, i) => setText(e, items[i] ? `${items[i][0]} ${items[i][1]}` : ''));
+  // 位置: 左上の一覧（.r0）の下に自分の情報パネル（上に WANTED の分を空ける）、その下にバフ欄。一覧の中身・パネルの表示が変わった時と、ResizeObserver が測り直した時だけ置き直す（位置は boxes。ここでは読まない。dom1）
+  const meP = $('.me'), meOn = !!mine && s.phase !== 'waiting', key = `${sc.rosterHtml[0]}|${meOn}|${boxes.ver}`;
   if (key !== sc.buffTopOf || sc.fxFit > 0) {
     sc.buffTopOf = key;
-    const z = sc.game.scale.zoom, top = r0.getBoundingClientRect().bottom - fx.getBoundingClientRect().top + 4; // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
     setCss(meP, 'display', meOn ? 'block' : 'none');
+    if (!boxes.r0 || !boxes.fx) return;
+    const z = sc.game.scale.zoom, top = boxes.r0.bottom - boxes.fx.top + 4; // 顔パネルは zoom（HUD_SCALE）で大きくしているので、表示上の下端から
     const meTop = top + 13 * z; // WANTED の表記の高さ
-    meP.style.top = `${meTop}px`;
-    el.style.top = `${meOn ? meTop + meP.offsetHeight + 4 : top}px`;
+    setCss(meP, 'top', `${meTop}px`);
+    setCss(el, 'top', `${meOn ? meTop + boxes.meH + 4 : top}px`);
   }
 }
 
@@ -89,7 +93,7 @@ export function modernHud(sc: GameScene, s: any, t: number, k: number, tm: any, 
     sc.mfxView[k] = v;
     const h = (x: number[]) => ({ color: x[0], saki: !!x[1], high: !!x[2] }) as any;
     f.holds(m.holds.map(h), m.cur && h(m.cur));
-    if (m.kind === 'classic') f.modeEl.textContent = m.chain ? `大当たり${m.chain > 1 ? ` ${m.chain}連` : ''}` : ''; // 連チャンの回数（強さの段と同じ数）
+    if (m.kind === 'classic') setText(f.modeEl, m.chain ? `大当たり${m.chain > 1 ? ` ${m.chain}連` : ''}` : ''); // 同じ文字なら書かない（dom1） // 連チャンの回数（強さの段と同じ数）
     else f.mode(m.mode, m.backLeft, `パワーアップ${powerText(C.SLOT_MODERN, m.lv.power)}・アシスト${assistText(C.SLOT_MODERN, m.lv.assist)}`);
   }
   if (t === sc.mfxMine && m.kind !== 'classic') { // フィーバータイム中は右上に「攻め時」。矢印は敵陣の側（陣営0＝左なら →）
@@ -114,8 +118,8 @@ export function banner(sc: GameScene, key: string, text = '', sub = '', color = 
   const el = $('.banner');
   if (key === sc.bannerKey) return;
   sc.bannerKey = key;
-  el.style.display = key ? 'block' : 'none';
-  el.style.setProperty('--c', color);
+  setCss(el, 'display', key ? 'block' : 'none');
+  setCss(el, '--c', color); // 色が変わる時だけ書く（dom1）
   el.innerHTML = key ? `<b>${text}</b>${sub ? `<small>${sub}</small>` : ''}` : '';
 }
 
@@ -142,7 +146,7 @@ export function cutin(sc: GameScene, me: string, foe: string, how: string) {
   const el = document.createElement('div');
   el.className = 'cut';
   el.style.setProperty('--d', `${C.CUTIN_MS}ms`);
-  el.innerHTML = `<img class="me" src="${TACHIE(me, 'ko')}"><img class="foe" src="${TACHIE(foe, 'select')}"><div class="how"><b>撃破</b><span>${CHARS[foe].name}</span><span>${how}</span></div>`;
+  el.innerHTML = `<img class="me" src="${TACHIE(me, 'ko')}"><img class="foe" src="${TACHIE(foe, 'select')}"><img class="foe gray" src="${TACHIE(foe, 'select')}"><div class="how"><b>撃破</b><span>${CHARS[foe].name}</span><span>${how}</span></div>`;
   fx.appendChild(el);
   setTimeout(() => el.remove(), C.CUTIN_MS);
 }

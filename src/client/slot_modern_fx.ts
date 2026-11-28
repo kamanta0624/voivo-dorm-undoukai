@@ -14,9 +14,11 @@ export const HOLD_COLORS = ['#e8e8e8', '#3d8bff', '#3ccf5a', '#ff3b3b', 'conic-g
 export const CSS = `
 .mfx-hud{display:flex;flex-direction:column;align-items:center;gap:3px;font:bold 7px sans-serif;color:#fff;text-shadow:0 0 2px #000}
 .mfx-sl{position:relative;display:flex;gap:1px;background:#1b1b28;border:2px solid var(--c);padding:1px;border-radius:3px}
-.mfx-sl.reach{animation:mfxreach .25s steps(2) infinite}
+.mfx-sl.reach::before,.mfx-sl.reach::after{content:'';position:absolute;inset:-2px;border:2px solid;border-radius:3px;pointer-events:none;animation:mfxblink .25s steps(1,end) infinite} /* リーチの枠の点滅: 2つの状態を重ねた層にして opacity だけ切り替える（枠の色・光を毎フレーム描き直さない。dom1。状態は元の steps(2) の2コマ） */
+.mfx-sl.reach::before{border-color:#ff3030;box-shadow:0 0 5px #ff3030}.mfx-sl.reach::after{border-color:rgb(255,132,24);box-shadow:0 0 2.5px rgba(255,48,48,.5);animation-delay:-.125s}
 .mfx-sl.win{border-color:#ffd700;box-shadow:0 0 6px #ffd700}
-.mfx-sl.flash{animation:mfxflash .5s ease-out}
+.mfx-fl{position:absolute;inset:-2px;border-radius:3px;background:#fff;box-shadow:0 0 16px 6px #fff;opacity:0;pointer-events:none}.mfx-fl::after{content:'';position:absolute;inset:0;border:2px solid var(--c);border-radius:3px} /* 先バレの光: 白い層を opacity で消していく（枠の線は層の上に描き直す。dom1） */
+.mfx-sl.fl0 .mfx-fl{animation:mfxflo0 .5s ease-out}.mfx-sl.fl1 .mfx-fl{animation:mfxflo1 .5s ease-out} /* 2つの同じ動きを交互に使い、光り直しで頭から動かす */
 .mfx-ic{position:relative;width:15px;height:15px;background:#000;border:1px solid #555;box-sizing:border-box;overflow:hidden;contain:layout size} /* リール1本の窓。中の帯（絵柄を縦に並べた物）を transform だけで動かす（reel1） */
 .mfx-strip{position:absolute;left:0;top:0;display:flex;flex-direction:column}
 .mfx-c.top{order:-1} /* 止めた絵: そのコマを帯の先頭へ（帯はずらさない＝元の1枚の絵と同じ所に描く） */
@@ -39,12 +41,12 @@ export const CSS = `
 .mfx-toast{position:absolute;left:50%;top:44%;transform:translateX(-50%);white-space:pre;text-align:center;font:900 12px sans-serif;color:#ffd700;-webkit-text-stroke:.5px #000;text-shadow:0 0 4px #000;animation:mfxfade 1.6s linear forwards;pointer-events:none}
 .mfx-toast.bad{color:#ff6060}
 .mfx-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;-webkit-mask-size:100% 100%;mask-size:100% 100%}
-.mfx-fx img{position:absolute;image-rendering:pixelated}
+.mfx-fx img{position:absolute;image-rendering:pixelated}.mfx-fx .mfx-w{position:absolute}.mfx-fx .mfx-w img{left:0;top:0;width:100%;height:100%}.mfx-fx .mfx-w img+img{animation:mfxwalk ${2000 / 6}ms steps(1,end) infinite}.mfx-fx .mfx-w.ph img+img{animation-delay:-${1000 / 6}ms}@keyframes mfxwalk{50%{opacity:0}}
 .mfx-bang{position:absolute;font:900 16px sans-serif;color:#fff;-webkit-text-stroke:.6px #000;animation:mfxpop .3s ease-out}
 .mfx-rainbow{position:absolute;inset:0;overflow:hidden}
 .mfx-rainbow::before{content:'';position:absolute;left:50%;top:50%;width:${Math.ceil(Math.hypot(W, H))}px;height:${Math.ceil(Math.hypot(W, H))}px;margin:-${Math.ceil(Math.hypot(W, H)) / 2}px;background:conic-gradient(#f336,#fd36,#3f66,#3cf6,#a3f6,#f336);animation:mfxspin 1.2s linear infinite} /* 回すのは transform だけ（角度の変数を毎フレーム変えると再計算・描き直しになる。perf6）。正方形は画面の対角線の大きさ */
-@keyframes mfxreach{0%{border-color:#ff3030;box-shadow:0 0 5px #ff3030}100%{border-color:#ffd700;box-shadow:none}}
-@keyframes mfxflash{0%{box-shadow:0 0 16px 6px #fff;background:#fff}100%{box-shadow:none}}
+@keyframes mfxblink{50%{opacity:0}}
+@keyframes mfxflo0{0%{opacity:1}100%{opacity:0}}@keyframes mfxflo1{0%{opacity:1}100%{opacity:0}}
 @keyframes mfxfade{0%,80%{opacity:1}100%{opacity:0}}
 @keyframes mfxin{0%{transform:translateX(-120%)}100%{transform:none}}
 @keyframes mfxpop{0%{transform:scale(2.5);opacity:0}100%{transform:none;opacity:1}}
@@ -60,16 +62,20 @@ function maskUrl(holes: string) {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 
+// 書く前に比べる（同じ値を書かない。dom1）
+const cls = (el: Element, c: string, on: boolean) => { if (el.classList.contains(c) !== on) el.classList.toggle(c, on); };
+const txt = (el: Element, t: string) => { if (el.textContent !== t) el.textContent = t; };
+
 export class ModernFx {
   sl: HTMLElement; reelEls: HTMLElement[]; holdsEl: HTMLElement; modeEl: HTMLElement; label: HTMLElement;
   normal: HTMLElement; special: HTMLElement; // 演出の層（マスク違い）
-  strips: HTMLElement[] = []; rolls = 0; // リールの帯。rolls: 回し直しの回数（動きの名前を交互にする）
+  strips: HTMLElement[] = []; rolls = 0; flashes = 0; // リールの帯。rolls: 回し直しの回数（動きの名前を交互にする）
   sound = true; sakiOn = true; // 先バレの音・表示（カスタム）
 
   constructor(public hud: HTMLElement, public layer: HTMLElement, public syms: string[], public chars: string[], color: string) {
     if (!document.getElementById('mfx-css')) { const st = document.createElement('style'); st.id = 'mfx-css'; st.textContent = CSS; document.head.append(st); }
     hud.classList.add('mfx-hud');
-    hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
+    hud.innerHTML = `<div class="mfx-sl" style="--c:${color}"><span class="mfx-fl"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-ic"></span><span class="mfx-label"></span></div><div class="mfx-holds"></div><div class="mfx-mode"></div>`;
     this.sl = hud.querySelector('.mfx-sl')!; this.reelEls = [...hud.querySelectorAll<HTMLElement>('.mfx-ic')]; this.reelStrips(); this.label = hud.querySelector('.mfx-label')!;
     this.holdsEl = hud.querySelector('.mfx-holds')!; this.modeEl = hud.querySelector('.mfx-mode')!;
     const mk = () => { const d = document.createElement('div'); d.className = 'mfx-fx'; layer.append(d); return d; };
@@ -92,32 +98,33 @@ export class ModernFx {
   // 止めて k 番を出す（k < 0 は罰の ×）。回転中は JS から書かない（CSS の動きだけ）
   private setReel(i: number, k: number) {
     const e = this.reelEls[i], st = this.strips[i];
-    e.classList.toggle('pen', k < 0); st.classList.remove('r0', 'r1');
+    cls(e, 'pen', k < 0); cls(st, 'r0', false); cls(st, 'r1', false);
     if (k < 0) return;
-    const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1;
-    st.querySelector('.mfx-c.top')?.classList.remove('top'); st.children[no - 1].classList.add('top'); // 止めた絵は帯を動かさず並べ替えで出す（ずらすと端数でドット絵の拾い方が変わる。止める時だけ書く）
+    const n = this.syms.length, no = ((((k - 1) % n) + n) % n) + 1, top = st.querySelector('.mfx-c.top'), want = st.children[no - 1];
+    if (top !== want) { top?.classList.remove('top'); want.classList.add('top'); } // 止めた絵は帯を動かさず並べ替えで出す（ずらすと端数でドット絵の拾い方が変わる。止める時だけ書く）
   }
   // from 番から回す（SLOT_REEL_MS ごとに次の絵柄へ。番号は巡回）
   private roll(i: number, from: number) {
     const e = this.reelEls[i], st = this.strips[i], n = this.syms.length, no = ((((from - 1) % n) + n) % n) + 1;
-    e.classList.remove('pen'); st.querySelector('.mfx-c.top')?.classList.remove('top'); st.style.setProperty('--dl', `${-(no - 1) * C.SLOT_REEL_MS}ms`);
-    st.classList.remove('r0', 'r1'); st.classList.add(`r${this.rolls % 2}`);
+    cls(e, 'pen', false); st.querySelector('.mfx-c.top')?.classList.remove('top');
+    const dl = `${-(no - 1) * C.SLOT_REEL_MS}ms`; if (st.style.getPropertyValue('--dl') !== dl) st.style.setProperty('--dl', dl);
+    const r = this.rolls % 2; cls(st, 'r0', r === 0); cls(st, 'r1', r === 1); // 動きの名前を交互にして頭から回し直す
   }
 
   // 回転開始: リーチは2つそろえて3つ目だけ回す。全回転は3つ同じ絵柄で回す。結果まで回すだけ（結果は stop）
   spin(now: number, reels: number[], act: string | null) {
     this.rolls++; // 全回転はそろう絵柄から3つ同じまま回る this.label.textContent = '';
-    this.sl.classList.remove('win', 'reach');
-    if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.roll(2, 7); this.sl.classList.add('reach'); this.label.textContent = 'リーチ！'; }
+    cls(this.sl, 'win', false); cls(this.sl, 'reach', false);
+    if (act && act !== 'allSpin') { this.setReel(0, reels[0]); this.setReel(1, reels[1]); this.roll(2, 7); cls(this.sl, 'reach', true); txt(this.label, 'リーチ！'); }
     else for (let i = 0; i < 3; i++) this.roll(i, act === 'allSpin' ? reels[0] : 1 + i * 3);
   }
   stop(reels: number[], outcome: string) {
     reels.forEach((k, i) => this.setReel(i, k));
-    this.sl.classList.remove('reach'); this.sl.classList.toggle('win', outcome === 'win');
-    this.label.textContent = outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : outcome === 'pen' ? '罰' : '';
+    cls(this.sl, 'reach', false); cls(this.sl, 'win', outcome === 'win');
+    txt(this.label, outcome === 'win' ? '当選！' : outcome === 'fall' ? '転落' : outcome === 'pen' ? '罰' : '');
   }
   // 結果を見せたあと、次の抽選まで回して見せる
-  idle(now: number) { this.rolls++; for (let i = 0; i < 3; i++) this.roll(i, 1 + i * 3); this.label.textContent = ''; this.sl.classList.remove('win'); }
+  idle(now: number) { this.rolls++; for (let i = 0; i < 3; i++) this.roll(i, 1 + i * 3); txt(this.label, ''); cls(this.sl, 'win', false); }
   // 回転を止めておく／動かす（試合中だけ回す。値が変わった時だけ書く）
   run(on: boolean) { if (this.sl.classList.contains('paused') === on) this.sl.classList.toggle('paused', !on); }
 
@@ -133,7 +140,7 @@ export class ModernFx {
   // 先バレ: 枠が一瞬光る＋音（カスタムで OFF なら何もしない）
   sakibare() {
     if (!this.sakiOn) return;
-    this.sl.classList.remove('flash'); void this.sl.offsetWidth; this.sl.classList.add('flash');
+    const n = ++this.flashes % 2; cls(this.sl, 'fl0', n === 0); cls(this.sl, 'fl1', n === 1); // 読み直し（offsetWidth）で動きを頭からにしない（強制レイアウトになる。dom1）
     if (this.sound) this.se('saki');
   }
   // 効果音（handoff_se1）: saki＝先バレ音、win＝試合の当選音。鳴っている途中なら頭から鳴らし直す
@@ -150,19 +157,21 @@ export class ModernFx {
   // リーチ演出（sec 秒）。char: リーチの絵柄のキャラ。win: 当否（見た目の差に使う）
   reach(act: string, char: string, sec: number, win: boolean) {
     const el = (html: string, layer = this.normal) => { const d = document.createElement('div'); d.innerHTML = html; const n = d.firstElementChild as HTMLElement; layer.append(n); setTimeout(() => n.remove(), sec * 1000); return n; };
+    // 歩くドット: walk2 の上に walk1 を重ね、上の絵の opacity を CSS の動きで 1/6 秒ごとに切り替える（絵の src を毎回書き換えない。ph: 半コマずらす。dom1）
+    const walker = (k: string, style: string, ph: boolean, layer = this.normal) => el(`<span class="mfx-w${ph ? ' ph' : ''}" style="${style}"><img src="${DOT(k, 'walk2')}"><img src="${DOT(k, 'walk1')}"></span>`, layer);
     if (act === 'chibi') { // ちびキャラ: 左下の隅をトコトコ歩いて、止まって何かを見つける
-      const im = el(`<img src="${DOT(char, 'walk1')}" style="left:-34px;top:${H - 44}px">`) as HTMLImageElement;
+      const im = walker(char, `left:-34px;top:${H - 44}px;width:32px;height:42px`, false);
       const walk = sec * 0.6, t0 = performance.now();
-      let f0 = -1; const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.transform = `translateX(${(60 * p) / walk}px)`; const f = Math.floor(p * 6) % 2; if (f !== f0) { f0 = f; im.src = DOT(char, f ? 'walk2' : 'walk1'); } requestAnimationFrame(tick); } else { im.src = DOT(char, win ? 'banzai' : 'idle'); el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!im.isConnected) return; if (p < walk) { im.style.transform = `translateX(${(60 * p) / walk}px)`; requestAnimationFrame(tick); } else { im.innerHTML = `<img src="${DOT(char, win ? 'banzai' : 'idle')}">`; el(`<span class="mfx-bang" style="left:30px;top:${H - 64}px;color:${win ? '#ffd700' : '#bbb'}">${win ? '!!' : '?'}</span>`); } };
       requestAnimationFrame(tick);
     } else if (act === 'fish') { // 魚群: 陣営のキャラの群れが下の端を横切る
-      const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[i % this.chars.length], 'walk1')}" style="top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px">`) as HTMLImageElement);
-      const fr = ims.map(() => -1), tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, i) => { im.style.transform = `translateX(${-F.speed * p}px)`; const f = Math.floor(p * 6 + i) % 2; if (f !== fr[i]) { fr[i] = f; im.src = DOT(this.chars[i % this.chars.length], f ? 'walk2' : 'walk1'); } }); requestAnimationFrame(tick); }; // 位置は transform（初めの位置は left）、絵はコマが変わった時だけ（perf6）
+      const F = M.fish, t0 = performance.now(), ims = Array.from({ length: F.n }, (_, i) => walker(this.chars[i % this.chars.length], `top:${H - 42 - (i % 2) * 10}px;left:${W + i * F.gap}px;width:32px;height:42px`, i % 2 === 1));
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im) => { im.style.transform = `translateX(${-F.speed * p}px)`; }); requestAnimationFrame(tick); }; // 位置は transform（初めの位置は left）、絵の切り替えは CSS（dom1）
       requestAnimationFrame(tick);
     } else if (act === 'fishSp') { // 特別な魚群（special）: 大きな群れが画面全体の視界外（上下2列）を横切る
       const F = M.fishSp, t0 = performance.now(), sz = [32 * F.scale, 42 * F.scale];
-      const ims = F.rows.flatMap((y, r) => Array.from({ length: F.n }, (_, i) => el(`<img src="${DOT(this.chars[(i + r) % this.chars.length], 'walk1')}" style="left:0;width:${sz[0]}px;height:${sz[1]}px;top:${y - sz[1] / 2 + (i % 2) * 8}px">`, this.special) as HTMLImageElement));
-      const fr = ims.map(() => -1), tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, j) => { const i = j % F.n, r = Math.floor(j / F.n), x = r ? -sz[0] - i * F.gap + F.speed * p : W + i * F.gap - F.speed * p; im.style.transform = `translateX(${x}px)${r ? ' scaleX(-1)' : ''}`; const f = Math.floor(p * 6 + i) % 2; if (f !== fr[j]) { fr[j] = f; im.src = DOT(this.chars[(i + r) % this.chars.length], f ? 'walk2' : 'walk1'); } }); requestAnimationFrame(tick); }; // 位置は transform、絵はコマが変わった時だけ（perf6）
+      const ims = F.rows.flatMap((y, r) => Array.from({ length: F.n }, (_, i) => walker(this.chars[(i + r) % this.chars.length], `left:0;width:${sz[0]}px;height:${sz[1]}px;top:${y - sz[1] / 2 + (i % 2) * 8}px`, i % 2 === 1, this.special)));
+      const tick = () => { const p = (performance.now() - t0) / 1000; if (!ims[0].isConnected) return; ims.forEach((im, j) => { const i = j % F.n, r = Math.floor(j / F.n), x = r ? -sz[0] - i * F.gap + F.speed * p : W + i * F.gap - F.speed * p; im.style.transform = `translateX(${x}px)${r ? ' scaleX(-1)' : ''}`; }); requestAnimationFrame(tick); }; // 位置は transform、絵の切り替えは CSS（dom1）
       requestAnimationFrame(tick);
     }
     // plain（リーチのみ）は HUD の「リーチ！」だけ

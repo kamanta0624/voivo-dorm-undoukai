@@ -145,9 +145,10 @@ css.textContent = ufCss(`
 #fx .cut img{position:absolute;bottom:0;height:100%}
 #fx .cut .me{left:${50 - C.KO_CUTIN_GAP / 2}%;animation:hop var(--d) linear forwards}
 #fx .cut .foe{left:${50 + C.KO_CUTIN_GAP / 2}%;animation:push var(--d) ease-out forwards}
+#fx .cut .foe.gray{filter:grayscale(1) brightness(.8);animation:push var(--d) ease-out forwards,grayin var(--d) ease-out forwards} /* 倒された側が灰色になる: 灰色の絵を重ねて opacity で（filter を動かさない。dom1） */
 @keyframes cutfade{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
 @keyframes hop{0%{transform:translateX(-50%) translateX(-40%)}10%{transform:translateX(-50%)}18%{transform:translateX(-50%) translateX(10%)}26%{transform:translateX(-50%)}34%{transform:translateX(-50%) translateX(10%)}42%{transform:translateX(-50%)}50%{transform:translateX(-50%) translateX(10%)}58%,100%{transform:translateX(-50%)}}
-@keyframes push{0%,45%{transform:translateX(-50%);filter:none}65%,100%{transform:translateX(-50%) translateX(30%);filter:grayscale(1) brightness(.8)}}
+@keyframes push{0%,45%{transform:translateX(-50%)}65%,100%{transform:translateX(-50%) translateX(30%)}}@keyframes grayin{0%,45%{opacity:0}65%,100%{opacity:1}}
 #fx .down{position:absolute;left:${50 - C.KO_CUTIN_GAP / 2}%;transform:translateX(-50%);bottom:22%;height:62%;display:none;overflow:hidden}
 #fx .down img{height:100%;transform-origin:50% 100%}
 #fx .down img.fall{animation:fall var(--d) ease-in forwards}
@@ -223,17 +224,16 @@ html.touch #ver{left:calc(env(safe-area-inset-left) + 2px)!important;bottom:calc
 #lobby button.big{position:absolute;z-index:2;border:0;cursor:pointer;font:900 calc(var(--z) * 13px) sans-serif;color:#fff;border-radius:calc(var(--z) * 6px);padding:calc(var(--z) * 3px) calc(var(--z) * 14px)}
 #lobby #okbtn{display:none;left:50%;bottom:5%;transform:translateX(-50%);font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(#ff9a3c,#e8541e);box-shadow:0 calc(var(--z) * 2px) 0 #8a2a00;-webkit-text-stroke:calc(var(--z) * .4px) #6a1a00}
 #lobby:not(.browse) #okbtn{display:block}
-#lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:none;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20;animation:startpulse 1.2s ease-in-out infinite}
+#lobby.sortie #okbtn{font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 30px);background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);box-shadow:none;-webkit-text-stroke:calc(var(--z) * .5px) #5a0a20}
 /* 出撃ボタンの光: 影＋光（小・橙）と影＋光（大・黄）の2枚をボタンの後ろに置き、透明度で入れ替える（box-shadow を毎フレーム描き直さない: render_policy 5）。両端は以前の box-shadow の点滅と同じ */
 #lobby.sortie #okbtn::before,#lobby.sortie #okbtn::after{content:'';position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;animation:1.2s ease-in-out infinite}
 #lobby.sortie #okbtn::before{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 6px) #ff7a3c;animation-name:startglowA}
-#lobby.sortie #okbtn::after{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a;animation-name:startglowB}
+#lobby.sortie #okbtn::after{box-shadow:0 calc(var(--z) * 2.5px) 0 #8a1a3a,0 0 calc(var(--z) * 16px) #ffd04a;animation-name:startglowB;background:linear-gradient(135deg,#ffe14a,#ff7a3c 55%,#ff3c8a);filter:brightness(1.18)} /* 明るくなる脈動: 明るい背景を大きい光の層に持たせ、透明度の入れ替えに含める（ボタンの filter を毎フレーム描き直さない。dom1。文字は明るくしない） */
 #lobby.go #okbtn{background:#555;box-shadow:none;cursor:default;-webkit-text-stroke:0}
 #lobby #backsel{display:none;left:2%;bottom:4%;font-size:calc(var(--z) * 18px);padding:calc(var(--z) * 4px) calc(var(--z) * 12px);background:#000a;border:calc(var(--z) * 1px) solid #fff8}
 #lobby:not(.browse) #backsel{display:block}
 #lobby .grace{display:none;position:absolute;left:50%;top:20%;transform:translateX(-50%);z-index:3;background:#000c;border:calc(var(--z) * 1px) solid #ffe066;border-radius:calc(var(--z) * 4px);padding:calc(var(--z) * 2px) calc(var(--z) * 8px);font:900 calc(var(--z) * 10px) sans-serif;color:#ffe066;white-space:nowrap}
 
-@keyframes startpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
 @keyframes startglowA{0%,100%{opacity:1}50%{opacity:0}}
 @keyframes startglowB{0%,100%{opacity:0}50%{opacity:1}}
 #fx .skill .seal{display:none;position:absolute;left:-10%;right:-10%;top:38%;background:#b00d;color:#fff;font:900 calc(var(--z) * 8px)/1.3 sans-serif;transform:rotate(-14deg);z-index:2}
@@ -259,7 +259,7 @@ html.touch #fx .skill span:last-child{display:none}
 #fx .me.wanted .wt{display:block}
 #fx .me .hp{font:900 calc(var(--z) * 20px)/1 sans-serif;text-shadow:0 1px 2px #000}
 #fx .me .bd{position:relative;margin-top:calc(var(--z) * 3px);height:calc(var(--z) * 6px);background:#2a1a3a;outline:1px solid #b070ff}
-#fx .me .bd i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#7a3cff,#c060ff)}
+#fx .me .bd i{position:absolute;left:0;top:0;bottom:0;right:0;background:linear-gradient(90deg,#7a3cff,#c060ff);transform:scaleX(0);transform-origin:0 50%} /* 長さは transform（scaleX）で変える（dom1） */
 #fx .me .bd span{position:absolute;left:calc(var(--z) * 2px);top:50%;transform:translateY(-50%);font:bold calc(var(--z) * 5px) sans-serif;text-shadow:0 0 2px #000}
 #fx .me .nm{margin-top:calc(var(--z) * 3px);font:bold calc(var(--z) * 7px) sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #fx .mm{position:absolute;right:calc(var(--z) * 4px);top:calc(var(--z) * ${MM_TOP}px);width:calc(var(--z) * ${MAP.width * MINI}px);height:calc(var(--z) * ${MAP.height * MINI}px);pointer-events:auto;touch-action:none}
@@ -390,9 +390,15 @@ fx.appendChild(hudEl);
 // HUD の要素。参照は一度だけ取って使い回す（毎フレーム querySelector しない）。中身ごと作り直されて DOM から外れていたら取り直す
 const $cache = new Map<string, HTMLElement>();
 export const $ = (q: string) => { let e = $cache.get(q); if (!e?.isConnected) { e = hudEl.querySelector<HTMLElement>(q)!; $cache.set(q, e); } return e; };
+// HUD の位置の読み取りは ResizeObserver の中だけ（その時点ではレイアウトが済んでいる。毎フレーム読むと DOM を書いた後なので強制レイアウトになる。dom1）
+// キルログ域（演出の範囲）・左上の一覧（.r0）・自分の情報パネルの高さ。位置は #fx からの差で使う（#fx ごと動いても差は変わらない）。ver: 測り直した回数
+export const boxes: { fx?: DOMRect; kills?: DOMRect; r0?: DOMRect; canvas?: DOMRect; meH: number; ver: number } = { meH: 0, ver: 0 }; // canvas: 画面を合わせ直した時（fxFit）に測ったキャンバスの位置
+const boxRO = new ResizeObserver(() => { Object.assign(boxes, { fx: fx.getBoundingClientRect(), kills: $('.kills').getBoundingClientRect(), r0: $('.r0').getBoundingClientRect(), meH: $('.me').offsetHeight, ver: boxes.ver + 1 }); });
+for (const q of ['.kills', '.r0', '.me']) boxRO.observe($(q));
+boxRO.observe(fx);
 // 毎フレームの style の書き込みは、最後に書いた値と違う時だけ書く（render_policy 5）。ほかの場所から同じ style を書く要素には使わない
 const styled = new WeakMap<HTMLElement, Record<string, string>>();
-export const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; el.style.setProperty(k, v); } };
+export const setCss = (el: HTMLElement, k: string, v: string) => { let m = styled.get(el); if (!m) styled.set(el, (m = {})); if (m[k] !== v) { m[k] = v; if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } }; // 初めての書き込みも、今の値と同じなら書かない（dom1）
 // 練習パネル（handoff_practice1。練習の部屋の試合中だけ）: タイマーの位置のボタンで開閉
 // 左端の縦長のタブ「練習」と、左から出る引き出し（fb1124）。引き出しの中は縦1列。タブは引き出しの右端に付いたまま
 hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
@@ -403,6 +409,7 @@ hudEl.insertAdjacentHTML('beforeend', `<div class="prw"><div class="prp">
 <b>アシスト</b><select class="pas">${Object.entries(C.ASSIST.units).map(([k, u]) => `<option value="${k}">${u.name}</option>`).join('')}</select><select class="pat">${C.ASSIST_TAGS.map((t, i) => `<option value="${i}">${t}</option>`).join('')}</select><div class="r"><button data-as="mine">自陣に</button><button data-as="foe">敵陣に</button></div>
 <div class="r end"><button class="pboss">大将を全快</button><button class="pback">選択画面へ</button></div></div><button class="prbtn">練習</button></div>`);
 export const setText = (el: HTMLElement, t: string) => { if (el.textContent !== t) el.textContent = t; }; // 同じ文字なら DOM に書かない
+export const setCls = (el: Element, c: string, on: boolean) => { if (el.classList.contains(c) !== on) el.classList.toggle(c, on); }; // クラスも、変わる時だけ書く（毎フレームの toggle は同じ値でも書き込みになる。dom1）
 // 実況（音声＋字幕）。音声の読み込みは待たない（失敗しても実況なしで続行）
 export const commentary = new Commentary(fx);
 commentary.load();
@@ -906,7 +913,7 @@ export class GameScene extends Phaser.Scene {
   // 止めの立ち絵・名前は止めのキャラの陣営の側（陣営0=左、1=右）。アシストは立ち絵なしで名前だけ
   finaleView(s: any, sinceSnap: number, camera: Phaser.Cameras.Scene2D.Camera) {
     const f = s.phase === 'finale' ? s.finale : null, F = C.FINALE;
-    fx.classList.toggle('finale', !!f);
+    setCls(fx, 'finale', !!f);
     if (!f) { if (this.finKey) { this.finKey = ''; finEl.innerHTML = ''; } return; }
     camera.stopFollow();
     const shown = f.stage === 'killer' && f.t + sinceSnap < F.cam ? 'pan' : '', key = `${f.stage}${shown}`;
@@ -1043,7 +1050,7 @@ export class GameScene extends Phaser.Scene {
     if (!c || c.ver !== wallVer || c.wx !== wx || c.wy !== wy || c.raw.length !== raw.length || c.raw.some((p, i) => p !== raw[i]))
       this.mfxVis = { raw: [...raw], ver: wallVer, wx, wy, svg: raw.map((p) => `<path d="M${p.map((q) => `${Math.round(q.x - wx)} ${Math.round(q.y - wy)}`).join('L')}Z" fill="black"/>`).join('') };
     const vis = this.mfxVis!.svg;
-    const a = C.SLOT_MODERN.area.killLog, kb = $('.kills').getBoundingClientRect(), fb = fx.getBoundingClientRect(), z = this.game.scale.zoom;
+    const a = C.SLOT_MODERN.area.killLog, z = this.game.scale.zoom, kb = boxes.kills ?? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }, fb = boxes.fx ?? kb; // 測った値（ResizeObserver）を使う
     const kx = kb.width ? Math.min(a.x, (kb.left - fb.left) / z) : a.x, ky = kb.height ? Math.min(a.y, (kb.top - fb.top) / z) : a.y;
     const kill = { x: kx, y: ky, w: Math.max(a.x + a.w, kb.width ? (kb.right - fb.left) / z : 0) - kx, h: Math.max(a.y + a.h, kb.height ? (kb.bottom - fb.top) / z : 0) - ky }; // 設定の外枠と今のキルログの和
     const key = JSON.stringify(kill);
@@ -1087,8 +1094,8 @@ export class GameScene extends Phaser.Scene {
     if (t === this.pwTier) return;
     this.pwTier = t;
     const on = t >= 0 && !!this.sideChar, still = side2.querySelector<HTMLElement>('.still')!, src = this.sideChar ? PW_STILL[this.sideChar] : undefined;
-    side2.classList.toggle('on', on);
-    if (on) { still.classList.toggle('img', !!src); still.style.backgroundImage = src ? `url(${src})` : ''; } // 素材は出す時に1回だけ読む
+    setCls(side2, 'on', on);
+    if (on) { setCls(still, 'img', !!src); setCss(still, 'background-image', src ? `url(${src})` : ''); } // 素材は出す時に1回だけ読む
   }
   sideFit(b?: DOMRect) {
     const s = this.snap, mine = s?.me && s.phase !== 'waiting' ? s.players.find((p: any) => p.id === s.me) : null, k = mine && PICKABLE.includes(mine.char) ? mine.char : null;
@@ -1104,7 +1111,7 @@ export class GameScene extends Phaser.Scene {
       b = undefined;
     }
     if (!k) return;
-    b ??= this.game.canvas.getBoundingClientRect();
+    b ??= boxes.canvas ?? this.game.canvas.getBoundingClientRect(); // 立ち絵の読み込みの後などは、合わせ直した時に測った位置（読み直すと DOM を書いた後なので強制レイアウトになる。dom1）
     const st = side.style, im = side.querySelector('img')!.style;
     st.top = `${b.top}px`; st.height = `${b.height}px`;
     const w = sideLeft ? Math.max(0, b.left) : Math.max(0, innerWidth - b.right);
@@ -1395,7 +1402,7 @@ export class GameScene extends Phaser.Scene {
       r.left = `${b.left}px`; r.top = `${b.top}px`; r.width = `${b.width}px`; r.height = `${b.height}px`;
       r.setProperty('--z', String(this.game.scale.zoom));
       { const F = C.HUD_SCALE * 0.85 * this.game.scale.zoom * (devicePixelRatio || 1); r.setProperty('--rp', `${Math.ceil(13 * F) / F}px`); } // リールの帯のコマの間隔: 拡大（.tk の HUD_SCALE × .mh の 0.85×--z）後に実画素の整数になる値（13px の端数でドット絵の拾い方が変わらないように。reel1）
-      this.sideFit(b);
+      boxes.canvas = b; this.sideFit(b);
       this.lobbyTachieFit(); // 選択画面の立ち絵も枠の大きさに合わせ直す
     }
     const s = this.snap;
@@ -1825,7 +1832,7 @@ export class GameScene extends Phaser.Scene {
     // 技のアイコンとクールタイム
     const sk = mine && DEFS[mine.char]?.skill, skEl = $('.skill');
     setCss(skEl, 'display', sk ? 'flex' : 'none');
-    skEl.classList.toggle('sealed', !!sk && ['waiting', 'intro', 'countdown'].includes(s.phase)); // 封印: 戦闘開始前
+    setCls(skEl, 'sealed', !!sk && ['waiting', 'intro', 'countdown'].includes(s.phase)); // 封印: 戦闘開始前
     if (sk) {
       const cd = Math.max(0, mine.skillCd - sinceSnap);
       const hud = Object.keys(STATUS_VIEW).map((k) => mine.st?.[k] && STATUS_VIEW[k].hud).find((h) => h); // 技を使えない状態の表示
@@ -1835,11 +1842,11 @@ export class GameScene extends Phaser.Scene {
       setCss(skEl, 'border-color', cd > 0 || hud ? '#888' : '#ffe066');
       // そらのチャージ: 技ボタンのゲージと％（本人だけ。撤退中は0%）。スナップショットの値のまま（間を足すと届いたときに数字が戻ることがある）
       const ch = mine.st?.solarCharge;
-      skEl.classList.toggle('charge', mine.char === 'sora');
+      setCls(skEl, 'charge', mine.char === 'sora');
       if (mine.char === 'sora') {
         const pct = mine.alive && ch !== undefined ? Math.round(solarPct(Number(ch))) : 0;
         setText($('.skill small'), `${pct}%`);
-        const g = $('.skill s'); setCss(g, '--g', `${Math.min(100, pct)}%`); g.classList.toggle('over', pct > 100);
+        const g = $('.skill s'); setCss(g, '--g', `${Math.min(100, pct)}%`); setCls(g, 'over', pct > 100);
       }
     }
     { const t = `照準<br>${AIM_SHORT[mine?.aim ?? C.AIM_MODES[this.ctl.aimMode]]}`; if ($('.aimb').innerHTML !== t) $('.aimb').innerHTML = t; }
@@ -1880,7 +1887,7 @@ export class GameScene extends Phaser.Scene {
       const src = TACHIE(mine.char, koed ? 'koed' : 'select');
       if (!img.src.endsWith(src)) img.src = src;
       setCss(img, 'filter', koed ? '' : 'grayscale(1)');
-      img.classList.toggle('fall', !koed); // やられ顔がないキャラは傾けながらずり落とす
+      setCls(img, 'fall', !koed); // やられ顔がないキャラは傾けながらずり落とす
       setCss(down, '--d', `${C.CUTIN_MS}ms`);
       setText(down.querySelector('div')!, `反省中 あと${Math.max(0, mine.respawnIn - (performance.now() - this.snapAt) / 1000).toFixed(1)}秒`); // 受信後の経過分を毎フレーム引く
       setCss(down, 'display', 'block');
@@ -1898,9 +1905,9 @@ export class GameScene extends Phaser.Scene {
     setCss(meP, 'display', mine && s.phase !== 'waiting' ? 'block' : 'none');
     if (mine) {
       setText($('.me .hp b'), String(Math.max(0, Math.ceil(this.interp.hpAt(mine.id, now) ?? mine.hp)))); // 描く時刻の HP（頭上の HP バーと同じ）
-      setCss($('.me .bd i'), 'width', `${Math.min(100, (mine.bad / C.HUD_BAD_MAX) * 100)}%`); setText($('.me .bd span'), `悪行 ${mine.bad.toFixed(1)}`);
+      this.setTf($('.me .bd i'), `scaleX(${Math.min(1, mine.bad / C.HUD_BAD_MAX)})`); setText($('.me .bd span'), `悪行 ${mine.bad.toFixed(1)}`);
       setText($('.me .nm'), meR?.name ?? '');
-      meP.classList.toggle('wanted', s.teams[myTeam]?.wanted === mine.id);
+      setCls(meP, 'wanted', s.teams[myTeam]?.wanted === mine.id);
     }
     // 計測用の表示（?perf=1 のときだけ）
     setCss($('#info'), 'display', this.perf ? 'block' : 'none');
