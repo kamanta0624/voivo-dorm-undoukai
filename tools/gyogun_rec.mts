@@ -1,7 +1,7 @@
-// 魚群の試作の録画・静止画・エリアの確認画像（verify/evidence/gyogun1/v3/）。開発サーバー（vite）を別ポートで立ててから: CLIENT_PORT=5226 npx tsx tools/gyogun_rec.mts [場面...]
+// 魚群の試作の録画・静止画・エリアの確認画像（verify/evidence/gyogun1/v4/）。開発サーバー（vite）を別ポートで立ててから: CLIENT_PORT=5226 npx tsx tools/gyogun_rec.mts [場面...]
 import { mkdirSync, renameSync } from 'node:fs';
 import { chromium } from 'playwright-core';
-const port = process.env.CLIENT_PORT ?? '5226', OUT = 'verify/evidence/gyogun1/v3';
+const port = process.env.CLIENT_PORT ?? '5226', OUT = 'verify/evidence/gyogun1/v4';
 mkdirSync(OUT, { recursive: true });
 const VP: Record<string, { width: number; height: number }> = { mobile: { width: 852, height: 393 }, pc: { width: 1280, height: 720 } };
 const scenes = process.argv.slice(2).length ? process.argv.slice(2) : ['mobile_ally', 'mobile_solo', 'pc_ally', 'pc_solo'];
